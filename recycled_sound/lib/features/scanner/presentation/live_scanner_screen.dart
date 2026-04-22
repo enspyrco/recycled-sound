@@ -824,41 +824,47 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     _catalogLookedUp = true;
 
     final catalog = DeviceCatalog.instance;
-    if (!catalog.isLoaded) {
-      _log('catalog not loaded — skipping cascade');
-      return;
+    DeviceEntry? device;
+    if (catalog.isLoaded) {
+      device = catalog.findByName(_detectedBrand!, _detectedModel ?? '');
+      if (device != null) {
+        _log('catalog match: ${device.name} '
+            '(type=${device.type}, battery=${device.batterySize})');
+      } else {
+        _log('catalog: no match for $_detectedBrand / $_detectedModel '
+            '— will still show data stream animation');
+      }
     }
 
-    final device = catalog.findByName(_detectedBrand!, _detectedModel ?? '');
-    if (device == null) {
-      _log('catalog: no match for $_detectedBrand / $_detectedModel');
-      return;
+    // Extract short style code from catalog type, e.g.
+    // "BTE (Behind-the-Ear)" → "BTE"
+    String? shortType;
+    if (device != null && device.type != 'Unknown') {
+      shortType = device.type.split(' ').first.toUpperCase();
     }
-
-    _log('catalog match: ${device.name} '
-        '(type=${device.type}, battery=${device.batterySize})');
 
     // Cascade fields with staggered timing for visual effect.
     // Each field pops in ~200ms after the last with a haptic tick.
+    // Works with or without a catalog match — infers what it can.
     final fields = <(String, void Function())>[
-      if (_detectedStyle == null && device.type != 'Unknown')
-        ('STYLE', () => _detectedStyle = device.type),
-      if (_detectedPower == null)
+      if (_detectedStyle == null && shortType != null)
+        ('STYLE', () => _detectedStyle = shortType),
+      if (_detectedPower == null && device != null)
         ('POWER', () {
-          _detectedPower = device.batterySize.toLowerCase() == 'rechargeable'
+          _detectedPower = device!.batterySize.toLowerCase() == 'rechargeable'
               ? 'Rechargeable'
               : 'Battery';
         }),
-      if (_detectedBatterySize == null && device.batterySize != 'Unknown')
-        ('BATTERY', () => _detectedBatterySize = device.batterySize),
-      if (_detectedTubing == null)
+      if (_detectedBatterySize == null &&
+          device != null &&
+          device.batterySize != 'Unknown')
+        ('BATTERY', () => _detectedBatterySize = device!.batterySize),
+      if (_detectedTubing == null && shortType != null)
         ('TUBING', () {
-          // Infer tubing from style: BTE uses tubes, RIC/ITE/CIC/IIC don't
-          final t = device.type.toUpperCase();
-          if (t == 'BTE') {
+          if (shortType == 'BTE') {
             _detectedTubing = 'Standard';
-          } else if (t == 'RIC' || t == 'ITE' || t == 'CIC' ||
-              t == 'ITC' || t == 'IIC') {
+          } else if ({'RIC', 'ITE', 'CIC', 'ITC', 'IIC'}
+              .contains(shortType)) {
             _detectedTubing = 'None';
           }
         }),
@@ -874,6 +880,20 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       setState(() {});
       HapticFeedback.selectionClick();
       _log('cascade: $label filled');
+    }
+
+    // If we filled fields, auto-transition to 3D capture after a beat.
+    // The user is already holding the device — seamless handoff.
+    if (fields.isNotEmpty) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (_disposed || !mounted) return;
+      _stopCamera();
+      final name = [_detectedBrand, _detectedModel]
+          .where((s) => s != null && s.isNotEmpty)
+          .join(' ');
+      if (mounted) {
+        context.push('/scan/3d', extra: name.isNotEmpty ? name : null);
+      }
     }
   }
 

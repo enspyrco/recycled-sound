@@ -88,8 +88,64 @@ class DeviceCatalog {
     final key = '$manufacturer|$modelOrName'.toLowerCase();
     final id = _nameIndex[key];
     if (id != null) return _devices[id];
-    return null;
+
+    // Fallback: fuzzy match against the full device name.
+    // OCR reads marketing names like "Agil Pro" but the catalog stores
+    // form factor codes like "312". The full name field bridges them:
+    // "Phonak Audéo Lumity RT" contains "Audéo" and "Lumity".
+    return findByNameFuzzy(manufacturer, modelOrName);
   }
+
+  /// Fuzzy name search — finds the best matching device by checking if
+  /// the OCR text appears in the full device name field.
+  ///
+  /// Returns the first match where all significant words from the OCR text
+  /// appear in the device name. Handles accent-insensitive matching.
+  DeviceEntry? findByNameFuzzy(String manufacturer, String ocrText) {
+    if (ocrText.isEmpty) return null;
+
+    final brandLower = manufacturer.toLowerCase();
+    final searchWords = _normalizeAccents(ocrText.toLowerCase())
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 3) // skip short noise
+        .toList();
+    if (searchWords.isEmpty) return null;
+
+    DeviceEntry? bestMatch;
+    var bestScore = 0;
+
+    for (final entry in _devices.values) {
+      if (entry.manufacturer.toLowerCase() != brandLower) continue;
+
+      final nameLower = _normalizeAccents(entry.name.toLowerCase());
+
+      // Count how many OCR words appear in the device name
+      var score = 0;
+      for (final word in searchWords) {
+        if (nameLower.contains(word)) score++;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = entry;
+      }
+    }
+
+    // Require at least one significant word to match
+    return bestScore > 0 ? bestMatch : null;
+  }
+
+  /// Strip common accented characters for matching.
+  static String _normalizeAccents(String s) => s
+      .replaceAll('é', 'e')
+      .replaceAll('è', 'e')
+      .replaceAll('ê', 'e')
+      .replaceAll('á', 'a')
+      .replaceAll('à', 'a')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ü', 'u');
 
   /// Search for devices whose manufacturer matches [brand] (case-insensitive).
   ///

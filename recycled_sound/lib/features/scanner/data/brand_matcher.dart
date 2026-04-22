@@ -154,7 +154,7 @@ class BrandMatcher {
   /// Try to extract a model identifier from [text] given a known [brand].
   static String? matchModel(String text, String brand) {
     final normalized = text.trim();
-    if (normalized.length < 2 || normalized.length > 30) return null;
+    if (normalized.length < 3 || normalized.length > 30) return null;
 
     // Don't match the brand itself as a model
     if (normalized.toLowerCase() == brand.toLowerCase()) return null;
@@ -164,49 +164,97 @@ class BrandMatcher {
 
     final lower = normalized.toLowerCase();
     for (final pattern in patterns) {
-      if (lower.contains(pattern)) return normalized;
-      if (_levenshtein(lower, pattern) <= 1) return normalized;
+      if (pattern.length >= 3 && lower.contains(pattern)) return normalized;
+      // Fuzzy only for longer patterns to avoid false positives
+      if (pattern.length >= 4 && _levenshtein(lower, pattern) <= 1) {
+        return normalized;
+      }
     }
 
     return null;
   }
 
   /// Common model name fragments by brand (lowercase).
+  ///
+  /// Verified against manufacturer product lines 2026-04-22.
+  /// Each entry is a real product name that might appear printed on
+  /// a hearing aid or its packaging.
   static const _modelPatterns = <String, List<String>>{
     'oticon': [
-      'own', 'real', 'more', 'opn', 'xceed', 'play', 'siya', 'ruby',
-      'nera', 'alta', 'ria', 'intent', 'zircon',
+      // Current
+      'real', 'more', 'intent', 'zircon', 'zeal', 'xceed', 'play',
+      // Recent
+      'opn s', 'siya', 'ruby',
+      // Legacy (still in circulation)
+      'nera', 'alta', 'agil', 'acto', 'dynamo', 'sensei', 'safari',
+      'chili', 'sumo',
     ],
     'phonak': [
-      'audeo', 'audéo', 'naida', 'naída', 'bolero', 'virto', 'sky',
-      'paradise', 'lumity', 'infinio', 'slim',
+      // Current
+      'audeo', 'audéo', 'naida', 'naída', 'virto', 'infinio', 'sphere',
+      'lumity', 'slim', 'terra',
+      // Recent
+      'paradise', 'marvel', 'belong', 'venture', 'bolero', 'sky',
+      // Legacy
+      'ambra', 'solana', 'cassia', 'dalia', 'baseo', 'exelia',
+      'cerena', 'nathos', 'quest', 'lyric', 'brio', 'cros',
     ],
     'signia': [
-      'pure', 'styletto', 'silk', 'motion', 'insio', 'augmented',
-      'active', 'intuis', 'prompt',
+      // Current
+      'pure', 'styletto', 'silk', 'motion', 'insio', 'active',
+      // Entry-level
+      'intuis', 'prompt',
+      // Legacy
+      'cellion', 'carat', 'orion',
     ],
     'widex': [
-      'moment', 'evoke', 'beyond', 'unique', 'dream', 'super',
-      'smartric', 'magnify',
+      // Current
+      'moment', 'allure', 'smartric', 'magnify',
+      // Recent
+      'evoke', 'beyond', 'unique',
+      // Legacy
+      'dream', 'super', 'clear',
     ],
     'resound': [
-      'one', 'omnia', 'linx', 'enzo', 'key', 'nexia',
+      // Current
+      'nexia', 'vivia', 'savi', 'omnia',
+      // Recent
+      'linx', 'enzo', 'quattro',
+      // Legacy
+      'verso', 'enya', 'alera',
     ],
     'starkey': [
-      'genesis', 'evolv', 'livio', 'muse', 'halo',
+      // Current
+      'genesis', 'omega', 'edge', 'signature', 'evolv',
+      // Recent
+      'livio', 'muse', 'halo',
+      // Legacy
+      'picasso',
     ],
     'unitron': [
-      'vivante', 'blu', 'discover', 'moxi', 'stride', 'insera',
+      // Current
+      'vivante', 'smile', 'moxi', 'stride', 'insera',
+      // Recent
+      'discover', 'tempus',
     ],
     'bernafon': [
+      // Current
       'encanta', 'alpha', 'viron', 'zerena', 'leox',
+      // Legacy
+      'juna', 'nevara', 'carista',
     ],
     'beltone': [
-      'achieve', 'imagine', 'amaze', 'rely',
+      // Current
+      'envision', 'serene', 'commence', 'achieve', 'imagine',
+      'amaze', 'rely',
+      // Power
+      'boost max', 'boost ultra',
+      // Legacy
+      'trust', 'legend', 'first',
     ],
     'sonic': [
       'captivate', 'enchant', 'celebrate', 'cheer', 'bliss',
-      'joy', 'charm', 'radiance', 'pep', 'flip',
+      'charm', 'radiance',
     ],
   };
 

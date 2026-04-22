@@ -75,6 +75,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   List<TextDetection> _liveDetections = [];
   Size _imageSize = Size.zero;
 
+  // ── Sticky matched detections (prevents flickering) ─────────────────
+  /// Matched detections persist for 500ms even if OCR drops them
+  /// on subsequent frames. This prevents the green box from flickering.
+  final Map<String, _StickyDetection> _stickyMatches = {};
+
   // ── Catalog cascade fields (filled from DeviceCatalog on brand+model) ─
   String? _detectedStyle;
   String? _detectedTubing;
@@ -489,12 +494,19 @@ class _LiveScanScreenState extends State<LiveScanScreen>
             }
           }
 
-          // Ambient detection — show the scanner reading everything
+          // Ambient / model candidate detection
           if (!wasMatched && text.length >= 2) {
+            // Once brand is found but model isn't, show text as cyan
+            // "model candidates" — visually signals the scanner is now
+            // hunting for the model.
+            final isCandidatePhase =
+                _detectedBrand != null && _detectedModel == null;
             detections.add(TextDetection(
               boundingBox: line.boundingBox,
               label: text,
-              type: DetectionType.ambient,
+              type: isCandidatePhase
+                  ? DetectionType.modelCandidate
+                  : DetectionType.ambient,
             ));
           }
         }
@@ -506,6 +518,29 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           !_completionFired) {
         _completionFired = true;
         _fireCompletion();
+      }
+
+      // Stabilise matched detections — update sticky cache and merge
+      final now = DateTime.now();
+      for (final d in detections) {
+        if (d.type == DetectionType.matched) {
+          _stickyMatches[d.label] = _StickyDetection(
+            detection: d,
+            lastSeen: now,
+          );
+        }
+      }
+      // Add sticky matches not in current frame (within 500ms)
+      final matchedLabels = detections
+          .where((d) => d.type == DetectionType.matched)
+          .map((d) => d.label)
+          .toSet();
+      _stickyMatches.removeWhere(
+          (_, v) => now.difference(v.lastSeen).inMilliseconds > 500);
+      for (final entry in _stickyMatches.entries) {
+        if (!matchedLabels.contains(entry.key)) {
+          detections.add(entry.value.detection);
+        }
       }
 
       setState(() {
@@ -1040,22 +1075,20 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
           _log('full-res text: "$text"');
 
-          // Model-first detection (can also override neural net brand)
-          if (_detectedModel == null) {
+          // Model-first detection — OCR text is reliable, can override
+          // a previous model AND correct the brand.
+          {
             final reverse = BrandMatcher.matchModelAnyBrand(text);
-            if (reverse != null) {
-              _log('OCR MODEL MATCH: '
-                  '${reverse.brand} / ${reverse.model}');
+            if (reverse != null && reverse.model != _detectedModel) {
+              final overriddenModel = _detectedModel;
               final overriddenBrand = _detectedBrand != reverse.brand
                   ? _detectedBrand
                   : null;
+              _log('OCR MODEL MATCH: ${reverse.brand} / ${reverse.model}'
+                  '${overriddenModel != null ? ' (overriding: $overriddenModel)' : ''}');
               setState(() {
                 _detectedModel = reverse.model;
-                // OCR model match is very reliable — override neural net
-                // brand if different
                 if (_detectedBrand != reverse.brand) {
-                  _log('OCR overriding neural net brand '
-                      '$_detectedBrand → ${reverse.brand}');
                   _detectedBrand = reverse.brand;
                   _brandConfidence = 'FROM MODEL';
                 }
@@ -1068,7 +1101,13 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                 colour: _detectedColour,
                 matchType: 'full_res_ocr',
               );
-              // Track the override as a correction — neural net was wrong
+              if (overriddenModel != null) {
+                ScanTracker.recordCorrection(
+                  field: 'MODEL',
+                  originalValue: overriddenModel,
+                  correctedValue: reverse.model,
+                );
+              }
               if (overriddenBrand != null) {
                 ScanTracker.recordCorrection(
                   field: 'BRAND',
@@ -1104,12 +1143,13 @@ class _LiveScanScreenState extends State<LiveScanScreen>
             }
           }
 
-          // Brand-specific model matching
-          if (_detectedBrand != null && _detectedModel == null) {
+          // Brand-specific model matching — can also override
+          if (_detectedBrand != null) {
             final model = BrandMatcher.matchModel(text, _detectedBrand!);
-            if (model != null) {
+            if (model != null && model != _detectedModel) {
               _log('OCR MODEL MATCH '
-                  '(brand-specific): $model');
+                  '(brand-specific): $model'
+                  '${_detectedModel != null ? ' (overriding: $_detectedModel)' : ''}');
               setState(() => _detectedModel = model);
               HapticFeedback.mediumImpact();
             }
@@ -1676,4 +1716,12 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       ),
     );
   }
+}
+
+/// A matched detection cached for a short duration to prevent flickering.
+class _StickyDetection {
+  _StickyDetection({required this.detection, required this.lastSeen});
+
+  final TextDetection detection;
+  final DateTime lastSeen;
 }

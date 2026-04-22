@@ -3,7 +3,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// Whether a detection is a confirmed match or ambient (unmatched) text.
-enum DetectionType { matched, ambient }
+enum DetectionType {
+  /// Confirmed brand/model match — green brackets.
+  matched,
+  /// Ambient text the scanner is reading — dim amber.
+  ambient,
+  /// Model candidate being evaluated — cyan/blue brackets.
+  modelCandidate,
+}
 
 /// A detected text region to highlight on the camera preview.
 class TextDetection {
@@ -85,6 +92,7 @@ class FeatureOverlayPainter extends CustomPainter {
   // Colors
   static const _matchedColor = Color(0xFF10B981); // success green
   static const _ambientColor = Color(0xFFD97706); // warm amber
+  static const _candidateColor = Color(0xFF22D3EE); // cyan
   static const _cascadeColor = Color(0xFF60A5FA); // data blue
   static const _cascadeGreen = Color(0xFF34D399); // bright green
 
@@ -127,7 +135,16 @@ class FeatureOverlayPainter extends CustomPainter {
       }
     }
 
-    // Draw matched detections on top
+    // Draw model candidates (cyan)
+    for (final detection in detections) {
+      if (detection.type == DetectionType.modelCandidate) {
+        final rect = _transformRect(detection.boundingBox, size);
+        _drawModelCandidateBrackets(canvas, rect);
+        _drawLabel(canvas, rect, detection.label, color: _candidateColor);
+      }
+    }
+
+    // Draw matched detections on top (green)
     for (final detection in detections) {
       if (detection.type == DetectionType.matched) {
         final rect = _transformRect(detection.boundingBox, size);
@@ -286,6 +303,19 @@ class FeatureOverlayPainter extends CustomPainter {
     }
   }
 
+  /// Cyan brackets for model candidate text — shows the scanner is
+  /// now hunting for the model after brand is locked.
+  void _drawModelCandidateBrackets(Canvas canvas, Rect rect) {
+    final opacity = 0.4 + 0.3 * animationValue;
+    final paint = Paint()
+      ..color = _candidateColor.withValues(alpha: opacity)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    _drawCorners(canvas, rect.inflate(3), paint);
+  }
+
   void _drawMatchedBrackets(Canvas canvas, Rect rect) {
     final opacity = 0.6 + 0.4 * animationValue;
     final paint = Paint()
@@ -349,12 +379,13 @@ class FeatureOverlayPainter extends CustomPainter {
     canvas.drawLine(Offset(r, b), Offset(r - cl, b), paint);
   }
 
-  void _drawLabel(Canvas canvas, Rect rect, String label) {
+  void _drawLabel(Canvas canvas, Rect rect, String label,
+      {Color color = _matchedColor}) {
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,
-        style: const TextStyle(
-          color: _matchedColor,
+        style: TextStyle(
+          color: color,
           fontSize: 11,
           fontWeight: FontWeight.w600,
           fontFamily: 'monospace',

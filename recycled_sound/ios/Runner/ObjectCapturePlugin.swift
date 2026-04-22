@@ -20,8 +20,11 @@ class ObjectCapturePlugin {
     private var stateTask: Task<Void, Never>?
     private var shotsTask: Task<Void, Never>?
     private var feedbackTask: Task<Void, Never>?
+    private let messenger: FlutterBinaryMessenger
+    private var viewFactoryRegistered = false
 
     nonisolated init(messenger: FlutterBinaryMessenger) {
+        self.messenger = messenger
         let channel = FlutterMethodChannel(
             name: "recycled_sound/object_capture",
             binaryMessenger: messenger
@@ -88,6 +91,13 @@ class ObjectCapturePlugin {
 
         let session = ObjectCaptureSession()
         self.session = session
+
+        // Register the native ObjectCaptureView as a Flutter platform view
+        if !viewFactoryRegistered, let registrar = ObjectCapturePluginRegistrar.flutterRegistrar {
+            let factory = ObjectCaptureViewFactory(session: session)
+            registrar.register(factory, withId: "object-capture-view")
+            viewFactoryRegistered = true
+        }
 
         // Observe state via async sequence
         stateTask = Task { [weak self] in
@@ -203,7 +213,11 @@ class ObjectCapturePlugin {
 
 /// Register the plugin with the Flutter engine.
 class ObjectCapturePluginRegistrar {
-    static func register(with messenger: FlutterBinaryMessenger) {
+    /// Stored so the plugin can register platform view factories later.
+    static var flutterRegistrar: FlutterPluginRegistrar?
+
+    static func register(with messenger: FlutterBinaryMessenger, registrar: FlutterPluginRegistrar? = nil) {
+        flutterRegistrar = registrar
         if #available(iOS 17.0, *) {
             _ = ObjectCapturePlugin(messenger: messenger)
         }

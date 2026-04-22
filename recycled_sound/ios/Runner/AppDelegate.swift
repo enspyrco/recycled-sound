@@ -13,9 +13,13 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    // Register Object Capture (LiDAR 3D scanning) platform channel
+    // Register Object Capture (LiDAR 3D scanning) platform channel + view
     if let controller = window?.rootViewController as? FlutterViewController {
-      ObjectCapturePluginRegistrar.register(with: controller.binaryMessenger)
+      let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ObjectCaptureView")
+      ObjectCapturePluginRegistrar.register(
+        with: controller.binaryMessenger,
+        registrar: registrar
+      )
     }
   }
 }

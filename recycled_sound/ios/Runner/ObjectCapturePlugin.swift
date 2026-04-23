@@ -25,16 +25,30 @@ class ObjectCapturePlugin {
 
     nonisolated init(messenger: FlutterBinaryMessenger) {
         self.messenger = messenger
-        // Channel and handler must be set up synchronously so they're
-        // ready before Flutter calls isSupported. The handler dispatches
-        // to @MainActor internally.
         let channel = FlutterMethodChannel(
             name: "recycled_sound/object_capture",
             binaryMessenger: messenger
         )
-        channel.setMethodCallHandler { call, result in
-            Task { @MainActor [weak self] in
-                self?.handle(call, result: result)
+
+        // Handle isSupported synchronously — it's a static property,
+        // no MainActor needed. Everything else dispatches to MainActor.
+        channel.setMethodCallHandler { [weak self] call, result in
+            if call.method == "isSupported" {
+                // Synchronous — no Task dispatch, no race condition
+                result(ObjectCaptureSession.isSupported)
+                return
+            }
+            Task { @MainActor in
+                guard let self = self else {
+                    // Plugin was deallocated — return error instead of hanging
+                    result(FlutterError(
+                        code: "DISPOSED",
+                        message: "Plugin was disposed",
+                        details: nil
+                    ))
+                    return
+                }
+                self.handle(call, result: result)
             }
         }
         Task { @MainActor in
@@ -220,10 +234,15 @@ class ObjectCapturePluginRegistrar {
     /// Stored so the plugin can register platform view factories later.
     static var flutterRegistrar: FlutterPluginRegistrar?
 
+    /// Keep a strong reference — prevents the plugin from being GC'd,
+    /// which would silently drop all method channel calls.
+    @available(iOS 17.0, *)
+    private static var _plugin: ObjectCapturePlugin?
+
     static func register(with messenger: FlutterBinaryMessenger, registrar: FlutterPluginRegistrar? = nil) {
         flutterRegistrar = registrar
         if #available(iOS 17.0, *) {
-            _ = ObjectCapturePlugin(messenger: messenger)
+            _plugin = ObjectCapturePlugin(messenger: messenger)
         }
     }
 }

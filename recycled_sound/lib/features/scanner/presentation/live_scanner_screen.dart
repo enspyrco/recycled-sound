@@ -397,12 +397,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           }
 
           // Model-first detection: check if text matches a known model
-          // from ANY brand. This handles cases where the model name is
-          // visible but the brand name isn't (e.g., "moxi2 kiss" → Unitron).
-          if (_detectedModel == null && !wasMatched) {
+          // from ANY brand. Can override a previous model if OCR finds
+          // a better match.
+          if (!wasMatched) {
             final reverse = BrandMatcher.matchModelAnyBrand(text);
-            if (reverse != null) {
-              // Model found — also sets brand if not already detected
+            if (reverse != null && reverse.model != _detectedModel) {
               detections.add(TextDetection(
                 boundingBox: line.boundingBox,
                 label: 'MODEL: ${reverse.model}',
@@ -480,10 +479,10 @@ class _LiveScanScreenState extends State<LiveScanScreen>
             }
           }
 
-          // Try model matching against known brand (if brand found first)
-          if (_detectedBrand != null && _detectedModel == null && !wasMatched) {
+          // Try model matching against known brand — can override
+          if (_detectedBrand != null && !wasMatched) {
             final model = BrandMatcher.matchModel(text, _detectedBrand!);
-            if (model != null) {
+            if (model != null && model != _detectedModel) {
               detections.add(TextDetection(
                 boundingBox: line.boundingBox,
                 label: 'MODEL: $model',

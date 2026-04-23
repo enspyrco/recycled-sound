@@ -1,19 +1,25 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:arkit_plugin/arkit_plugin.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../data/object_capture_channel.dart';
+import '../data/point_cloud.dart';
+import 'widgets/point_cloud_viewer.dart';
 
-/// 3D capture screen — embeds Apple's native ObjectCaptureView which
-/// shows the live camera with built-in point cloud, object detection,
-/// guided orbit indicators, and shot location markers.
+/// 3D capture screen with two modes:
 ///
-/// All the heavy 3D rendering is done by Apple's RealityKit. Flutter
-/// provides the HUD overlay, controls, and navigation.
+/// **Mode A (ObjectCaptureView):** Apple's native 3D capture UI with
+/// built-in point cloud — if ObjectCaptureSession.isSupported.
+///
+/// **Mode B (arkit_plugin depth):** LiDAR depth frame point cloud built
+/// frame-by-frame — fallback for devices that support LiDAR but not
+/// Object Capture, or when Object Capture fails.
 class Capture3dScreen extends StatefulWidget {
   const Capture3dScreen({super.key, this.deviceName});
 
@@ -23,71 +29,172 @@ class Capture3dScreen extends StatefulWidget {
   State<Capture3dScreen> createState() => _Capture3dScreenState();
 }
 
+enum _Mode { checking, objectCapture, depthCloud, viewing, notSupported }
+
 class _Capture3dScreenState extends State<Capture3dScreen> {
   final _capture = ObjectCaptureChannel.instance;
+  _Mode _mode = _Mode.checking;
 
-  String _state = 'idle';
+  // ── Object Capture state ──────────────────────────────────────────────
+  String _ocState = 'idle'; // Object Capture session state
   String _guidance = 'Point at the hearing aid';
   int _shotsTaken = 0;
-  bool _isSupported = false;
-  bool _checking = true;
   bool _sessionStarted = false;
-  String? _modelPath;
+
+  // ── Depth cloud state (fallback) ──────────────────────────────────────
+  ARKitController? _arkitController;
+  final _cloud = PointCloudBuilder(maxPoints: 80000, voxelSize: 0.0005);
+  Timer? _captureTimer;
+  int _framesCaptured = 0;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
-    _capture.startListening();
-    _capture.onStateChanged = (state) {
-      if (mounted) setState(() => _state = state);
-    };
-    _capture.onProgress = (shots, _) {
-      if (mounted) setState(() => _shotsTaken = shots);
-    };
-    _capture.onGuidance = (guidance) {
-      if (mounted) setState(() => _guidance = guidance);
-    };
-    _capture.onModelReady = (path) {
-      if (mounted) {
-        setState(() {
-          _modelPath = path;
-          _state = 'done';
-        });
-      }
-    };
-
-    _checkAndStart();
+    _checkSupport();
   }
 
-  Future<void> _checkAndStart() async {
+  Future<void> _checkSupport() async {
+    // Try Object Capture first
     final supported = await _capture.isSupported();
-    if (mounted) {
-      setState(() {
-        _isSupported = supported;
-        _checking = false;
-      });
-    }
     if (supported) {
-      // Show the native view immediately, start session in parallel
-      if (mounted) setState(() => _sessionStarted = true);
+      _capture.startListening();
+      _capture.onStateChanged = (s) {
+        if (mounted) setState(() => _ocState = s);
+      };
+      _capture.onProgress = (shots, _) {
+        if (mounted) setState(() => _shotsTaken = shots);
+      };
+      _capture.onGuidance = (g) {
+        if (mounted) setState(() => _guidance = g);
+      };
+      _capture.onModelReady = (path) {
+        if (mounted) setState(() => _ocState = 'done');
+      };
+
+      if (mounted) setState(() => _mode = _Mode.objectCapture);
+      setState(() => _sessionStarted = true);
       try {
         await _capture.startSession();
       } catch (e) {
-        if (mounted) setState(() => _guidance = 'Session error: $e');
+        // Object Capture failed — fall back to depth cloud
+        if (mounted) setState(() => _mode = _Mode.depthCloud);
       }
+    } else {
+      // No Object Capture — use depth cloud fallback
+      if (mounted) setState(() => _mode = _Mode.depthCloud);
     }
-  }
-
-  Future<void> _finishCapture() async {
-    setState(() => _state = 'finishing');
-    await _capture.finish();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _captureTimer?.cancel();
+    _arkitController?.dispose();
     _capture.cancel();
     _capture.stopListening();
     super.dispose();
+  }
+
+  // ── Depth cloud methods ───────────────────────────────────────────────
+
+  void _onARKitViewCreated(ARKitController controller) {
+    _arkitController = controller;
+    setState(() => _guidance = 'Point at the hearing aid and slowly orbit');
+
+    _captureTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      _captureDepthFrame();
+    });
+  }
+
+  Future<void> _captureDepthFrame() async {
+    if (_disposed || _arkitController == null) return;
+    if (_mode != _Mode.depthCloud) return;
+
+    try {
+      final snapshot = await _arkitController!.snapshotWithDepthData();
+      if (snapshot == null || _disposed) return;
+
+      final depthList = snapshot['depthMap'];
+      final depthWidth = snapshot['depthWidth'] as int?;
+      final depthHeight = snapshot['depthHeight'] as int?;
+      final intrinsics = snapshot['intrinsics'] as String?;
+
+      if (depthList == null || depthWidth == null || depthHeight == null) return;
+
+      final Float32List depthData;
+      if (depthList is Float32List) {
+        depthData = depthList;
+      } else if (depthList is List) {
+        depthData = Float32List.fromList(
+          depthList.map((e) => (e as num).toDouble()).toList(),
+        );
+      } else {
+        return;
+      }
+
+      double fx = 500, fy = 500;
+      double cx = depthWidth / 2, cy = depthHeight / 2;
+      if (intrinsics != null) {
+        final parts = intrinsics.split(RegExp(r'[\s,]+'));
+        if (parts.length >= 4) {
+          final pfx = double.tryParse(parts[0]);
+          final pfy = double.tryParse(parts[1]);
+          final pcx = double.tryParse(parts[2]);
+          final pcy = double.tryParse(parts[3]);
+          if (pfx != null && pfx.isFinite && pfx > 0) fx = pfx;
+          if (pfy != null && pfy.isFinite && pfy > 0) fy = pfy;
+          if (pcx != null && pcx.isFinite) cx = pcx;
+          if (pcy != null && pcy.isFinite) cy = pcy;
+        }
+      }
+
+      final pov = await _arkitController!.pointOfViewTransform();
+      final cameraPose = pov ?? Matrix4.identity();
+
+      _cloud.addFrame(
+        depthData: depthData,
+        depthWidth: depthWidth,
+        depthHeight: depthHeight,
+        fx: fx,
+        fy: fy,
+        cx: cx,
+        cy: cy,
+        cameraPose: cameraPose,
+      );
+
+      if (!_disposed && mounted) {
+        setState(() {
+          _framesCaptured++;
+          _guidance = '${_cloud.count} points from $_framesCaptured frames';
+        });
+      }
+    } catch (e) {
+      if (mounted && _framesCaptured == 0) {
+        setState(() => _guidance = 'Depth error: $e');
+      }
+    }
+  }
+
+  void _finishDepthScan() {
+    _captureTimer?.cancel();
+    setState(() {
+      _mode = _Mode.viewing;
+      _guidance = '${_cloud.count} points — spin it!';
+    });
+  }
+
+  void _rescan() {
+    _cloud.clear();
+    setState(() {
+      _mode = _Mode.depthCloud;
+      _framesCaptured = 0;
+      _guidance = 'Point at the hearing aid';
+    });
+    _captureTimer = Timer.periodic(
+      const Duration(milliseconds: 200),
+      (_) => _captureDepthFrame(),
+    );
   }
 
   @override
@@ -99,23 +206,27 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Native ObjectCaptureView — Apple's built-in 3D capture UI
-            // with point cloud, object detection, and guided orbit
-            if (_sessionStarted && Platform.isIOS)
+            // Main content by mode
+            if (_mode == _Mode.checking)
+              const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              )
+            else if (_mode == _Mode.objectCapture && _sessionStarted && Platform.isIOS)
               const UiKitView(
                 viewType: 'object-capture-view',
                 creationParamsCodec: StandardMessageCodec(),
               )
-            else if (_checking)
-              const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
+            else if (_mode == _Mode.depthCloud)
+              ARKitSceneView(
+                configuration: ARKitConfiguration.depthTracking,
+                onARKitViewCreated: _onARKitViewCreated,
               )
-            else if (!_isSupported)
-              _buildNotSupported()
-            else
-              Container(color: Colors.black),
+            else if (_mode == _Mode.viewing)
+              PointCloudViewer(cloud: _cloud, pointSize: 2.5)
+            else if (_mode == _Mode.notSupported)
+              _buildNotSupported(),
 
-            // Header overlay
+            // Header
             Positioned(
               top: MediaQuery.of(context).padding.top + 8,
               left: 8,
@@ -132,9 +243,9 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          '3D SCAN',
-                          style: TextStyle(
+                        Text(
+                          _mode == _Mode.viewing ? '3D MODEL' : '3D SCAN',
+                          style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -154,21 +265,20 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
                       ],
                     ),
                   ),
-                  // Shot counter badge
-                  if (_shotsTaken > 0)
+                  // Mode badge
+                  if (_mode == _Mode.depthCloud || _mode == _Mode.objectCapture)
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(6),
+                        color: AppColors.primary.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        '$_shotsTaken SHOTS',
+                        _mode == _Mode.objectCapture ? 'OBJECT CAPTURE' : 'LIDAR DEPTH',
                         style: const TextStyle(
                           fontFamily: 'monospace',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
                           color: AppColors.white,
                           letterSpacing: 1.0,
                         ),
@@ -195,7 +305,6 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Guidance text from Apple's session
                     Text(
                       _guidance.toUpperCase(),
                       style: const TextStyle(
@@ -206,31 +315,52 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 8),
-                    // State badge
-                    Text(
-                      _state.toUpperCase(),
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10,
-                        color: _state == 'capturing'
-                            ? AppColors.success
-                            : const Color(0x66FFFFFF),
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
 
-                    // Finish button
-                    if (_shotsTaken >= 3 &&
-                        _state != 'finishing' &&
-                        _state != 'done')
+                    // Depth cloud progress
+                    if (_mode == _Mode.depthCloud) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: (_cloud.count / 30000).clamp(0.0, 1.0),
+                          backgroundColor: const Color(0x22FFFFFF),
+                          color: _cloud.count > 10000
+                              ? AppColors.success
+                              : AppColors.primary,
+                          minHeight: 3,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_cloud.count > 5000)
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _finishDepthScan,
+                            icon: const Icon(Icons.threed_rotation, size: 18),
+                            label: Text('View 3D Model (${_cloud.count} points)'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              foregroundColor: AppColors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+
+                    // Object Capture controls
+                    if (_mode == _Mode.objectCapture && _shotsTaken >= 3)
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: _finishCapture,
+                          onPressed: () async {
+                            setState(() => _guidance = 'Processing...');
+                            await _capture.finish();
+                          },
                           icon: const Icon(Icons.check, size: 18),
-                          label: const Text('Finish Capture'),
+                          label: Text('Finish ($_shotsTaken shots)'),
                           style: FilledButton.styleFrom(
                             backgroundColor: AppColors.success,
                             foregroundColor: AppColors.white,
@@ -242,34 +372,42 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
                         ),
                       ),
 
-                    if (_state == 'finishing')
-                      const Text(
-                        'PROCESSING...',
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
-                          letterSpacing: 2.0,
-                        ),
-                      ),
-
-                    if (_state == 'done')
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () => context.pop(_modelPath),
-                          icon: const Icon(Icons.threed_rotation, size: 18),
-                          label: const Text('Done'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: AppColors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                    // Viewing controls
+                    if (_mode == _Mode.viewing)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _rescan,
+                              icon: const Icon(Icons.refresh, size: 18),
+                              label: const Text('Rescan'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0x33FFFFFF),
+                                foregroundColor: AppColors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => context.pop(),
+                              icon: const Icon(Icons.check, size: 18),
+                              label: const Text('Done'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: AppColors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                   ],
                 ),
@@ -282,28 +420,22 @@ class _Capture3dScreenState extends State<Capture3dScreen> {
   }
 
   Widget _buildNotSupported() {
-    return Center(
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.view_in_ar, color: AppColors.textMuted, size: 48),
-            const SizedBox(height: 16),
+            Icon(Icons.view_in_ar, color: AppColors.textMuted, size: 48),
+            SizedBox(height: 16),
             Text(
               '3D Capture Not Available',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppColors.white,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.white),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'Requires iPhone 12 Pro or later with LiDAR.',
-              style: TextStyle(
-                color: AppColors.white.withValues(alpha: 0.6),
-              ),
+              style: TextStyle(color: Color(0x99FFFFFF)),
               textAlign: TextAlign.center,
             ),
           ],

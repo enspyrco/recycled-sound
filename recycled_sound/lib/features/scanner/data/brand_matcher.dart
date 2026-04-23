@@ -164,8 +164,9 @@ class BrandMatcher {
 
     final lower = normalized.toLowerCase();
     for (final pattern in patterns) {
-      if (pattern.length >= 3 && lower.contains(pattern)) return normalized;
-      // Fuzzy only for longer patterns to avoid false positives
+      // Substring match: any length pattern works if text is long enough
+      if (lower.contains(pattern)) return normalized;
+      // Fuzzy: only for 4+ char patterns to avoid false positives
       if (pattern.length >= 4 && _levenshtein(lower, pattern) <= 1) {
         return normalized;
       }
@@ -182,9 +183,9 @@ class BrandMatcher {
   static const _modelPatterns = <String, List<String>>{
     'oticon': [
       // Current
-      'real', 'more', 'intent', 'zircon', 'zeal', 'xceed', 'play',
+      'real', 'more', 'intent', 'zircon', 'zeal', 'xceed', 'play', 'own',
       // Recent
-      'opn s', 'siya', 'ruby',
+      'opn s', 'opn', 'siya', 'ruby', 'ria',
       // Legacy (still in circulation)
       'nera', 'alta', 'agil', 'acto', 'dynamo', 'sensei', 'safari',
       'chili', 'sumo',
@@ -217,7 +218,7 @@ class BrandMatcher {
     ],
     'resound': [
       // Current
-      'nexia', 'vivia', 'savi', 'omnia',
+      'nexia', 'vivia', 'savi', 'omnia', 'one', 'key',
       // Recent
       'linx', 'enzo', 'quattro',
       // Legacy
@@ -233,7 +234,7 @@ class BrandMatcher {
     ],
     'unitron': [
       // Current
-      'vivante', 'smile', 'moxi', 'stride', 'insera',
+      'vivante', 'smile', 'moxi', 'stride', 'insera', 'blu',
       // Recent
       'discover', 'tempus',
     ],

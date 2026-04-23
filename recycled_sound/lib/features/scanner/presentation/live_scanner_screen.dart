@@ -179,6 +179,15 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         setState(() => _showHint = true);
       }
     });
+
+    // Fallback: if colour hasn't stabilised after 5 seconds, force
+    // auto-capture anyway. Breaks the OCR→colour→auto-capture deadlock.
+    Timer(const Duration(seconds: 5), () {
+      if (!_ocrCaptureInProgress && _detectedBrand == null && mounted) {
+        _log('fallback: forcing auto-capture (colour gate timeout)');
+        _autoCapturForOcr();
+      }
+    });
   }
 
   @override
@@ -893,16 +902,18 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       _log('cascade: $label filled');
     }
 
-    // Auto-transition to 3D capture after a beat.
-    // The user is already holding the device — seamless handoff.
-    await Future<void>.delayed(const Duration(seconds: 2));
-    if (_disposed || !mounted) return;
-    _stopCamera();
-    final name = [_detectedBrand, _detectedModel]
-        .where((s) => s != null && s.isNotEmpty)
-        .join(' ');
-    if (mounted) {
-      context.push('/scan/3d', extra: name.isNotEmpty ? name : null);
+    // Auto-transition to 3D capture — only if we have brand+model,
+    // and give the scanner enough time to finish full-res OCR.
+    if (_detectedBrand != null && _detectedModel != null) {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (_disposed || !mounted) return;
+      _stopCamera();
+      final name = [_detectedBrand, _detectedModel]
+          .where((s) => s != null && s.isNotEmpty)
+          .join(' ');
+      if (mounted) {
+        context.push('/scan/3d', extra: name.isNotEmpty ? name : null);
+      }
     }
   }
 

@@ -104,6 +104,14 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   bool _showCompletion = false;
   bool _completionFired = false;
 
+  // ── Elapsed timer (diagnostic) ────────────────────────────────────────
+  /// Wallclock since scan phase began. Drives the on-screen timer so we
+  /// have an actual number for detection latency rather than felt-sense.
+  /// Frozen at completion so the final reading stays on screen.
+  DateTime? _scanStartedAt;
+  Timer? _elapsedTicker;
+  Duration _elapsed = Duration.zero;
+
   // ── Colour detection ─────────────────────────────────────────────────
   String? _detectedColour;
   Color? _detectedColourRgb;
@@ -212,6 +220,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     _hintTimer?.cancel();
     _crossRefTimer?.cancel();
     _periodicCaptureTimer?.cancel();
+    _elapsedTicker?.cancel();
     _pulseController.dispose();
     _stopCamera();
     _textRecognizer.close();
@@ -249,7 +258,26 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     if (_bootComplete && _cameraReady && _phase == _ScanPhase.booting) {
       setState(() => _phase = _ScanPhase.scanning);
       _startPeriodicCaptures();
+      _startElapsedTicker();
     }
+  }
+
+  /// Tick every 100ms while scanning. The on-screen display reads from
+  /// _elapsed; we stop ticking on completion so the final time stays
+  /// frozen on screen for reading.
+  void _startElapsedTicker() {
+    _scanStartedAt = DateTime.now();
+    _elapsed = Duration.zero;
+    _elapsedTicker?.cancel();
+    _elapsedTicker = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (_disposed || !mounted || _scanStartedAt == null) {
+        _elapsedTicker?.cancel();
+        return;
+      }
+      setState(() {
+        _elapsed = DateTime.now().difference(_scanStartedAt!);
+      });
+    });
   }
 
   /// Take periodic snapshots while scanning so the user sees activity
@@ -946,6 +974,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   void _fireCompletion() {
     HapticFeedback.heavyImpact();
     ScanTracker.incrementLocalScanCount();
+    // Freeze the elapsed timer so the final reading stays on-screen.
+    _elapsedTicker?.cancel();
     setState(() {
       _showCompletion = true;
       _phase = _ScanPhase.complete;
@@ -1471,6 +1501,19 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
   // ── Build ─────────────────────────────────────────────────────────────
 
+  /// Format a Duration as "12.3s" (sub-minute) or "1:23.4" (longer).
+  /// Tenths of a second so the display feels live without jittering at
+  /// every animation frame.
+  String _formatElapsed(Duration d) {
+    final tenths = (d.inMilliseconds / 100).floor() % 10;
+    if (d.inSeconds < 60) {
+      return '${d.inSeconds}.${tenths}s';
+    }
+    final mins = d.inMinutes;
+    final secs = d.inSeconds % 60;
+    return '$mins:${secs.toString().padLeft(2, '0')}.$tenths';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1500,6 +1543,44 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                 onPressed: () => context.pop(),
               ),
             ),
+
+            // Elapsed-time chip (top-center) — primary diagnostic readout.
+            // Counts up from scan start, freezes on completion so the final
+            // detection time stays on screen for reading.
+            if (_phase != _ScanPhase.booting && _scanStartedAt != null)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _phase == _ScanPhase.complete
+                          ? AppColors.success.withValues(alpha: 0.85)
+                          : Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _phase == _ScanPhase.complete
+                            ? AppColors.success
+                            : AppColors.white.withValues(alpha: 0.25),
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      _formatElapsed(_elapsed),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.white,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
 
             // Filter status badge (top-right) — shows which filter is
             // currently being tried. Once a detection lands, shows the

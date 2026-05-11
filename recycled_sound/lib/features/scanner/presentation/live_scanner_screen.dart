@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -112,6 +113,16 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   Timer? _elapsedTicker;
   Duration _elapsed = Duration.zero;
 
+  // ── ML Kit input preview (debug diagnostic) ───────────────────────────
+  /// The exact bytes handed to ML Kit, decoded for on-screen rendering.
+  /// Wrapped in a RotatedBox matching the InputImageRotation we pass,
+  /// so we see what ML Kit conceptually "sees" after rotation correction.
+  /// If this overlay is upside-down vs the camera preview, the rotation
+  /// hint is wrong. Throttled to every 15 frames to keep CPU cheap.
+  ui.Image? _mlkitDebugImage;
+  int _mlkitDebugRotationDeg = 0;
+  bool _mlkitDebugDecodeInFlight = false;
+
   // ── Colour detection ─────────────────────────────────────────────────
   String? _detectedColour;
   Color? _detectedColourRgb;
@@ -221,6 +232,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     _crossRefTimer?.cancel();
     _periodicCaptureTimer?.cancel();
     _elapsedTicker?.cancel();
+    _mlkitDebugImage?.dispose();
     _pulseController.dispose();
     _stopCamera();
     _textRecognizer.close();
@@ -812,6 +824,17 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       );
     }
 
+    // Debug-only: hand the exact bytes ML Kit gets to the diagnostic
+    // overlay decoder. Throttled to every 15 frames inside the helper.
+    if (kDebugMode) {
+      _maybeUpdateMlkitDebugImage(
+        bytes: bytes,
+        width: image.width,
+        height: image.height,
+        rotationDeg: sensorOrientation,
+      );
+    }
+
     return InputImage.fromBytes(
       bytes: bytes,
       metadata: InputImageMetadata(
@@ -820,6 +843,42 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         format: format,
         bytesPerRow: image.planes.first.bytesPerRow,
       ),
+    );
+  }
+
+  /// Decode the BGRA bytes we just handed to ML Kit into a ui.Image for
+  /// the on-screen debug overlay. Async — completion fires setState when
+  /// the new image is ready. Skips if a decode is already in flight or
+  /// not on a 15-frame boundary.
+  void _maybeUpdateMlkitDebugImage({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int rotationDeg,
+  }) {
+    if (_mlkitDebugDecodeInFlight) return;
+    if (_frameCount % 15 != 0) return;
+    _mlkitDebugDecodeInFlight = true;
+    // ui.decodeImageFromPixels copies the bytes internally — safe to let
+    // the caller's buffer go out of scope after this call returns.
+    ui.decodeImageFromPixels(
+      bytes,
+      width,
+      height,
+      ui.PixelFormat.bgra8888,
+      (ui.Image img) {
+        if (_disposed || !mounted) {
+          img.dispose();
+          _mlkitDebugDecodeInFlight = false;
+          return;
+        }
+        setState(() {
+          _mlkitDebugImage?.dispose();
+          _mlkitDebugImage = img;
+          _mlkitDebugRotationDeg = rotationDeg;
+        });
+        _mlkitDebugDecodeInFlight = false;
+      },
     );
   }
 
@@ -1501,6 +1560,94 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
   // ── Build ─────────────────────────────────────────────────────────────
 
+  /// Build the debug overlay that mirrors what ML Kit sees.
+  ///
+  /// Two pieces side-by-side: RAW (the bytes as they come off the sensor)
+  /// and ROTATED (the same bytes with the rotation transform we tell ML
+  /// Kit about). If the ROTATED panel is upside-down vs the live camera
+  /// preview, our rotation hint is wrong. If both panels look fine but
+  /// ML Kit still reads garbled, the rotation isn't the problem.
+  Widget _buildMlkitDebugOverlay() {
+    final image = _mlkitDebugImage!;
+    // RotatedBox quarterTurns: 1 = 90° CW, 2 = 180°, 3 = 270° CW.
+    final quarterTurns = (_mlkitDebugRotationDeg ~/ 90) % 4;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: AppColors.warning.withValues(alpha: 0.6),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'ML KIT INPUT',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 9,
+              color: AppColors.warning,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // RAW: bytes as they come off the sensor, no rotation.
+              _debugPanel(
+                label: 'RAW',
+                child: SizedBox(
+                  width: 80,
+                  height: 80 * image.height / image.width,
+                  child: RawImage(image: image, fit: BoxFit.contain),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // ROTATED: same bytes, rotated by the angle we tell ML Kit.
+              _debugPanel(
+                label: 'ROT $_mlkitDebugRotationDeg°',
+                child: SizedBox(
+                  width: 80,
+                  height: 80 * image.width / image.height,
+                  child: RotatedBox(
+                    quarterTurns: quarterTurns,
+                    child: RawImage(image: image, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _debugPanel({required String label, required Widget child}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 8,
+            color: AppColors.white,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 2),
+        child,
+      ],
+    );
+  }
+
   /// Format a Duration as "12.3s" (sub-minute) or "1:23.4" (longer).
   /// Tenths of a second so the display feels live without jittering at
   /// every animation frame.
@@ -1657,6 +1804,17 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                   captureCount: _filledFieldCount,
                   totalExpected: 7,
                 ),
+              ),
+
+            // ML Kit input preview (debug only) — bottom-left corner.
+            // Shows the exact bytes ML Kit is processing, with the same
+            // rotation transform we hand ML Kit. If this is upside-down
+            // relative to the camera preview, the rotation hint is wrong.
+            if (kDebugMode && _mlkitDebugImage != null)
+              Positioned(
+                left: 12,
+                bottom: 24,
+                child: _buildMlkitDebugOverlay(),
               ),
 
             // Capture animations + thumbnail dock

@@ -15,6 +15,7 @@
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		AA000001AAAA000100000001 /* ObjectCapturePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AAAA000100000002 /* ObjectCapturePlugin.swift */; };
 		AA000002AAAA000200000001 /* ObjectCaptureViewFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002AAAA000200000002 /* ObjectCaptureViewFactory.swift */; };
+		AA000003AAAA000300000001 /* VisionOcrPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000003AAAA000300000002 /* VisionOcrPlugin.swift */; };
 		93515CF439BF3D3A5C78FFCD /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = E31E8961107908BEA98F8154 /* GoogleService-Info.plist */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
@@ -60,6 +61,7 @@
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		AA000001AAAA000100000002 /* ObjectCapturePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectCapturePlugin.swift; sourceTree = "<group>"; };
 		AA000002AAAA000200000002 /* ObjectCaptureViewFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectCaptureViewFactory.swift; sourceTree = "<group>"; };
+		AA000003AAAA000300000002 /* VisionOcrPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOcrPlugin.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		94499A640E81FC6D1D02FDE6 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
@@ -158,6 +160,7 @@
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				AA000001AAAA000100000002 /* ObjectCapturePlugin.swift */,
 				AA000002AAAA000200000002 /* ObjectCaptureViewFactory.swift */,
+				AA000003AAAA000300000002 /* VisionOcrPlugin.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -413,6 +416,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				AA000001AAAA000100000001 /* ObjectCapturePlugin.swift in Sources */,
 				AA000002AAAA000200000001 /* ObjectCaptureViewFactory.swift in Sources */,
+				AA000003AAAA000300000001 /* VisionOcrPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

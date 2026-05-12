@@ -1,0 +1,136 @@
+name: TestFlight
+
+# Builds the iOS IPA and uploads to App Store Connect / TestFlight on every
+# merge to main. Manually triggerable via workflow_dispatch.
+#
+# Required repository secrets (see docs/testflight-ci.md):
+#   APP_STORE_CONNECT_API_KEY_ID       — App Store Connect API key ID (e.g. AZ4F82S7XD)
+#   APP_STORE_CONNECT_ISSUER_ID        — Issuer ID UUID
+#   APP_STORE_CONNECT_API_KEY_CONTENT  — base64-encoded contents of the .p8 key file
+#   KEYCHAIN_PASSWORD                  — ephemeral password for the temporary build keychain
+#   IOS_CERTIFICATE_P12_BASE64         — base64-encoded Apple distribution .p12 cert
+#   IOS_CERTIFICATE_P12_PASSWORD       — password protecting the .p12 cert
+#   IOS_PROVISIONING_PROFILE_BASE64    — base64-encoded App Store provisioning profile (.mobileprovision)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Avoid concurrent uploads racing for the same build number.
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    name: Build IPA and upload to TestFlight
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        working-directory: recycled_sound
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Compute build number
+        id: build-number
+        run: |
+          # Use github.run_number offset by the last manually-uploaded build (7).
+          # Ensures monotonic increase past the 2026-04-06 manual TestFlight upload.
+          BUILD_NUMBER=$((7 + ${{ github.run_number }}))
+          echo "build_number=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "Computed build number: ${BUILD_NUMBER}"
+
+      - name: Import signing certificate
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_P12_PASSWORD: ${{ secrets.IOS_CERTIFICATE_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+
+          echo "$IOS_CERTIFICATE_P12_BASE64" | base64 --decode --output "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$IOS_CERTIFICATE_P12_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Prepend the build keychain to the user search list so codesign finds it.
+          EXISTING_KEYCHAINS=$(security list-keychains -d user | tr -d '"' | xargs)
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+
+      - name: Install provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            --output "$PROFILES_DIR/recycled_sound_appstore.mobileprovision"
+
+      - name: Build IPA
+        run: |
+          flutter build ipa \
+            --release \
+            --build-number=${{ steps.build-number.outputs.build_number }} \
+            --export-options-plist=ios/ExportOptions.plist || \
+          flutter build ipa \
+            --release \
+            --build-number=${{ steps.build-number.outputs.build_number }}
+
+      - name: Write App Store Connect API key
+        env:
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          echo "$APP_STORE_CONNECT_API_KEY_CONTENT" | base64 --decode \
+            --output "$KEY_DIR/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+
+      - name: Upload to TestFlight
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA_PATH=$(find build/ios/ipa -maxdepth 1 -name '*.ipa' | head -n1)
+          if [ -z "$IPA_PATH" ]; then
+            echo "No IPA found in build/ios/ipa" >&2
+            exit 1
+          fi
+          echo "Uploading $IPA_PATH"
+          xcrun altool --upload-app --type ios \
+            -f "$IPA_PATH" \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Clean up secrets on runner
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          rm -f "$RUNNER_TEMP/cert.p12" || true
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
+          rm -rf "$HOME/.appstoreconnect/private_keys" || true

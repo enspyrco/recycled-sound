@@ -1,9 +1,12 @@
 # Large data files — don't commit to git
 # Reproducible: run download_images.py → train_brand_classifier.py
 images/
+images_box/
 images_by_brand/
 models/
 chroma_db/
 raw/
 processed/
+test_reference/
+box_ingest_manifest.json
 __pycache__/

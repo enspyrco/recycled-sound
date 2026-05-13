@@ -5,3 +5,17 @@ __pycache__/
 
 # Playwright MCP
 .playwright-mcp/
+
+# Trained models (large, regenerable)
+data/models/*.mlpackage/
+data/models/*.mlmodel
+data/models/*.pt
+data/models/*.onnx
+data/models/hearing_aid_yolo*/
+data/yolo_dataset/
+data/yolo_runs/
+
+# Ultralytics auto-downloads pretrained base weights to repo root
+yolo11n.pt
+yolov*.pt
+runs/

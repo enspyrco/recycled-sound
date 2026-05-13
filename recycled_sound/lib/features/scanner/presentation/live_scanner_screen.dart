@@ -88,7 +88,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   String? _brandConfidence;
   List<TextDetection> _liveDetections = [];
   Size _imageSize = Size.zero;
-  final Float32List _edgePoints = Float32List(0);
 
   /// Convenience accessors — read from the elimination tree.
   String? get _detectedBrand => _deviceIndex.state.valueOf(DeviceField.brand);
@@ -500,21 +499,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         _colourStabiliser.push(match.name, match.reference);
       }
       colourUs = colourWatch?.elapsedMicroseconds ?? 0;
-
-      // Edge detection disabled — was interfering with OCR frame budget.
-      // TODO: move to background isolate before re-enabling.
-      // if (Platform.isIOS && image.planes.isNotEmpty && _frameCount % 3 == 0) {
-      //   try {
-      //     _edgePoints = EdgeDetector.detectForCanvas(
-      //       bytes: image.planes[0].bytes,
-      //       width: image.width,
-      //       height: image.height,
-      //       canvasSize: Size(image.width.toDouble(), image.height.toDouble()),
-      //     );
-      //   } catch (e) {
-      //     if (_frameCount < 10) _log('edge detection error: $e');
-      //   }
-      // }
 
       // Auto-cycle filter each frame: RAW → ENHANCE → HI-CON → OCR → …
       // Once we have both brand+model, stop cycling (lock on current).
@@ -1872,7 +1856,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                       animationValue: _pulseController.value,
                       snapEvents: _snapEvents,
                       cascadeEvents: _cascadeEvents,
-                      edgePoints: _edgePoints,
                     ),
                   ),
                 ),

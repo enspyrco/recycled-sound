@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -74,8 +73,7 @@ class FeatureOverlayPainter extends CustomPainter {
     required this.animationValue,
     this.snapEvents = const [],
     this.cascadeEvents = const [],
-    Float32List? edgePoints,
-  }) : edgePoints = edgePoints ?? Float32List(0);
+  });
 
   final List<TextDetection> detections;
   final Size imageSize;
@@ -90,10 +88,6 @@ class FeatureOverlayPainter extends CustomPainter {
 
   /// Active cascade events — draws data stream for catalog fills.
   final List<CascadeEvent> cascadeEvents;
-
-  /// Edge detection points — pairs of (x, y) in image coordinates.
-  /// Drawn as subtle white dots to trace object contours.
-  final Float32List edgePoints;
 
   // Colors
   static const _matchedColor = Color(0xFF10B981); // success green
@@ -113,11 +107,6 @@ class FeatureOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Draw edge detection contours (behind everything — subtle white glow)
-    if (edgePoints.length >= 2 && imageSize.width > 0) {
-      _drawEdges(canvas, size);
-    }
-
     // Draw data stream effect (behind everything else)
     for (final cascade in cascadeEvents) {
       final age = cascade.ageMs;
@@ -418,35 +407,6 @@ class FeatureOverlayPainter extends CustomPainter {
 
     textPainter.paint(
         canvas, Offset(rect.left + 4, rect.top - textPainter.height - 4));
-  }
-
-  /// Draw edge detection contours as subtle glowing dots.
-  ///
-  /// Transforms from image coordinates to screen coordinates using the
-  /// same scale/rotation as the bounding box detection overlays.
-  void _drawEdges(Canvas canvas, Size size) {
-    // Transform from image space to screen space
-    final scaleX = size.width / imageSize.height;
-    final scaleY = size.height / imageSize.width;
-
-    // Subtle white-cyan glow — atmospheric, not distracting.
-    // Pulses gently with the animation value.
-    final opacity = 0.15 + 0.10 * animationValue;
-    final paint = Paint()
-      ..color = Color.fromRGBO(200, 240, 255, opacity)
-      ..style = PaintingStyle.fill;
-
-    // Draw every point as a small circle
-    for (var i = 0; i < edgePoints.length - 1; i += 2) {
-      final imgX = edgePoints[i];
-      final imgY = edgePoints[i + 1];
-
-      // Apply same rotation as bounding boxes (90° for portrait camera)
-      final screenX = imgY * scaleX;
-      final screenY = size.height - imgX * scaleY;
-
-      canvas.drawCircle(Offset(screenX, screenY), 1.2, paint);
-    }
   }
 
   @override

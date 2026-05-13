@@ -13,8 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Skip CI for docs-only changes
-      - name: Check for docs-only changes
+      # Skip Flutter+Functions CI for infra-only changes — paths that
+      # CANNOT affect Dart coverage or Cloud Functions build. Lets PRs
+      # that only touch CI workflows, Python data pipeline, or docs
+      # through without running (and potentially failing) the Flutter
+      # coverage gate. Anything under recycled_sound/ or functions/
+      # still triggers full CI as before.
+      #
+      # Skipped paths:
+      #   *.md / *.txt / LICENSE  — documentation
+      #   .github/**              — workflow + repo config
+      #   data/**                 — Python data pipeline + training
+      #   docs/**                 — design docs + capture guides
+      #
+      # NOT skipped (intentionally): pubspec.yaml (affects build),
+      # any *.dart, *.swift, *.ts, *.kt, assets/**, ios/**, android/**
+      - name: Check for infra-only changes
         id: docs-check
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -22,7 +36,7 @@ jobs:
           else
             FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
           fi
-          NON_DOCS=$(echo "$FILES" | grep -vE '\.(md|txt|LICENSE)$' || true)
+          NON_DOCS=$(echo "$FILES" | grep -vE '\.(md|txt|LICENSE)$|^\.github/|^data/|^docs/' || true)
           if [ -z "$NON_DOCS" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else

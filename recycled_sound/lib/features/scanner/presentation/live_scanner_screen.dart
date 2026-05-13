@@ -27,6 +27,7 @@ import '../data/colour_classifier.dart';
 import '../data/frame_preprocessor.dart';
 import '../data/insight_engine.dart';
 import '../data/scan_tracker.dart';
+import '../data/vision_ocr.dart';
 import 'widgets/capture_animator.dart';
 import 'widgets/capture_stack.dart';
 import 'widgets/feature_overlay_painter.dart';
@@ -38,6 +39,18 @@ import 'widgets/scan_hud.dart';
 void _log(String message) {
   if (kDebugMode) debugPrint('SCANNER: $message');
 }
+
+/// Stream α shadow-mode toggle.
+///
+/// When `true`, every frame that goes to ML Kit OCR ALSO goes to Apple
+/// Vision (native iOS) in parallel, and Vision's results are logged
+/// alongside ML Kit's. No production behaviour changes — this is data-
+/// gathering for the A/B comparison documented in
+/// plan_scanner_forward.md re-rank section P0.
+///
+/// Debug builds only. Flip to `false` if Vision is slowing things down
+/// during a non-comparison session.
+const bool _kEnableVisionOcrShadow = true;
 
 /// The scanner's lifecycle phases.
 enum _ScanPhase { booting, scanning, complete }
@@ -191,6 +204,18 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     _brandClassifier.load().catchError((e) {
       _log('brand classifier failed to load: $e');
     });
+
+    // Stream α — push the customWords bias list to the native Vision
+    // OCR plugin. Done once at startup so per-frame recognition calls
+    // don't re-pay this cost. No-op if shadow mode is off but the plugin
+    // call is cheap, so we initialize unconditionally on iOS.
+    if (kDebugMode && Platform.isIOS) {
+      VisionOcr.initialize().then((_) {
+        _log('VisionOcr initialized (shadow=$_kEnableVisionOcrShadow)');
+      }).catchError((e) {
+        _log('VisionOcr init failed: $e');
+      });
+    }
 
     // Pre-load device catalog, then build the elimination index
     DeviceCatalog.instance.loadFromAsset().then((_) {
@@ -512,6 +537,27 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       ocrUs = ocrWatch?.elapsedMicroseconds ?? 0;
       ocrBlocks = recognizedText.blocks.length;
       if (_disposed || !mounted) return;
+
+      // Stream α shadow mode: fire native Vision OCR on the same bytes
+      // every 30 frames. Result is logged for side-by-side comparison
+      // with ML Kit output. Fire-and-forget; latency is recorded in the
+      // log line so we can sanity-check it isn't slower than ML Kit.
+      // No production behaviour change — match decisions still go via
+      // ML Kit's recognizedText.
+      if (_kEnableVisionOcrShadow &&
+          kDebugMode &&
+          Platform.isIOS &&
+          _frameCount % 30 == 0 &&
+          image.planes.isNotEmpty) {
+        _runVisionShadow(
+          bytes: image.planes[0].bytes,
+          width: image.width,
+          height: image.height,
+          bytesPerRow: image.planes[0].bytesPerRow,
+          orientation: _camera?.sensorOrientation ?? 0,
+          mlkitBlockCount: ocrBlocks,
+        );
+      }
 
       // Update live scan status for user feedback
       if (recognizedText.blocks.isEmpty) {
@@ -844,6 +890,44 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         bytesPerRow: image.planes.first.bytesPerRow,
       ),
     );
+  }
+
+  /// Stream α shadow-mode helper. Fires native iOS Vision OCR on the
+  /// raw camera bytes, logs the result side-by-side with ML Kit's count.
+  /// Fire-and-forget — does not block the frame loop and does not affect
+  /// match decisions. Pure data-gathering for the A/B comparison.
+  void _runVisionShadow({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int bytesPerRow,
+    required int orientation,
+    required int mlkitBlockCount,
+  }) {
+    final stopwatch = Stopwatch()..start();
+    VisionOcr.recognizeText(
+      bytes: bytes,
+      width: width,
+      height: height,
+      bytesPerRow: bytesPerRow,
+      orientation: orientation,
+    ).then((blocks) {
+      if (_disposed) return;
+      final ms = stopwatch.elapsedMilliseconds;
+      if (blocks.isEmpty) {
+        _log('VISION shadow frame=$_frameCount blocks=0 '
+            'ms=$ms (mlkit=$mlkitBlockCount)');
+      } else {
+        final preview = blocks
+            .take(5)
+            .map((b) => '"${b.text}"(${b.confidence.toStringAsFixed(2)})')
+            .join(' ');
+        _log('VISION shadow frame=$_frameCount blocks=${blocks.length} '
+            'ms=$ms (mlkit=$mlkitBlockCount) $preview');
+      }
+    }).catchError((e) {
+      if (!_disposed) _log('VISION shadow error: $e');
+    });
   }
 
   /// Decode the BGRA bytes we just handed to ML Kit into a ui.Image for

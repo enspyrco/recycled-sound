@@ -51,3 +51,4 @@ flutter:
     - assets/device_catalog.json
     - assets/brand_classifier.tflite
     - assets/brand_classifier_labels.json
+    - assets/custom_words.json

@@ -46,7 +46,11 @@ class MainActivity : FlutterActivity() {
             "physicalMemoryGB" to physicalMemoryBytes() / 1_073_741_824.0,
             "uptime" to (android.os.SystemClock.elapsedRealtime() / 1000.0),
             "hasLidar" to false,
-            "hasNeuralEngine" to (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1),
+            // Android exposes no honest NPU probe — NNAPI presence (API 27+)
+            // doesn't imply hardware acceleration; the API silently falls
+            // back to CPU on devices without an NPU. Returning null lets the
+            // Dart UI omit the row rather than render a confident lie.
+            "hasNeuralEngine" to null,
             "batteryTemperatureC" to battery.first,
             "batteryVoltageMv" to battery.second,
             "socModel" to (if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null),

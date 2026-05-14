@@ -35,7 +35,23 @@ class _ThermalGaugeState extends State<ThermalGauge>
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 850),
-    )..repeat(reverse: true);
+    );
+    if (widget.coolDownNeeded) _pulse.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant ThermalGauge old) {
+    super.didUpdateWidget(old);
+    // Run the pulse only while cooldown is needed — otherwise the controller
+    // ticks at 60Hz on a screen designed to be lightweight, which is exactly
+    // the cosmetic-feature-eats-frame-budget anti-pattern the project's
+    // CLAUDE.md frame-budget governance bans.
+    if (widget.coolDownNeeded && !_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    } else if (!widget.coolDownNeeded && _pulse.isAnimating) {
+      _pulse.stop();
+      _pulse.value = 1.0;
+    }
   }
 
   @override

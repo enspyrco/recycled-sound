@@ -1,3 +1,4 @@
+import ARKit
 import Flutter
 import UIKit
 
@@ -69,21 +70,13 @@ class DeviceTelemetryPlugin: NSObject {
     }
   }
 
-  /// LiDAR is iOS 14+ only. Probe ARWorldTrackingConfiguration without
-  /// activating ARKit. Wrapped in availability guard so iOS 13 builds compile.
+  /// LiDAR is iOS 13.4+ only via the `.mesh` scene reconstruction option.
+  /// Direct typed call — `arkit_plugin` is already a pubspec dep so ARKit
+  /// is in the link graph; the previous Objective-C runtime reflection
+  /// dance was a holdover from an earlier "avoid hard dep" mistake.
   private static func hasLidar() -> Bool {
-    if #available(iOS 14.0, *) {
-      // ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) is
-      // the canonical LiDAR probe. We import ARKit lazily via Objective-C
-      // runtime to avoid a hard dep at module-load time.
-      guard let arClass = NSClassFromString("ARWorldTrackingConfiguration") as? NSObject.Type else {
-        return false
-      }
-      let selector = NSSelectorFromString("supportsSceneReconstruction:")
-      guard arClass.responds(to: selector) else { return false }
-      // .mesh = 1 in ARSceneReconstruction enum
-      let result = arClass.perform(selector, with: 1)
-      return (result?.takeUnretainedValue() as? Bool) ?? false
+    if #available(iOS 13.4, *) {
+      return ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
     }
     return false
   }

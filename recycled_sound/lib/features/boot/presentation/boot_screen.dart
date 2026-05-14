@@ -13,6 +13,8 @@ import '../../../core/widgets/thermal_gauge.dart';
 /// rather than a static splash.
 ///
 /// Auto-advances to `/` after [_holdDuration]. Tap anywhere to skip.
+/// Advancement happens regardless of Firebase outcome — failure becomes a
+/// visible "FB FAIL" tag in the footer rather than an infinite-await trap.
 class BootScreen extends StatefulWidget {
   const BootScreen({super.key});
 
@@ -29,19 +31,22 @@ class _BootScreenState extends State<BootScreen> {
   Timer? _advance;
   Timer? _refresh;
   int _revealed = 0;
-  bool _firebaseReady = false;
+  BootstrapStatus _bootstrap = const BootstrapPending();
 
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+    _start();
   }
 
-  Future<void> _bootstrap() async {
-    // Kick the firebase-ready watcher in parallel with the telemetry read.
-    unawaited(AppBootstrap.ready.then((_) {
+  Future<void> _start() async {
+    // Watch the bootstrap outcome so the footer can show real state.
+    unawaited(AppBootstrap.done.then((status) {
       if (!mounted) return;
-      setState(() => _firebaseReady = true);
+      setState(() => _bootstrap = status);
+      if (status is BootstrapFailed) {
+        debugPrint('AppBootstrap failed: ${status.error}\n${status.stackTrace}');
+      }
     }));
 
     try {
@@ -64,10 +69,12 @@ class _BootScreenState extends State<BootScreen> {
     _advance = Timer(_holdDuration, _tryGo);
   }
 
-  /// Wait until both the hold has elapsed AND firebase finished init —
-  /// otherwise downstream screens that hit Firestore at frame zero crash.
+  /// Wait for bootstrap resolution (success OR failure) before advancing —
+  /// downstream screens are degradable but the boot screen shouldn't render
+  /// the home shell mid-init. Failure proceeds anyway with a visible
+  /// degraded-mode tag; better than infinite-await.
   Future<void> _tryGo() async {
-    await AppBootstrap.ready;
+    await AppBootstrap.done;
     _go();
   }
 
@@ -85,9 +92,9 @@ class _BootScreenState extends State<BootScreen> {
     context.go('/');
   }
 
-  /// Tap-to-skip: still waits on firebase before navigating.
+  /// Tap-to-skip: still waits on bootstrap (success or fail) before navigating.
   Future<void> _onTap() async {
-    await AppBootstrap.ready;
+    await AppBootstrap.done;
     _go();
   }
 
@@ -245,7 +252,7 @@ class _BootScreenState extends State<BootScreen> {
         color: const Color(0xFF111827),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: t.coolDownNeeded
+          color: t.thermalState.coolDownNeeded
               ? const Color(0xFFEF4444)
               : const Color(0xFF1F2937),
         ),
@@ -253,39 +260,49 @@ class _BootScreenState extends State<BootScreen> {
       child: ThermalGauge(
         load: t.thermalLoad,
         label: 'THERMAL LOAD',
-        subLabel: '${t.thermalState.toUpperCase()} · ${t.thermalEstCelsius}',
-        coolDownNeeded: t.coolDownNeeded,
+        subLabel:
+            '${t.thermalState.label} · ${t.thermalState.estimatedCelsiusBand}',
+        coolDownNeeded: t.thermalState.coolDownNeeded,
       ),
     );
   }
 
+  /// Footer reflects the actual bootstrap outcome — success, failure, or
+  /// still-pending — and never lies "OK" for a failed init.
   Widget _buildFooter(DeviceTelemetry? t) {
-    final ready = t != null && _firebaseReady;
-    final waitingFor = t == null
-        ? 'reading sensors…'
-        : !_firebaseReady
-            ? 'connecting to firebase…'
-            : 'tap to continue';
+    final (text, badge, badgeColor) = switch ((t, _bootstrap)) {
+      (null, _) => ('reading sensors…', null, null),
+      (_, BootstrapPending()) => ('connecting to firebase…', null, null),
+      (_, BootstrapReady()) =>
+        ('tap to continue', 'OK', const Color(0xFF10B981)),
+      (_, BootstrapFailed()) => (
+          'firebase init failed — tap to continue offline',
+          'FB FAIL',
+          const Color(0xFFEF4444)
+        ),
+    };
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          waitingFor,
-          style: const TextStyle(
-            fontFamily: 'Menlo',
-            fontSize: 10,
-            color: Color(0xFF6B7280),
-            letterSpacing: 1.2,
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontFamily: 'Menlo',
+              fontSize: 10,
+              color: Color(0xFF6B7280),
+              letterSpacing: 1.2,
+            ),
           ),
         ),
-        if (ready)
-          const Text(
-            'OK',
+        if (badge != null)
+          Text(
+            badge,
             style: TextStyle(
               fontFamily: 'Menlo',
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF10B981),
+              color: badgeColor,
               letterSpacing: 1.2,
             ),
           ),

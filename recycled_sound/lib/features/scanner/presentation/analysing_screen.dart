@@ -102,6 +102,10 @@ class _AnalysingScreenState extends ConsumerState<AnalysingScreen>
       context.pushReplacement('/scan/confirm');
     } catch (e) {
       if (!mounted) return;
+      // Stop the telemetry ticker once we're in error state — the screen is
+      // quiescent post-error and there's no reason to keep polling.
+      _thermalTicker?.cancel();
+      _thermalTicker = null;
       setState(() => _error = e.toString());
     }
   }
@@ -111,6 +115,10 @@ class _AnalysingScreenState extends ConsumerState<AnalysingScreen>
       _error = null;
       _stepIndex = 0;
     });
+    _thermalTicker ??= Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _refreshTelemetry(),
+    );
     _startScan();
   }
 
@@ -173,8 +181,8 @@ class _AnalysingScreenState extends ConsumerState<AnalysingScreen>
             load: _telemetry!.thermalLoad,
             label: 'THERMAL LOAD',
             subLabel:
-                '${_telemetry!.thermalState.toUpperCase()} · ${_telemetry!.thermalEstCelsius}',
-            coolDownNeeded: _telemetry!.coolDownNeeded,
+                '${_telemetry!.thermalState.label} · ${_telemetry!.thermalState.estimatedCelsiusBand}',
+            coolDownNeeded: _telemetry!.thermalState.coolDownNeeded,
           ),
           const SizedBox(height: 24),
         ],

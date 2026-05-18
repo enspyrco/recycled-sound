@@ -1,36 +1,64 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/rs_card.dart';
 import '../../../core/widgets/rs_chip.dart';
 import '../../../core/widgets/rs_spec_row.dart';
 import '../data/models/device.dart';
+import '../providers/device_providers.dart';
 
-/// Device detail screen (Screen 2C) — full spec view for a single device.
-class DeviceDetailScreen extends StatelessWidget {
+/// Device detail screen — live stream of a single `incoming/{id}` doc.
+class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({super.key, required this.deviceId});
 
   final String deviceId;
 
   @override
-  Widget build(BuildContext context) {
-    // In MVP, look up from mock data. Will be a Firestore stream later.
-    final device = Device.mockDevices().firstWhere(
-      (d) => d.id == deviceId,
-      orElse: () => const Device(id: '0', brand: 'Unknown', model: 'Unknown'),
-    );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(incomingDeviceByIdProvider(deviceId));
 
+    return async.when(
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Scaffold(
+        appBar: AppBar(title: const Text('Device')),
+        body: Center(child: Text('Failed to load: $e')),
+      ),
+      data: (device) {
+        if (device == null) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Device')),
+            body: const Center(child: Text('Device not found.')),
+          );
+        }
+        return _DetailView(device: device);
+      },
+    );
+  }
+}
+
+class _DetailView extends StatelessWidget {
+  const _DetailView({required this.device});
+
+  final Device device;
+
+  RsChipVariant _qaVariant(String status) => switch (status) {
+        'passed' => RsChipVariant.success,
+        'failed' => RsChipVariant.error,
+        _ => RsChipVariant.warning,
+      };
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('${device.brand} ${device.model}'),
         actions: [
           RsChip(
             label: device.qaStatus.replaceAll('_', ' ').toUpperCase(),
-            variant: device.qaStatus == 'passed'
-                ? RsChipVariant.success
-                : device.qaStatus == 'failed'
-                    ? RsChipVariant.error
-                    : RsChipVariant.warning,
+            variant: _qaVariant(device.qaStatus),
           ),
           const SizedBox(width: 16),
         ],

@@ -1,4 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// 26-field device model matching the Recycled Sound device register.
+///
+/// Persisted in two Firestore collections with identical shape:
+/// - `incoming/{id}` — scanner write-target, pre-triage
+/// - `devices/{id}` — audiologist-curated register, post-triage
 class Device {
   const Device({
     required this.id,
@@ -63,6 +69,86 @@ class Device {
   final List<String> photos;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  /// Build a [Device] from a Firestore document snapshot.
+  ///
+  /// The document `id` is taken from the snapshot, not from a `id` field
+  /// in the data — Firestore document IDs are the canonical identifier.
+  factory Device.fromFirestore(DocumentSnapshot<Map<String, dynamic>> snap) {
+    final d = snap.data() ?? const <String, dynamic>{};
+    DateTime? ts(dynamic v) => v is Timestamp ? v.toDate() : null;
+    return Device(
+      id: snap.id,
+      brand: (d['brand'] as String?) ?? '',
+      model: (d['model'] as String?) ?? '',
+      type: (d['type'] as String?) ?? '',
+      year: (d['year'] as String?) ?? '',
+      serialLeft: (d['serialLeft'] as String?) ?? '',
+      serialRight: (d['serialRight'] as String?) ?? '',
+      batterySize: (d['batterySize'] as String?) ?? '',
+      domeType: (d['domeType'] as String?) ?? '',
+      waxFilter: (d['waxFilter'] as String?) ?? '',
+      receiver: (d['receiver'] as String?) ?? '',
+      programmingInterface: (d['programmingInterface'] as String?) ?? '',
+      techLevel: (d['techLevel'] as String?) ?? '',
+      gainRange: (d['gainRange'] as String?) ?? '',
+      fittingRange: (d['fittingRange'] as String?) ?? '',
+      remoteFT: (d['remoteFT'] as bool?) ?? false,
+      appCompatible: (d['appCompatible'] as bool?) ?? false,
+      auracast: (d['auracast'] as bool?) ?? false,
+      chargerType: (d['chargerType'] as String?) ?? '',
+      accessories:
+          ((d['accessories'] as List?)?.cast<String>()) ?? const <String>[],
+      condition: (d['condition'] as String?) ?? '',
+      qaStatus: (d['qaStatus'] as String?) ?? 'pending_qa',
+      status: (d['status'] as String?) ?? 'donated',
+      servicingNotes: (d['servicingNotes'] as String?) ?? '',
+      servicingCost: ((d['servicingCost'] as num?) ?? 0).toDouble(),
+      donorId: (d['donorId'] as String?) ?? '',
+      scanId: (d['scanId'] as String?) ?? '',
+      photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
+      createdAt: ts(d['createdAt']),
+      updatedAt: ts(d['updatedAt']),
+    );
+  }
+
+  /// Serialize for Firestore. Excludes [id] (lives in the doc key) and uses
+  /// [FieldValue.serverTimestamp] for `createdAt`/`updatedAt` when null —
+  /// callers that update existing docs should pass the existing values.
+  Map<String, dynamic> toFirestore({String? createdBy}) => {
+        'brand': brand,
+        'model': model,
+        'type': type,
+        'year': year,
+        'serialLeft': serialLeft,
+        'serialRight': serialRight,
+        'batterySize': batterySize,
+        'domeType': domeType,
+        'waxFilter': waxFilter,
+        'receiver': receiver,
+        'programmingInterface': programmingInterface,
+        'techLevel': techLevel,
+        'gainRange': gainRange,
+        'fittingRange': fittingRange,
+        'remoteFT': remoteFT,
+        'appCompatible': appCompatible,
+        'auracast': auracast,
+        'chargerType': chargerType,
+        'accessories': accessories,
+        'condition': condition,
+        'qaStatus': qaStatus,
+        'status': status,
+        'servicingNotes': servicingNotes,
+        'servicingCost': servicingCost,
+        'donorId': donorId,
+        'scanId': scanId,
+        'photos': photos,
+        'createdBy': ?createdBy,
+        'createdAt': createdAt == null
+            ? FieldValue.serverTimestamp()
+            : Timestamp.fromDate(createdAt!),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
 
   /// Sample devices from the existing register for MVP display.
   static List<Device> mockDevices() => [

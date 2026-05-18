@@ -27,11 +27,30 @@ service cloud.firestore {
       }
     }
 
-    // Devices: anyone authed can read, audiologists + admins can write
+    // Incoming: scanner write-target. Any authed user can create (intake
+    // volunteers, donors). Creator can read/update their own draft;
+    // audiologists/admins can read all and promote into devices/ via triage.
+    match /incoming/{incomingId} {
+      allow read: if request.auth != null && (
+        resource.data.createdBy == request.auth.uid ||
+        request.auth.token.role in ['audiologist', 'admin']
+      );
+      allow create: if request.auth != null &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow update: if request.auth != null && (
+        resource.data.createdBy == request.auth.uid ||
+        request.auth.token.role in ['audiologist', 'admin']
+      );
+      allow delete: if request.auth != null &&
+        request.auth.token.role in ['audiologist', 'admin'];
+    }
+
+    // Devices: post-triage register. Anyone authed can read; only
+    // audiologists/admins write (creation happens via triage promotion
+    // from incoming/, not direct scanner write).
     match /devices/{deviceId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null &&
+      allow write: if request.auth != null &&
         request.auth.token.role in ['audiologist', 'admin'];
     }
 

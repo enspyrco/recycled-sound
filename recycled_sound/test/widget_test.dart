@@ -9,11 +9,25 @@ import 'package:recycled_sound/core/widgets/rs_card.dart';
 import 'package:recycled_sound/core/widgets/rs_chip.dart';
 import 'package:recycled_sound/core/widgets/rs_progress_dots.dart';
 import 'package:recycled_sound/core/widgets/rs_spec_row.dart';
+import 'package:recycled_sound/features/devices/data/models/device.dart';
+import 'package:recycled_sound/features/devices/providers/device_providers.dart';
 
 void main() {
   // Tests skip the diagnostic boot screen — its periodic timers would loop
   // pumpAndSettle until timeout. Production keeps `/boot` as initial route.
+  //
+  // Firestore-backed providers are overridden with a fixed in-memory stream so
+  // tests don't need a Firebase emulator. Anything depending on
+  // [incomingDevicesStreamProvider] sees the same canned list each test.
   Widget testApp() => ProviderScope(
+        overrides: [
+          incomingDevicesStreamProvider.overrideWith(
+            (_) => Stream.value(const [
+              Device(id: '1', brand: 'Phonak', model: 'Audéo P90'),
+              Device(id: '2', brand: 'Oticon', model: 'More 1'),
+            ]),
+          ),
+        ],
         child: RecycledSoundApp(router: createAppRouter(initialLocation: '/')),
       );
 

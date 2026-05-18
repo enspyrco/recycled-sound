@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../devices/data/models/device.dart';
+import '../../devices/providers/device_providers.dart';
 import '../data/brand_colour_palettes.dart';
 import '../data/colour_classifier.dart';
 import '../data/models/scan_result.dart';
@@ -196,22 +198,58 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
             _BottomAction(
               isComplete: result.isComplete,
               completionAnimation: _completionController,
-              onConfirm: () {
-                HapticFeedback.mediumImpact();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Device added to register (pending QA)'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-                context.go('/devices');
-              },
+              onConfirm: () => _confirmAndPersist(result),
               onScanAnother: () => context.pushReplacement('/scan'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Persist the confirmed scan to `incoming/`, then route to the register.
+  ///
+  /// The scanner already uploaded the source image to `scans/{uid}/…`, so we
+  /// reference that download URL in `photos[]` rather than re-uploading.
+  /// A future PR (audiologist triage) copies the image into the curated
+  /// `incoming/{id}/photos/` path on promotion.
+  Future<void> _confirmAndPersist(ScanResult result) async {
+    HapticFeedback.mediumImpact();
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+    final repo = ref.read(incomingDeviceRepositoryProvider);
+
+    final device = Device(
+      id: '',
+      brand: result.brand.value,
+      model: result.model.value,
+      type: result.type.value,
+      year: result.year.value,
+      batterySize: result.batterySize.value,
+      domeType: result.domeType.value,
+      waxFilter: result.waxFilter.value,
+      receiver: result.receiver.value,
+      scanId: result.scanId,
+      photos: [if (result.imageUrl.isNotEmpty) result.imageUrl],
+    );
+
+    try {
+      final id = await repo.createIncoming(device);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Added to register · $id'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      router.go('/devices');
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to save: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   /// Battery size field — null if empty (triggers amber pulse).

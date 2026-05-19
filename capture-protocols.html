@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photo capture protocols - Recycled Sound</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background: #f6f3eb; color: #222; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 6px; }
+  h2.section { font-size: 22px; margin-top: 48px; margin-bottom: 4px; color: #1f6f43; border-bottom: 2px solid #1f6f43; padding-bottom: 6px; }
+  .sub { color: #666; margin-bottom: 8px; }
+  .order { background: #fff; border-radius: 12px; padding: 14px 18px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 14px; }
+  .order b { color: #1f6f43; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+  .panel { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .panel.text-only { font-size: 13px; line-height: 1.5; }
+  .panel.text-only ul { padding-left: 18px; margin: 6px 0; }
+  .panel.text-only li { margin-bottom: 4px; }
+  .pn { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; }
+  .pn h2 { font-size: 15px; margin: 0; color: #1f6f43; }
+  .pn .shot-nums { font-size: 11px; font-family: monospace; }
+  .pn .shot-nums .l { color: #1e6cb3; font-weight: 600; }
+  .pn .shot-nums .r { color: #c0392b; font-weight: 600; }
+  .pn .shot-nums .sep { color: #aaa; padding: 0 4px; }
+  .pn .shot-nums .h { color: #6a4a8a; font-weight: 600; }
+  .panel .label { font-size: 12px; color: #666; margin-bottom: 12px; }
+  .views { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .view-row { border: 1px solid #eee; border-radius: 8px; padding: 8px; }
+  .view-row .vtitle { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  svg { display: block; width: 100%; height: auto; }
+  .note { font-size: 11px; color: #555; margin-top: 8px; padding: 6px 8px; background: #fdf6e3; border-left: 3px solid #d4a017; border-radius: 4px; }
+  .grip-note { font-size: 11px; color: #555; margin-top: 8px; padding: 6px 8px; background: #eef5fa; border-left: 3px solid #1e6cb3; border-radius: 4px; }
+  nav.toc { position: sticky; top: 0; background: #f6f3eb; padding: 12px 0; margin: 0 -8px 16px; border-bottom: 1px solid #ddd; z-index: 10; }
+  nav.toc a { color: #1f6f43; text-decoration: none; font-weight: 600; padding: 6px 10px; margin-right: 4px; border-radius: 6px; font-size: 13px; }
+  nav.toc a:hover { background: #1f6f43; color: #fff; }
+  nav.toc .winner { background: #1f6f43; color: #fff; }
+  nav.toc .winner:hover { background: #15532f; }
+  .winner-callout { background: #eaf5ee; border-left: 4px solid #1f6f43; padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 14px; }
+  .winner-callout b { color: #1f6f43; }
+  hr.sep { margin: 40px 0; border: none; border-top: 1px solid #ddd; }
+</style>
+</head>
+<body>
+
+<h1>Photo capture protocols</h1>
+<p class="sub">Reference shoot guides for the Recycled Sound device register. Four protocols by device shape and use case.</p>
+
+<nav class="toc">
+  <a href="#bte-handheld" class="winner">1. BTE hand-held (recommended)</a>
+  <a href="#bte-table">2. BTE table rig</a>
+  <a href="#non-bte">3. Non-BTE shapes</a>
+  <a href="#accessories">4. Accessories</a>
+</nav>
+
+<!-- ============================================================ -->
+<!-- 1. BTE HAND-HELD NATURALS                                    -->
+<!-- ============================================================ -->
+<h2 class="section" id="bte-handheld">1. BTE hand-held naturals</h2>
+<p class="sub">Hand-shot photos of BTE aids held naturally between thumb and index finger. This is the recommended protocol for training data: natural hand-shots match the deployment distribution better than calibrated rig shots.</p>
+
+<div class="winner-callout">
+  <b>Why this beats the table rig:</b> in real testing, hand-shot naturals outperformed calibrated table-rig capture for training data. The scanner sees devices in volunteers' hands, not on tables - so train it that way. 22/22 naturals worked; ~3 scaled-protocol attempts failed.
+</div>
+
+<div class="order">
+  <b>Shoot order:</b> L aid first (all 6 orientations 1-6), then R aid (7-12). 10-12 shots per aid total, with slight angle variation between shots - natural variation helps the model.
+  <br>
+  <b>Anatomical naming:</b> medial = inner (touches head, label-side); lateral = outer; anterior = front edge; posterior = back edge; superior = top end (hook); inferior = bottom end (shell base).
+  <br>
+  <b>Lighting:</b> indoor diffuse light. Avoid harsh shadows from overhead bulbs - face a window or use a soft lamp.
+  <br>
+  <b>Framing:</b> phone camera at arm's length, device fills roughly 60% of frame. Hand is the scale reference - no card needed.
+</div>
+
+<div class="panels">
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="rim2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d8d4d0"/>
+      <stop offset="100%" stop-color="#7a7670"/>
+    </linearGradient>
+    <linearGradient id="inset-lat2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9c8775"/>
+      <stop offset="100%" stop-color="#6d5e4f"/>
+    </linearGradient>
+    <linearGradient id="inset-med2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a89378"/>
+      <stop offset="100%" stop-color="#7a6650"/>
+    </linearGradient>
+    <radialGradient id="cross2" cx="0.4" cy="0.3">
+      <stop offset="0%" stop-color="#c8c4c0"/>
+      <stop offset="100%" stop-color="#7e7a76"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8c9a8"/>
+      <stop offset="100%" stop-color="#c89a72"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<!-- 1: Lateral up (handheld) -->
+<div class="panel">
+  <div class="pn"><h2>1. Lateral face up</h2><span class="shot-nums"><span class="l">L: shots 1-2</span><span class="sep">.</span><span class="r">R: shots 7-8</span></span></div>
+  <div class="label">Outer shell faces camera. No label visible.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Hand grip view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="#f0ece4"/>
+        <!-- Thumb + finger pinch from below -->
+        <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
+        <!-- Device held -->
+        <path d="M 110 60 C 118 55 135 55 145 61 C 170 73 190 100 192 135 C 190 152 172 158 150 154 C 128 148 110 130 104 105 C 100 85 102 70 110 60 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
+        <path d="M 128 75 C 140 73 158 80 170 97 C 182 115 182 135 170 148 C 155 154 136 150 124 134 C 116 117 118 93 128 75 Z" fill="url(#inset-lat2)" opacity="0.9"/>
+        <path d="M 113 61 Q 108 35 128 27 Q 152 23 162 41" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+      </svg>
+    </div>
+  </div>
+  <div class="grip-note">Pinch shell at posterior edge; lateral face points up at camera.</div>
+</div>
+
+<!-- 2: Medial up (handheld) -->
+<div class="panel">
+  <div class="pn"><h2>2. Medial face up</h2><span class="shot-nums"><span class="l">L: shots 3-4</span><span class="sep">.</span><span class="r">R: shots 9-10</span></span></div>
+  <div class="label">Inner side faces camera. <b>Label visible.</b> Most important shot.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Hand grip view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="#f0ece4"/>
+        <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
+        <g transform="translate(296,0) scale(-1,1)">
+          <path d="M 110 60 C 118 55 135 55 145 61 C 170 73 190 100 192 135 C 190 152 172 158 150 154 C 128 148 110 130 104 105 C 100 85 102 70 110 60 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
+          <path d="M 128 75 C 140 73 158 80 170 97 C 182 115 182 135 170 148 C 155 154 136 150 124 134 C 116 117 118 93 128 75 Z" fill="url(#inset-med2)" opacity="0.9"/>
+          <path d="M 113 61 Q 108 35 128 27 Q 152 23 162 41" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        </g>
+        <!-- Label patch -->
+        <rect x="120" y="100" width="46" height="24" fill="#5d4d3a" rx="2"/>
+        <rect x="125" y="106" width="34" height="2" fill="#e0d6c8" opacity="0.7"/>
+        <rect x="125" y="112" width="26" height="2" fill="#e0d6c8" opacity="0.7"/>
+        <rect x="125" y="118" width="22" height="1.5" fill="#e0d6c8" opacity="0.6"/>
+      </svg>
+    </div>
+  </div>
+  <div class="grip-note">Flip so label faces up. This shot drives OCR brand/model detection - get it sharp.</div>
+</div>
+
+<!-- 3: Anterior edge up (handheld) -->
+<div class="panel">
+  <div class="pn"><h2>3. Anterior edge up</h2><span class="shot-nums"><span class="l">L: shot 5</span><span class="sep">.</span><span class="r">R: shot 11</span></span></div>
+  <div class="label">Front edge of device faces camera. Hook curves away.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Hand grip view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="#f0ece4"/>
+        <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
+        <path d="M 128 55 Q 125 35 142 28 Q 160 26 166 40" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.9"/>
+        <path d="M 130 58 C 123 70 120 105 128 140 C 134 156 150 156 156 145 C 162 110 158 75 146 58 C 142 54 134 54 130 58 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
+      </svg>
+    </div>
+  </div>
+  <div class="grip-note">Hold by superior/inferior ends so front edge is exposed.</div>
+</div>
+
+<!-- 4: Posterior edge up (handheld) -->
+<div class="panel">
+  <div class="pn"><h2>4. Posterior edge up</h2><span class="shot-nums"><span class="l">L: shot 6</span><span class="sep">.</span><span class="r">R: shot 12</span></span></div>
+  <div class="label">Back edge faces camera. Hook hidden behind body.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Hand grip view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="#f0ece4"/>
+        <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
+        <path d="M 130 45 C 123 60 120 105 128 140 C 134 156 150 156 156 145 C 162 105 158 60 146 45 C 142 41 134 41 130 45 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
+      </svg>
+    </div>
+  </div>
+  <div class="grip-note">Same grip as #3 but rotated 180 degrees. No hook silhouette.</div>
+</div>
+
+<!-- 5: Superior end up (handheld) -->
+<div class="panel">
+  <div class="pn"><h2>5. Superior end up</h2><span class="shot-nums"><span class="l">L: shot 5b</span><span class="sep">.</span><span class="r">R: shot 11b</span></span></div>
+  <div class="label">Hook end points at camera. Top-down silhouette of body.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Hand grip view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="#f0ece4"/>
+        <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
+        <ellipse cx="150" cy="100" rx="36" ry="24" fill="url(#cross2)" stroke="#5e5a55" stroke-width="1"/>
+        <path d="M 148 80 Q 144 62 160 55 Q 178 52 184 66" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+      </svg>
+    </div>
+  </div>
+  <div class="grip-note">Hold by inferior end; aim camera down the long axis from the hook side.</div>
+</div>
+
+<!-- 6: Inferior end up (handheld) -->
+<div class="panel">
+  <div class="pn"><h2>6. Inferior end up</h2><span class="shot-nums"><span class="l">L: shot 6b</span><span class="sep">.</span><span class="r">R: shot 12b</span></span></div>
+  <div class="label">Battery-door end points at camera. Bottom cross-section.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Hand grip view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="#f0ece4"/>
+        <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
+        <ellipse cx="150" cy="100" rx="38" ry="26" fill="url(#cross2)" stroke="#5e5a55" stroke-width="1"/>
+        <rect x="138" y="86" width="24" height="14" fill="none" stroke="#444" stroke-width="1.2" rx="2"/>
+        <rect x="148" y="90" width="3" height="2" fill="#333"/>
+      </svg>
+    </div>
+  </div>
+  <div class="grip-note">Hold by superior end (or hook); shoot down the long axis. Battery door visible.</div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ============================================================ -->
+<!-- 2. BTE TABLE RIG                                              -->
+<!-- ============================================================ -->
+<h2 class="section" id="bte-table">2. BTE table rig (12-shot protocol)</h2>
+<p class="sub">6 orientations x 2 aids (L then R) = 12 shots per pair. Device on the table, credit card in frame as scale reference. Camera always straight down. <i>Use this when you need calibrated reference shots - hand-held is preferred for training data.</i></p>
+
+<div class="order">
+  <b>Shoot order:</b> Always L aid first (all 6 orientations 1-6), then R aid (all 6 orientations 7-12). Same anatomical axis sequence both times.
+  <br>
+  <b>Anatomical naming:</b> medial = inner (touches head, label-side); lateral = outer; anterior = front edge; posterior = back edge; superior = top end (hook); inferior = bottom end (shell base).
+</div>
+
+<div class="panels">
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d8d4d0"/>
+      <stop offset="100%" stop-color="#7a7670"/>
+    </linearGradient>
+    <linearGradient id="inset-lat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9c8775"/>
+      <stop offset="100%" stop-color="#6d5e4f"/>
+    </linearGradient>
+    <linearGradient id="inset-med" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a89378"/>
+      <stop offset="100%" stop-color="#7a6650"/>
+    </linearGradient>
+    <radialGradient id="cross" cx="0.4" cy="0.3">
+      <stop offset="0%" stop-color="#c8c4c0"/>
+      <stop offset="100%" stop-color="#7e7a76"/>
+    </radialGradient>
+    <pattern id="wood" x="0" y="0" width="300" height="180" patternUnits="userSpaceOnUse">
+      <rect width="300" height="180" fill="#ede2cc"/>
+      <path d="M 0 30 Q 150 28 300 32" stroke="#d6c5a0" stroke-width="1" fill="none" opacity="0.5"/>
+      <path d="M 0 70 Q 150 72 300 68" stroke="#d6c5a0" stroke-width="1" fill="none" opacity="0.5"/>
+      <path d="M 0 110 Q 150 108 300 114" stroke="#d6c5a0" stroke-width="1" fill="none" opacity="0.5"/>
+      <path d="M 0 150 Q 150 152 300 148" stroke="#d6c5a0" stroke-width="1" fill="none" opacity="0.5"/>
+    </pattern>
+  </defs>
+</svg>
+
+<!-- 1: Lateral up -->
+<div class="panel">
+  <div class="pn"><h2>1. Lateral face up</h2><span class="shot-nums"><span class="l">L: shot 1</span><span class="sep">.</span><span class="r">R: shot 7</span></span></div>
+  <div class="label">Outer shell up. No label visible.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Camera view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="url(#wood)"/>
+        <path d="M 60 55 C 68 50 85 50 95 56 C 120 68 140 95 142 130 C 140 152 122 162 100 158 C 78 152 60 130 54 105 C 50 85 52 65 60 55 Z" fill="url(#rim)" stroke="#4a4641" stroke-width="1.2"/>
+        <path d="M 78 70 C 90 68 108 75 120 92 C 132 110 132 130 120 145 C 105 154 86 148 74 132 C 66 115 68 88 78 70 Z" fill="url(#inset-lat)" opacity="0.9"/>
+        <path d="M 63 56 Q 58 30 78 22 Q 102 18 112 36" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        <path d="M 63 56 Q 58 30 78 22 Q 102 18 112 36" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.5"/>
+        <rect x="68" y="60" width="9" height="2" fill="#1a1a1a" rx="1" transform="rotate(-12 72 61)"/>
+        <rect x="85" y="58" width="9" height="2" fill="#1a1a1a" rx="1" transform="rotate(-10 89 59)"/>
+        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
+        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- 2: Medial up -->
+<div class="panel">
+  <div class="pn"><h2>2. Medial face up</h2><span class="shot-nums"><span class="l">L: shot 2</span><span class="sep">.</span><span class="r">R: shot 8</span></span></div>
+  <div class="label">Inner side up. <b>Label visible.</b></div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Camera view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="url(#wood)"/>
+        <g transform="translate(146,0) scale(-1,1)">
+          <path d="M 60 55 C 68 50 85 50 95 56 C 120 68 140 95 142 130 C 140 152 122 162 100 158 C 78 152 60 130 54 105 C 50 85 52 65 60 55 Z" fill="url(#rim)" stroke="#4a4641" stroke-width="1.2"/>
+          <path d="M 78 70 C 90 68 108 75 120 92 C 132 110 132 130 120 145 C 105 154 86 148 74 132 C 66 115 68 88 78 70 Z" fill="url(#inset-med)" opacity="0.9"/>
+          <path d="M 63 56 Q 58 30 78 22 Q 102 18 112 36" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        </g>
+        <rect x="60" y="100" width="42" height="22" fill="#5d4d3a" rx="2"/>
+        <rect x="65" y="106" width="32" height="2" fill="#e0d6c8" rx="0.5" opacity="0.7"/>
+        <rect x="65" y="112" width="24" height="2" fill="#e0d6c8" rx="0.5" opacity="0.7"/>
+        <rect x="65" y="118" width="20" height="1.5" fill="#e0d6c8" rx="0.5" opacity="0.6"/>
+        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
+        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- 3: Anterior edge up -->
+<div class="panel">
+  <div class="pn"><h2>3. Anterior edge up</h2><span class="shot-nums"><span class="l">L: shot 3</span><span class="sep">.</span><span class="r">R: shot 9</span></span></div>
+  <div class="label">Device on its posterior edge. Front edge faces camera.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Camera view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="url(#wood)"/>
+        <path d="M 78 55 Q 75 35 92 28 Q 110 26 116 40" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.9"/>
+        <path d="M 80 58 C 73 70 70 105 78 140 C 84 162 100 162 106 145 C 112 110 108 75 96 58 C 92 54 84 54 80 58 Z" fill="url(#rim)" stroke="#4a4641" stroke-width="1.2"/>
+        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
+        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+      </svg>
+    </div>
+  </div>
+  <div class="note">Thin edge-on silhouette - narrow profile, hook visible curving away.</div>
+</div>
+
+<!-- 4: Posterior edge up -->
+<div class="panel">
+  <div class="pn"><h2>4. Posterior edge up</h2><span class="shot-nums"><span class="l">L: shot 4</span><span class="sep">.</span><span class="r">R: shot 10</span></span></div>
+  <div class="label">Device on its anterior edge. Back edge faces camera.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Camera view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="url(#wood)"/>
+        <path d="M 80 45 C 73 60 70 105 78 140 C 84 162 100 162 106 145 C 112 105 108 60 96 45 C 92 41 84 41 80 45 Z" fill="url(#rim)" stroke="#4a4641" stroke-width="1.2"/>
+        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
+        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+      </svg>
+    </div>
+  </div>
+  <div class="note">Same thin silhouette, hook hidden behind (no protrusion).</div>
+</div>
+
+<!-- 5: Superior end up -->
+<div class="panel">
+  <div class="pn"><h2>5. Superior end up</h2><span class="shot-nums"><span class="l">L: shot 5</span><span class="sep">.</span><span class="r">R: shot 11</span></span></div>
+  <div class="label">Device standing on inferior end. Hook attachment faces camera.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Camera view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="url(#wood)"/>
+        <ellipse cx="90" cy="100" rx="34" ry="22" fill="url(#cross)" stroke="#5e5a55" stroke-width="1"/>
+        <path d="M 88 80 Q 84 65 100 58 Q 116 55 120 68" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        <rect x="76" y="92" width="6" height="2" fill="#222" rx="0.5"/>
+        <rect x="98" y="92" width="6" height="2" fill="#222" rx="0.5"/>
+        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
+        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+      </svg>
+    </div>
+  </div>
+  <div class="note">Oval cross-section (wider than tall) with hook stub.</div>
+</div>
+
+<!-- 6: Inferior end up -->
+<div class="panel">
+  <div class="pn"><h2>6. Inferior end up</h2><span class="shot-nums"><span class="l">L: shot 6</span><span class="sep">.</span><span class="r">R: shot 12</span></span></div>
+  <div class="label">Device standing on superior end. Bottom of shell faces camera.</div>
+  <div class="views">
+    <div class="view-row">
+      <div class="vtitle">Camera view</div>
+      <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="180" fill="url(#wood)"/>
+        <ellipse cx="90" cy="100" rx="38" ry="26" fill="url(#cross)" stroke="#5e5a55" stroke-width="1"/>
+        <rect x="78" y="86" width="24" height="14" fill="none" stroke="#444" stroke-width="1.2" rx="2"/>
+        <rect x="88" y="90" width="3" height="2" fill="#333"/>
+        <text x="135" y="100" font-size="8" fill="#666">battery door</text>
+        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
+        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+      </svg>
+    </div>
+  </div>
+  <div class="note">Full cross-section showing the battery door.</div>
+</div>
+
+</div>
+
+<p style="color: #666; font-size: 13px; margin-top: 18px;"><b>Card visible in every shot.</b> Some orientations are physically awkward - BTEs don't balance well on edges or ends - just hold them with a finger and shoot whatever silhouette you can.</p>
+
+<hr class="sep">
+
+<!-- ============================================================ -->
+<!-- 3. NON-BTE SHAPES                                            -->
+<!-- ============================================================ -->
+<h2 class="section" id="non-bte">3. Non-BTE shapes - RIC, ITE, CIC, IIC</h2>
+<p class="sub">Smaller in-ear devices. Different anatomy, different shot lists. Hand-held naturals for all; plain background where possible.</p>
+
+<div class="order">
+  <b>General rules:</b> hand-held, indoor diffuse light, fill ~60% of frame. Use macro mode if your phone supports it for CIC/IIC. Coin for scale on IIC/CIC if you want a reference (optional).
+</div>
+
+<div class="panels">
+
+<!-- RIC -->
+<div class="panel text-only">
+  <div class="pn"><h2>RIC (Receiver-in-Canal)</h2><span class="shot-nums"><span class="h">9 shots per aid</span></span></div>
+  <div class="label">Looks like a BTE but with a thin wire ending in a receiver-dome that sits in the ear canal.</div>
+  <p><b>Body (BTE-style):</b> all 6 BTE orientations from the hand-held protocol above (lateral, medial, anterior, posterior, superior, inferior).</p>
+  <p><b>Receiver bud:</b></p>
+  <ul>
+    <li>Shot 7 - receiver front (looking at the dome end)</li>
+    <li>Shot 8 - receiver side profile</li>
+  </ul>
+  <p><b>Wire:</b></p>
+  <ul>
+    <li>Shot 9 - full wire path from body to receiver, laid flat</li>
+  </ul>
+  <div class="grip-note">Pinch the body to expose the wire-exit point in shot 9; keep wire from kinking.</div>
+</div>
+
+<!-- ITE -->
+<div class="panel text-only">
+  <div class="pn"><h2>ITE (In-the-Ear)</h2><span class="shot-nums"><span class="h">4 shots per aid</span></span></div>
+  <div class="label">Custom-moulded faceplate, fills the concha. No external wire.</div>
+  <ul>
+    <li>Shot 1 - faceplate up (controls, vent, mic ports visible)</li>
+    <li>Shot 2 - canal side (the side that goes into the ear, receiver port visible)</li>
+    <li>Shot 3 - lateral profile (side-on, faceplate edge-on left)</li>
+    <li>Shot 4 - posterior profile (rotated 180 degrees from #3)</li>
+  </ul>
+  <div class="grip-note">Hold by the canal end so the faceplate is unobstructed in shot 1. The faceplate is where the brand/serial usually prints.</div>
+</div>
+
+<!-- CIC -->
+<div class="panel text-only">
+  <div class="pn"><h2>CIC (Completely-in-Canal)</h2><span class="shot-nums"><span class="h">3 shots per aid</span></span></div>
+  <div class="label">Tiny, sits fully in the canal. Removal handle (clear filament) usually visible.</div>
+  <ul>
+    <li>Shot 1 - faceplate end (looking at the outer end, removal handle visible)</li>
+    <li>Shot 2 - side profile (long axis horizontal)</li>
+    <li>Shot 3 - close-up of removal handle / pull-cord</li>
+  </ul>
+  <div class="grip-note">Use macro mode if available. A coin in frame adds scale reference (optional).</div>
+</div>
+
+<!-- IIC -->
+<div class="panel text-only">
+  <div class="pn"><h2>IIC (Invisible-in-Canal)</h2><span class="shot-nums"><span class="h">2 shots per aid</span></span></div>
+  <div class="label">Deepest-fitting style. Smaller than CIC. Often no visible controls.</div>
+  <ul>
+    <li>Shot 1 - faceplate end (outer end, may show removal filament)</li>
+    <li>Shot 2 - canal end (inner end, receiver port)</li>
+  </ul>
+  <div class="grip-note">Macro mode strongly recommended. Plain matte background (paper, cloth) so the device silhouette is clean.</div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<!-- ============================================================ -->
+<!-- 4. ACCESSORIES                                               -->
+<!-- ============================================================ -->
+<h2 class="section" id="accessories">4. Accessories</h2>
+<p class="sub">Non-aid items in the register: chargers, charging cases, domes, wax filters, tubing, remote controls. Plain background, hand-held or flat.</p>
+
+<div class="order">
+  <b>General rule per accessory:</b> 2 shots - top view + side profile, on a plain background. Special cases below add shots.
+  <br>
+  <b>End of session:</b> one group shot of any matched set (e.g. charger + aid + charging cable together).
+</div>
+
+<div class="panels">
+
+<div class="panel text-only">
+  <div class="pn"><h2>Chargers (standalone)</h2><span class="shot-nums"><span class="h">2 shots</span></span></div>
+  <div class="label">Wall chargers, USB bricks, charging pads.</div>
+  <ul>
+    <li>Shot 1 - top view (logos, model markings)</li>
+    <li>Shot 2 - side profile (port, cable exit)</li>
+  </ul>
+</div>
+
+<div class="panel text-only">
+  <div class="pn"><h2>Charging cases</h2><span class="shot-nums"><span class="h">4 shots</span></span></div>
+  <div class="label">Combined charger + storage case for the aids.</div>
+  <ul>
+    <li>Shot 1 - closed, top view</li>
+    <li>Shot 2 - closed, side profile</li>
+    <li>Shot 3 - open, empty (charging contacts visible)</li>
+    <li>Shot 4 - open, with aids seated</li>
+  </ul>
+  <div class="grip-note">Keep case on a flat plain surface; camera straight down for shots 1 and 3/4.</div>
+</div>
+
+<div class="panel text-only">
+  <div class="pn"><h2>Domes</h2><span class="shot-nums"><span class="h">2 shots + scale</span></span></div>
+  <div class="label">Silicone tips for RIC/BTE receivers (open, closed, power, double).</div>
+  <ul>
+    <li>Shot 1 - top view (opening visible if vented)</li>
+    <li>Shot 2 - side profile</li>
+    <li>Include a coin in frame (10c or 20c piece) for scale - domes are tiny.</li>
+  </ul>
+</div>
+
+<div class="panel text-only">
+  <div class="pn"><h2>Wax filters</h2><span class="shot-nums"><span class="h">2 shots + scale</span></span></div>
+  <div class="label">Tiny replaceable filters that sit at the receiver outlet.</div>
+  <ul>
+    <li>Shot 1 - top view of the carrier/wheel (filters in slots)</li>
+    <li>Shot 2 - single filter close-up</li>
+    <li>Coin in frame for scale.</li>
+  </ul>
+  <div class="grip-note">Macro mode strongly recommended.</div>
+</div>
+
+<div class="panel text-only">
+  <div class="pn"><h2>Tubing</h2><span class="shot-nums"><span class="h">2 shots</span></span></div>
+  <div class="label">Slim tubes or standard tubes that connect BTE hook to ear mould.</div>
+  <ul>
+    <li>Shot 1 - laid flat, full length (note coil if pre-curved)</li>
+    <li>Shot 2 - close-up of connector end</li>
+  </ul>
+</div>
+
+<div class="panel text-only">
+  <div class="pn"><h2>Remote controls</h2><span class="shot-nums"><span class="h">2 shots</span></span></div>
+  <div class="label">Hand-held remotes that pair with aids.</div>
+  <ul>
+    <li>Shot 1 - top view (buttons, display, brand)</li>
+    <li>Shot 2 - back / battery compartment</li>
+  </ul>
+</div>
+
+<div class="panel text-only">
+  <div class="pn"><h2>Matched set group shot</h2><span class="shot-nums"><span class="h">1 shot</span></span></div>
+  <div class="label">Final shot of the session for any matched accessory + aid set.</div>
+  <ul>
+    <li>Arrange charger, cable, aids, and any included accessories on a plain background.</li>
+    <li>Top-down camera view; everything in one frame.</li>
+  </ul>
+  <div class="grip-note">This shot documents what came as a kit - useful for the donor record and the audiologist's QA check.</div>
+</div>
+
+</div>
+
+<hr class="sep">
+
+<p style="color: #666; font-size: 13px;"><b>Naming and storage:</b> raw photos go to <code>data/photos_nick_aids/&lt;DEVICE_ID&gt;/</code>. Anatomical orientation is encoded in the <code>manifest.json</code> sidecar, not the filename - that way we can re-tag without renaming files.</p>
+
+</body>
+</html>

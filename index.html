@@ -3,10 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Recycled Sound — Wireframes</title>
-  <meta http-equiv="refresh" content="0; url=wireframes/hearing-aid-scanner.html">
+  <title>Recycled Sound</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; background: #f6f3eb; color: #222; padding: 32px 24px; max-width: 760px; margin: 0 auto; line-height: 1.5; }
+    h1 { font-size: 28px; margin-bottom: 4px; color: #1f6f43; }
+    .tagline { color: #666; margin-bottom: 32px; }
+    h2 { font-size: 18px; margin-top: 32px; margin-bottom: 8px; color: #1f6f43; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+    a.card { display: block; background: #fff; border-radius: 12px; padding: 16px 18px; text-decoration: none; color: #222; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid transparent; transition: border-color 0.15s; }
+    a.card:hover { border-color: #1f6f43; }
+    a.card .title { font-weight: 600; color: #1f6f43; font-size: 15px; margin-bottom: 4px; }
+    a.card .desc { font-size: 13px; color: #555; }
+    p { font-size: 14px; }
+    a { color: #1f6f43; }
+  </style>
 </head>
 <body>
-  <p>Redirecting to <a href="wireframes/hearing-aid-scanner.html">wireframes</a>...</p>
+  <h1>Recycled Sound</h1>
+  <p class="tagline">Hearing aid reuse for refugees, asylum seekers, and low-income residents in Greater Dandenong.</p>
+
+  <h2>Wireframes</h2>
+  <div class="cards">
+    <a class="card" href="wireframes/hearing-aid-scanner.html">
+      <div class="title">App wireframes</div>
+      <div class="desc">13 screens across 4 user flows - scanner, audiologist review, donor, recipient.</div>
+    </a>
+  </div>
+
+  <h2>Photo capture protocols</h2>
+  <div class="cards">
+    <a class="card" href="capture-protocols.html">
+      <div class="title">Capture protocols for volunteers</div>
+      <div class="desc">Four shoot guides: BTE hand-held (recommended), BTE table rig, non-BTE shapes (RIC/ITE/CIC/IIC), and accessories.</div>
+    </a>
+  </div>
+
+  <h2>Policies</h2>
+  <div class="cards">
+    <a class="card" href="privacy.html">
+      <div class="title">Privacy policy</div>
+      <div class="desc">GDPR + Australian Privacy Act.</div>
+    </a>
+  </div>
+
+  <p style="margin-top: 40px; font-size: 12px; color: #888;">
+    <a href="https://github.com/nickmeinhold/recycled-sound">Source on GitHub</a>
+  </p>
 </body>
 </html>

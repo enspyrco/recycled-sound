@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:recycled_sound/core/widgets/rs_button.dart';
 import 'package:recycled_sound/features/auth/data/auth_service.dart';
-import 'package:recycled_sound/features/auth/data/models/user_profile.dart';
 import 'package:recycled_sound/features/auth/data/user_profile_repository.dart';
 import 'package:recycled_sound/features/auth/presentation/login_screen.dart';
 import 'package:recycled_sound/features/auth/presentation/signup_screen.dart';

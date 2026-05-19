@@ -3,10 +3,36 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can read/write their own profile
+    // Users can read all profiles (needed for join lookups) but write only
+    // their own. Role is NOT self-mutable past creation — escalation to
+    // audiologist/admin requires a separate write from an existing admin.
     match /users/{uid} {
+      function selfAssignableRoles() {
+        return ['donor', 'recipient'];
+      }
+      function isCallerSelf() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function isElevated() {
+        return request.auth != null &&
+          request.auth.token.role in ['audiologist', 'admin'];
+      }
+      function userEditableFields() {
+        return ['email', 'displayName'];
+      }
+      function roleUnchanged() {
+        return request.resource.data.role == resource.data.role;
+      }
+
       allow read: if request.auth != null;
-      allow write: if request.auth.uid == uid;
+      allow create: if isCallerSelf() &&
+        request.resource.data.role in selfAssignableRoles();
+      // Self may update profile fields but not role; admins may update role.
+      allow update: if (isCallerSelf() && roleUnchanged() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(userEditableFields())) ||
+        isElevated();
+      allow delete: if isElevated();
     }
 
     // Scans: creator can read/write, audiologists + admins can read all

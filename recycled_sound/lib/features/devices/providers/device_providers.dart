@@ -28,3 +28,21 @@ final incomingDeviceByIdProvider =
     StreamProvider.family<Device?, String>((ref, id) {
   return ref.watch(incomingDeviceRepositoryProvider).watchIncomingById(id);
 });
+
+/// Audiologist/admin queue — every incoming doc, newest first. Returns
+/// permission-denied if the caller doesn't have an elevated role; the UI
+/// should branch on the user's role claim before subscribing.
+final allIncomingDevicesProvider = StreamProvider<List<Device>>((ref) {
+  return ref.watch(incomingDeviceRepositoryProvider).watchAllIncoming();
+});
+
+/// Curated device register, post-triage. Readable by any authed user.
+final allDevicesProvider = StreamProvider<List<Device>>((ref) {
+  return ref.watch(incomingDeviceRepositoryProvider).watchAllDevices();
+});
+
+/// Single curated device by id.
+final deviceByIdProvider =
+    StreamProvider.family<Device?, String>((ref, id) {
+  return ref.watch(incomingDeviceRepositoryProvider).watchDeviceById(id);
+});

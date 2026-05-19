@@ -1,48 +1,70 @@
-import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/devices/presentation/device_detail_screen.dart';
-import '../../features/devices/presentation/device_list_screen.dart';
+import '../../features/admin/presentation/admin_shell.dart';
+import '../../features/admin/presentation/device_register_screen.dart';
+import '../../features/admin/presentation/incoming_queue_screen.dart';
+import '../../features/admin/presentation/placeholder_admin_screen.dart';
+import '../../features/auth/presentation/login_screen.dart';
+import '../../features/auth/presentation/signup_screen.dart';
 
 /// Web-target router.
 ///
-/// Deliberately excludes scanner routes — the scanner pipeline depends on
-/// tflite_flutter (dart:ffi) and ML Kit (camera), neither of which compile
-/// on the web target. The web app is admin-shaped: review the register,
-/// manage matching, surface the impact dashboard. Scanner is mobile-only.
-final webRouter = GoRouter(
-  initialLocation: '/devices',
-  routes: [
-    GoRoute(
-      path: '/',
-      redirect: (_, _) => '/devices',
-    ),
-    GoRoute(
-      path: '/devices',
-      builder: (context, state) => const _WebShell(child: DeviceListScreen()),
-    ),
-    GoRoute(
-      path: '/devices/:id',
-      builder: (context, state) {
-        final id = state.pathParameters['id']!;
-        return _WebShell(child: DeviceDetailScreen(deviceId: id));
+/// Excludes scanner routes — the scanner depends on tflite_flutter
+/// (`dart:ffi`) and ML Kit (camera), neither web-compatible. The web app is
+/// admin-shaped: review the register, manage matching, surface impact.
+///
+/// Auth guard: anyone may visit /login and /signup; everything else
+/// requires a signed-in user (anonymous OR authenticated). The Firestore
+/// rules enforce role-based filtering on top, so an anonymous visitor
+/// won't see other people's incoming docs — they'll see an empty list.
+GoRouter buildWebRouter({String initialLocation = '/incoming'}) => GoRouter(
+      initialLocation: initialLocation,
+      redirect: (context, state) {
+        final loc = state.matchedLocation;
+        final isPublic = loc == '/login' || loc == '/signup';
+        final signedIn = FirebaseAuth.instance.currentUser != null;
+        if (!signedIn && !isPublic) return '/login';
+        if (signedIn && isPublic) return '/incoming';
+        return null;
       },
-    ),
-  ],
-);
-
-/// Minimal admin shell — sidebar nav goes here in PR D. For PR C the
-/// device list IS the entire admin experience, so the shell is just a
-/// branded app bar.
-class _WebShell extends StatelessWidget {
-  const _WebShell({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: child,
+      routes: [
+        GoRoute(path: '/', redirect: (_, _) => '/incoming'),
+        GoRoute(
+          path: '/incoming',
+          builder: (context, state) => const IncomingQueueScreen(),
+        ),
+        GoRoute(
+          path: '/devices',
+          builder: (context, state) => const DeviceRegisterScreen(),
+        ),
+        GoRoute(
+          path: '/matching',
+          builder: (context, state) => const PlaceholderAdminScreen(
+            section: AdminSection.matching,
+            title: 'Matching',
+            tagline:
+                'Recipient applications matched to ready devices land here. Approve, message, ship.',
+          ),
+        ),
+        GoRoute(
+          path: '/users',
+          builder: (context, state) => const PlaceholderAdminScreen(
+            section: AdminSection.users,
+            title: 'Users',
+            tagline:
+                'Donor, recipient, and audiologist accounts. Role grants happen here.',
+          ),
+        ),
+        GoRoute(
+          path: '/login',
+          builder: (context, state) => const LoginScreen(),
+        ),
+        GoRoute(
+          path: '/signup',
+          builder: (context, state) => const SignupScreen(),
+        ),
+      ],
     );
-  }
-}
+
+final webRouter = buildWebRouter();

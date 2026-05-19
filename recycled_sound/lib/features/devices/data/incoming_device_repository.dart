@@ -95,8 +95,8 @@ class IncomingDeviceRepository {
   /// The `.where('createdBy', isEqualTo: uid)` clause is REQUIRED — Firestore
   /// rules are not post-filters. A non-admin query without this predicate is
   /// rejected at the rules layer even for documents the user is allowed to
-  /// read individually. Audiologist/admin "review queue" queries belong in a
-  /// separate method that is gated on role-aware paths.
+  /// read individually. Audiologist/admin "review queue" queries use
+  /// [watchAllIncoming] instead.
   Stream<List<Device>> watchMyIncoming() {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return const Stream.empty();
@@ -107,9 +107,54 @@ class IncomingDeviceRepository {
         .map((q) => q.docs.map(Device.fromFirestore).toList());
   }
 
+  /// Stream of every incoming record, newest first. Only allowed at the
+  /// rules layer for users with `auth.token.role in [audiologist, admin]`.
+  /// Calling this without the role returns permission-denied — callers
+  /// should branch on the user's profile/claim before subscribing.
+  Stream<List<Device>> watchAllIncoming() => _col
+      .orderBy('createdAt', descending: true)
+      .snapshots()
+      .map((q) => q.docs.map(Device.fromFirestore).toList());
+
+  /// Triage promotion: copy an incoming doc into `devices/{id}` (with
+  /// `qaStatus` flipped to passed) and delete the original. Runs as a
+  /// batched write so the two sides land atomically.
+  ///
+  /// Only audiologists/admins have write access to `devices/`; the rule
+  /// layer rejects this call for any other caller.
+  Future<void> promoteToDevice(String incomingId) async {
+    final src = await _col.doc(incomingId).get();
+    if (!src.exists) {
+      throw StateError('No incoming/$incomingId to promote');
+    }
+    final data = Map<String, dynamic>.from(src.data() ?? const {});
+    data['qaStatus'] = QaStatus.passed.wire;
+    data['updatedAt'] = FieldValue.serverTimestamp();
+    final batch = _firestore.batch();
+    batch.set(_firestore.collection('devices').doc(incomingId), data);
+    batch.delete(_col.doc(incomingId));
+    await batch.commit();
+  }
+
   /// Stream of a single incoming record. Emits `null` if the doc doesn't
   /// exist (e.g. promoted into `devices/` and deleted, or never written).
   Stream<Device?> watchIncomingById(String id) => _col
+      .doc(id)
+      .snapshots()
+      .map((s) => s.exists ? Device.fromFirestore(s) : null);
+
+  CollectionReference<Map<String, dynamic>> get _devicesCol =>
+      _firestore.collection('devices');
+
+  /// Live stream of curated devices (post-triage register). Any authed
+  /// user can read; only audiologists/admins write.
+  Stream<List<Device>> watchAllDevices() => _devicesCol
+      .orderBy('createdAt', descending: true)
+      .snapshots()
+      .map((q) => q.docs.map(Device.fromFirestore).toList());
+
+  /// Stream of a single curated device by id.
+  Stream<Device?> watchDeviceById(String id) => _devicesCol
       .doc(id)
       .snapshots()
       .map((s) => s.exists ? Device.fromFirestore(s) : null);

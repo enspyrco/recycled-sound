@@ -114,4 +114,83 @@ void main() {
       expect(d, isNull);
     });
   });
+
+  group('watchAllIncoming', () {
+    test('emits every doc regardless of createdBy', () async {
+      await firestore.collection('incoming').doc('a').set({
+        'brand': 'A',
+        'createdBy': 'u1',
+        'createdAt': DateTime.utc(2026, 1, 1),
+      });
+      await firestore.collection('incoming').doc('b').set({
+        'brand': 'B',
+        'createdBy': 'u2',
+        'createdAt': DateTime.utc(2026, 2, 1),
+      });
+      final list = await repo.watchAllIncoming().first;
+      expect(list, hasLength(2));
+    });
+  });
+
+  group('promoteToDevice', () {
+    test('copies incoming/{id} -> devices/{id} with qaStatus=passed '
+        'and deletes the source', () async {
+      await firestore.collection('incoming').doc('p1').set({
+        'brand': 'Oticon',
+        'model': 'More 1',
+        'createdBy': 'u1',
+        'qaStatus': 'pending_qa',
+      });
+
+      await repo.promoteToDevice('p1');
+
+      final src = await firestore.collection('incoming').doc('p1').get();
+      expect(src.exists, isFalse, reason: 'incoming source should be deleted');
+
+      final dst = await firestore.collection('devices').doc('p1').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!['brand'], 'Oticon');
+      expect(dst.data()!['model'], 'More 1');
+      expect(dst.data()!['qaStatus'], 'passed',
+          reason: 'promotion flips qaStatus to passed');
+    });
+
+    test('throws StateError when no such incoming doc', () async {
+      expect(() => repo.promoteToDevice('does-not-exist'),
+          throwsA(isA<StateError>()));
+    });
+  });
+
+  group('watchAllDevices', () {
+    test('emits curated devices newest first', () async {
+      await firestore.collection('devices').doc('d1').set({
+        'brand': 'Phonak',
+        'createdAt': DateTime.utc(2026, 1, 1),
+      });
+      await firestore.collection('devices').doc('d2').set({
+        'brand': 'Oticon',
+        'createdAt': DateTime.utc(2026, 6, 1),
+      });
+      final list = await repo.watchAllDevices().first;
+      expect(list, hasLength(2));
+      expect(list.first.id, 'd2');
+    });
+  });
+
+  group('watchDeviceById', () {
+    test('emits curated device when present', () async {
+      await firestore.collection('devices').doc('d1').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+      });
+      final d = await repo.watchDeviceById('d1').first;
+      expect(d, isNotNull);
+      expect(d!.brand, 'Phonak');
+    });
+
+    test('emits null when missing', () async {
+      final d = await repo.watchDeviceById('nope').first;
+      expect(d, isNull);
+    });
+  });
 }

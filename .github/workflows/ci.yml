@@ -164,3 +164,40 @@ jobs:
             --token "$FIREBASE_TOKEN"
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+  # Auto-deploy the TypeScript Cloud Functions (the "vision" codebase) on
+  # every merge to main. Same merged-but-undeployed gap as deploy-rules, one
+  # tier over: syncRoleClaim (PR #35) and other functions live in git but
+  # don't fire in production until deployed. Scoped to functions:vision so it
+  # never touches the Python CLIP codebase (functions-clip), which needs torch
+  # and a separate runtime. firebase's predeploy hook runs the TS build.
+  #
+  # Gated on test passing (which includes the Cloud Functions build check).
+  # Only fires on push to main.
+  deploy-functions:
+    needs: [test, rules-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Deploy Cloud Functions (vision codebase)
+        run: |
+          firebase deploy \
+            --only functions:vision \
+            --project recycled-sound-app \
+            --non-interactive \
+            --token "$FIREBASE_TOKEN"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

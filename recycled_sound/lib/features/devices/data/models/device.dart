@@ -48,6 +48,114 @@ enum DeviceStatus {
       };
 }
 
+/// An as-yet-unpersisted device — the scanner's confirmation output before it
+/// has a Firestore document id.
+///
+/// This is the "boundary between two truths" made unrepresentable: a device
+/// the audiologist has confirmed but that has *no* persisted identity yet. The
+/// old code modelled this with `Device(id: '')`, an empty-string sentinel that
+/// lies at the type level — every `Device` in the system claims to have an id,
+/// but that one didn't. [DraftDevice] has no `id` field at all, so the
+/// "draft without identity" state is expressible only through this type, and
+/// the only way to obtain a [Device] from it is [toDevice], which *requires*
+/// the id Firestore allocated.
+///
+/// The field set mirrors [Device] minus `id`, `createdAt`, and `updatedAt`
+/// (the persistence layer owns those).
+class DraftDevice {
+  const DraftDevice({
+    required this.brand,
+    required this.model,
+    this.type = '',
+    this.year = '',
+    this.serialLeft = '',
+    this.serialRight = '',
+    this.batterySize = '',
+    this.domeType = '',
+    this.waxFilter = '',
+    this.receiver = '',
+    this.programmingInterface = '',
+    this.techLevel = '',
+    this.gainRange = '',
+    this.fittingRange = '',
+    this.remoteFT = false,
+    this.appCompatible = false,
+    this.auracast = false,
+    this.chargerType = '',
+    this.accessories = const [],
+    this.condition = '',
+    this.qaStatus = QaStatus.pendingQa,
+    this.status = DeviceStatus.donated,
+    this.servicingNotes = '',
+    this.servicingCost = 0,
+    this.donorId = '',
+    this.scanId = '',
+    this.photos = const [],
+  });
+
+  final String brand;
+  final String model;
+  final String type;
+  final String year;
+  final String serialLeft;
+  final String serialRight;
+  final String batterySize;
+  final String domeType;
+  final String waxFilter;
+  final String receiver;
+  final String programmingInterface;
+  final String techLevel;
+  final String gainRange;
+  final String fittingRange;
+  final bool remoteFT;
+  final bool appCompatible;
+  final bool auracast;
+  final String chargerType;
+  final List<String> accessories;
+  final String condition;
+  final QaStatus qaStatus;
+  final DeviceStatus status;
+  final String servicingNotes;
+  final double servicingCost;
+  final String donorId;
+  final String scanId;
+  final List<String> photos;
+
+  /// Promote this draft to a persisted [Device], pinning the Firestore-issued
+  /// [id]. Optionally overrides [photos] (used after photo upload resolves the
+  /// final gs:// URIs). This is the one-way DraftDevice→Device boundary.
+  Device toDevice({required String id, List<String>? photos}) => Device(
+        id: id,
+        brand: brand,
+        model: model,
+        type: type,
+        year: year,
+        serialLeft: serialLeft,
+        serialRight: serialRight,
+        batterySize: batterySize,
+        domeType: domeType,
+        waxFilter: waxFilter,
+        receiver: receiver,
+        programmingInterface: programmingInterface,
+        techLevel: techLevel,
+        gainRange: gainRange,
+        fittingRange: fittingRange,
+        remoteFT: remoteFT,
+        appCompatible: appCompatible,
+        auracast: auracast,
+        chargerType: chargerType,
+        accessories: accessories,
+        condition: condition,
+        qaStatus: qaStatus,
+        status: status,
+        servicingNotes: servicingNotes,
+        servicingCost: servicingCost,
+        donorId: donorId,
+        scanId: scanId,
+        photos: photos ?? this.photos,
+      );
+}
+
 /// 26-field device model matching the Recycled Sound device register.
 ///
 /// Persisted in two Firestore collections with identical shape:

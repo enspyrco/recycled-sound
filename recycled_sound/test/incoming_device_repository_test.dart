@@ -1,9 +1,66 @@
+import 'dart:io';
+
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:recycled_sound/features/devices/data/incoming_device_repository.dart';
 import 'package:recycled_sound/features/devices/data/models/device.dart';
+
+/// Storage mock whose `putFile` throws once the [failAfter]-th upload starts,
+/// to exercise the partial-upload rollback path. The non-failing refs delegate
+/// to a real [MockFirebaseStorage] so successful uploads land in (and can be
+/// compensated-deleted from) [storedFilesMap].
+class _FailingStorage extends MockFirebaseStorage {
+  _FailingStorage({required this.failAfter});
+
+  /// Throw on the upload at this 0-based index (and beyond).
+  final int failAfter;
+  int _uploads = 0;
+
+  @override
+  Reference ref([String? path]) {
+    final delegate = super.ref(path);
+    return _FailingReference(delegate, () => _uploads++ >= failAfter);
+  }
+}
+
+/// Decorator that forwards every [Reference] member to [_delegate] except
+/// [putFile], which throws when [_shouldFail] returns true.
+class _FailingReference implements Reference {
+  _FailingReference(this._delegate, this._shouldFail);
+
+  final Reference _delegate;
+  final bool Function() _shouldFail;
+
+  @override
+  UploadTask putFile(File file, [SettableMetadata? metadata]) {
+    if (_shouldFail()) {
+      throw FirebaseException(plugin: 'storage', code: 'unauthorized');
+    }
+    return _delegate.putFile(file, metadata);
+  }
+
+  @override
+  String get bucket => _delegate.bucket;
+
+  @override
+  String get fullPath => _delegate.fullPath;
+
+  @override
+  Future<void> delete() => _delegate.delete();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      reflectInvocation(_delegate, invocation);
+}
+
+/// Forward an [Invocation] to [target]. Kept tiny — the repo only touches
+/// putFile/bucket/fullPath/delete, all overridden above; this catches anything
+/// the mock framework probes.
+dynamic reflectInvocation(Object target, Invocation invocation) =>
+    (target as dynamic).noSuchMethod(invocation);
 
 void main() {
   late FakeFirebaseFirestore firestore;
@@ -27,8 +84,8 @@ void main() {
 
   group('createIncoming', () {
     test('writes doc with brand+model and stamps createdBy', () async {
-      const device = Device(id: '', brand: 'Phonak', model: 'P90');
-      final id = await repo.createIncoming(device);
+      const draft = DraftDevice(brand: 'Phonak', model: 'P90');
+      final id = await repo.createIncoming(draft);
 
       expect(id, isNotEmpty);
       final snap = await firestore.collection('incoming').doc(id).get();
@@ -46,9 +103,90 @@ void main() {
         auth: MockFirebaseAuth(signedIn: false),
       );
       expect(
-        () => unauth.createIncoming(const Device(id: '', brand: 'X', model: 'Y')),
+        () => unauth.createIncoming(const DraftDevice(brand: 'X', model: 'Y')),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('promotes draft to Device and merges uploaded photo URIs', () async {
+      // No localPhotoPaths here — MockFirebaseStorage's putFile is a no-op on
+      // the in-memory store, so we exercise the draft.toDevice boundary and
+      // confirm pre-existing draft photos survive.
+      const draft = DraftDevice(
+        brand: 'Oticon',
+        model: 'More 1',
+        type: 'BTE',
+        batterySize: '13',
+        photos: ['gs://existing/scan.jpg'],
+      );
+      final id = await repo.createIncoming(draft);
+
+      final data = (await firestore.collection('incoming').doc(id).get()).data()!;
+      expect(data['type'], 'BTE');
+      expect(data['batterySize'], '13');
+      expect(data['photos'], contains('gs://existing/scan.jpg'));
+      // The id lives in the doc key, never in the payload.
+      expect(data.containsKey('id'), isFalse);
+    });
+
+    test('rolls back uploaded photos and writes no doc when an upload fails',
+        () async {
+      // Two photos; the SECOND upload throws. The first will have landed in
+      // storage and must be deleted by the compensating cleanup.
+      final tmp = await Directory.systemTemp.createTemp('rollback_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      final a = File('${tmp.path}/a.jpg')..writeAsBytesSync([1, 2, 3]);
+      final b = File('${tmp.path}/b.jpg')..writeAsBytesSync([4, 5, 6]);
+
+      final failing = _FailingStorage(failAfter: 1);
+      final failingRepo = IncomingDeviceRepository(
+        firestore: firestore,
+        storage: failing,
+        auth: auth,
+      );
+
+      await expectLater(
+        failingRepo.createIncoming(
+          const DraftDevice(brand: 'Phonak', model: 'P90'),
+          localPhotoPaths: [a.path, b.path],
+        ),
+        throwsA(isA<FirebaseException>()),
+      );
+
+      // No orphaned Storage objects.
+      expect(failing.storedFilesMap, isEmpty,
+          reason: 'the one successful upload must be compensated-deleted');
+      // No half-written Firestore record.
+      final docs = await firestore.collection('incoming').get();
+      expect(docs.docs, isEmpty,
+          reason: 'doc write never runs when uploads fail');
+    });
+  });
+
+  group('PersistErrorKind.fromCode', () {
+    test('maps known Firestore/Storage codes to typed kinds', () {
+      expect(PersistErrorKind.fromCode('permission-denied'),
+          PersistErrorKind.permissionDenied);
+      expect(PersistErrorKind.fromCode('unavailable'),
+          PersistErrorKind.unavailable);
+      expect(PersistErrorKind.fromCode('deadline-exceeded'),
+          PersistErrorKind.unavailable);
+      expect(PersistErrorKind.fromCode('network-request-failed'),
+          PersistErrorKind.unavailable);
+      expect(PersistErrorKind.fromCode('resource-exhausted'),
+          PersistErrorKind.resourceExhausted);
+    });
+
+    test('falls through to unknown for unrecognised codes', () {
+      expect(PersistErrorKind.fromCode('not-a-real-code'),
+          PersistErrorKind.unknown);
+      expect(PersistErrorKind.fromCode(''), PersistErrorKind.unknown);
+    });
+
+    test('every kind has non-empty user copy', () {
+      for (final kind in PersistErrorKind.values) {
+        expect(kind.userMessage, isNotEmpty);
+      }
     });
   });
 

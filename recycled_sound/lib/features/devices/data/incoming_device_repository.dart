@@ -6,6 +6,48 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import 'models/device.dart';
 
+/// Known [FirebaseException] states a persist call can surface to the UI.
+///
+/// Mirrors the `AuthErrorKind` pattern from the email/password auth PR: parse
+/// the open-ended `code` String into a closed, typed set at this boundary so
+/// the widget switches over variants instead of inlining brittle string
+/// comparisons. New Firestore error codes fall through to [unknown] rather
+/// than crashing the volunteer's intake flow.
+enum PersistErrorKind {
+  /// Rules rejected the write — e.g. `createdBy` didn't match the caller, or
+  /// the caller lacks the required role.
+  permissionDenied,
+
+  /// Backend unreachable / client offline.
+  unavailable,
+
+  /// Quota or rate limit hit.
+  resourceExhausted,
+
+  /// Anything else (or a non-Firebase error).
+  unknown;
+
+  /// Parse the `code` field of a [FirebaseException] into a typed kind.
+  static PersistErrorKind fromCode(String code) => switch (code) {
+        'permission-denied' => permissionDenied,
+        'unavailable' || 'deadline-exceeded' || 'network-request-failed' =>
+          unavailable,
+        'resource-exhausted' => resourceExhausted,
+        _ => unknown,
+      };
+
+  /// Human-readable copy for clinic volunteers. Kept short — surfaces in a
+  /// snackbar.
+  String get userMessage => switch (this) {
+        permissionDenied =>
+          "You don't have access to add this device. Ask an admin.",
+        unavailable => "You're offline. Reconnect and try again.",
+        resourceExhausted =>
+          'The register is at capacity right now. Contact an admin.',
+        unknown => 'Failed to save. Please try again.',
+      };
+}
+
 /// Read/write access to the `incoming/` collection — the scanner's write-target
 /// for newly-identified devices awaiting audiologist triage.
 ///
@@ -28,15 +70,27 @@ class IncomingDeviceRepository {
   CollectionReference<Map<String, dynamic>> get _col =>
       _firestore.collection('incoming');
 
-  /// Create a new incoming device record.
+  /// Create a new incoming device record from an unpersisted [DraftDevice].
   ///
   /// Allocates a fresh doc id, uploads each local photo to Storage under
   /// `incoming/{id}/photos/`, then writes the Firestore document with the
-  /// resulting gs:// URIs merged into [device]'s `photos` field.
+  /// resulting gs:// URIs merged into the draft's `photos` field. Returns the
+  /// new document id.
   ///
-  /// Returns the new document id.
+  /// Takes a [DraftDevice], not a [Device]: the caller has no id to give
+  /// (Firestore allocates it here), and the DraftDevice→Device promotion via
+  /// [DraftDevice.toDevice] is also where `createdBy` gets pinned for the
+  /// rules layer. Modelling the pre-persist state with a sentinel `id: ''`
+  /// would let a never-persisted record masquerade as a real one.
+  ///
+  /// **Atomicity.** Photo uploads run in parallel (one slow network round-trip
+  /// instead of N serial ones). If *any* upload fails, or the Firestore write
+  /// that follows fails, every object that *did* upload is deleted before the
+  /// error propagates — so a partial failure leaves no orphaned Storage
+  /// objects and no half-written record. The happy path is unchanged: upload
+  /// all photos, then one `set`.
   Future<String> createIncoming(
-    Device device, {
+    DraftDevice draft, {
     List<String> localPhotoPaths = const [],
   }) async {
     final uid = _auth.currentUser?.uid;
@@ -47,47 +101,46 @@ class IncomingDeviceRepository {
     final ref = _col.doc();
     final id = ref.id;
 
-    final photoUris = <String>[];
-    for (var i = 0; i < localPhotoPaths.length; i++) {
-      final local = localPhotoPaths[i];
-      final storageRef = _storage.ref('incoming/$id/photos/$i.jpg');
-      await storageRef.putFile(File(local));
-      photoUris.add('gs://${storageRef.bucket}/${storageRef.fullPath}');
+    // Storage refs we successfully wrote — kept so we can compensate
+    // (delete them) if a later step throws, closing the orphaned-object window.
+    final uploaded = <Reference>[];
+    try {
+      // Parallel uploads: ~max(upload latency) instead of sum of all.
+      final uploads = <Future<String>>[];
+      for (var i = 0; i < localPhotoPaths.length; i++) {
+        final storageRef = _storage.ref('incoming/$id/photos/$i.jpg');
+        uploads.add(_uploadPhoto(storageRef, localPhotoPaths[i], uploaded));
+      }
+      final photoUris = await Future.wait(uploads);
+
+      final device = draft.toDevice(
+        id: id,
+        photos: [...draft.photos, ...photoUris],
+      );
+      await ref.set(device.toFirestore(createdBy: uid));
+      return id;
+    } catch (_) {
+      // Compensating cleanup. Best-effort: a delete failing here must not mask
+      // the original error, so each is caught and swallowed individually.
+      await Future.wait(
+        uploaded.map(
+          (r) => r.delete().catchError((_) {}),
+        ),
+      );
+      rethrow;
     }
+  }
 
-    final withPhotos = Device(
-      id: id,
-      brand: device.brand,
-      model: device.model,
-      type: device.type,
-      year: device.year,
-      serialLeft: device.serialLeft,
-      serialRight: device.serialRight,
-      batterySize: device.batterySize,
-      domeType: device.domeType,
-      waxFilter: device.waxFilter,
-      receiver: device.receiver,
-      programmingInterface: device.programmingInterface,
-      techLevel: device.techLevel,
-      gainRange: device.gainRange,
-      fittingRange: device.fittingRange,
-      remoteFT: device.remoteFT,
-      appCompatible: device.appCompatible,
-      auracast: device.auracast,
-      chargerType: device.chargerType,
-      accessories: device.accessories,
-      condition: device.condition,
-      qaStatus: device.qaStatus,
-      status: device.status,
-      servicingNotes: device.servicingNotes,
-      servicingCost: device.servicingCost,
-      donorId: device.donorId,
-      scanId: device.scanId,
-      photos: [...device.photos, ...photoUris],
-    );
-
-    await ref.set(withPhotos.toFirestore(createdBy: uid));
-    return id;
+  /// Upload one local file and record its [Reference] in [uploaded] (so a
+  /// later failure can compensate by deleting it). Returns the gs:// URI.
+  Future<String> _uploadPhoto(
+    Reference storageRef,
+    String localPath,
+    List<Reference> uploaded,
+  ) async {
+    await storageRef.putFile(File(localPath));
+    uploaded.add(storageRef);
+    return 'gs://${storageRef.bucket}/${storageRef.fullPath}';
   }
 
   /// Stream of incoming records created by the current user, newest first.

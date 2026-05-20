@@ -28,13 +28,29 @@ enum PersistErrorKind {
   unknown;
 
   /// Parse the `code` field of a [FirebaseException] into a typed kind.
-  static PersistErrorKind fromCode(String code) => switch (code) {
-        'permission-denied' => permissionDenied,
-        'unavailable' || 'deadline-exceeded' || 'network-request-failed' =>
-          unavailable,
-        'resource-exhausted' => resourceExhausted,
-        _ => unknown,
-      };
+  ///
+  /// Covers BOTH surfaces this persist call touches: Firestore codes
+  /// (`permission-denied`, `unavailable`, …) and Cloud Storage codes, which
+  /// arrive plugin-prefixed (`storage/unauthorized`, `storage/quota-exceeded`,
+  /// `storage/retry-limit-exceeded`). The prefix is stripped first so both
+  /// spellings land on the same kind — a Storage upload failure inside
+  /// `createIncoming` is just as much a "persist failure" as a Firestore write.
+  static PersistErrorKind fromCode(String code) {
+    // Normalize `storage/unauthorized` → `unauthorized` etc. Firestore codes
+    // are unprefixed, so this is a no-op for them.
+    final bare = code.contains('/') ? code.split('/').last : code;
+    return switch (bare) {
+      'permission-denied' || 'unauthorized' || 'unauthenticated' =>
+        permissionDenied,
+      'unavailable' ||
+      'deadline-exceeded' ||
+      'network-request-failed' ||
+      'retry-limit-exceeded' =>
+        unavailable,
+      'resource-exhausted' || 'quota-exceeded' => resourceExhausted,
+      _ => unknown,
+    };
+  }
 
   /// Human-readable copy for clinic volunteers. Kept short — surfaces in a
   /// snackbar.

@@ -164,7 +164,7 @@ void main() {
   });
 
   group('PersistErrorKind.fromCode', () {
-    test('maps known Firestore/Storage codes to typed kinds', () {
+    test('maps known Firestore codes to typed kinds', () {
       expect(PersistErrorKind.fromCode('permission-denied'),
           PersistErrorKind.permissionDenied);
       expect(PersistErrorKind.fromCode('unavailable'),
@@ -174,6 +174,19 @@ void main() {
       expect(PersistErrorKind.fromCode('network-request-failed'),
           PersistErrorKind.unavailable);
       expect(PersistErrorKind.fromCode('resource-exhausted'),
+          PersistErrorKind.resourceExhausted);
+    });
+
+    test('maps plugin-prefixed Cloud Storage codes to the same kinds', () {
+      // createIncoming uploads photos, so a Storage failure surfaces here too —
+      // and Storage codes arrive `storage/`-prefixed.
+      expect(PersistErrorKind.fromCode('storage/unauthorized'),
+          PersistErrorKind.permissionDenied);
+      expect(PersistErrorKind.fromCode('storage/unauthenticated'),
+          PersistErrorKind.permissionDenied);
+      expect(PersistErrorKind.fromCode('storage/retry-limit-exceeded'),
+          PersistErrorKind.unavailable);
+      expect(PersistErrorKind.fromCode('storage/quota-exceeded'),
           PersistErrorKind.resourceExhausted);
     });
 

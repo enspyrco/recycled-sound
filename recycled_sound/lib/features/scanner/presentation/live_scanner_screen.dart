@@ -1805,7 +1805,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
               left: 8,
               child: IconButton(
                 icon: const Icon(Icons.arrow_back, color: AppColors.white),
-                onPressed: () => context.pop(),
+                onPressed: () => context.go('/'),
               ),
             ),
 

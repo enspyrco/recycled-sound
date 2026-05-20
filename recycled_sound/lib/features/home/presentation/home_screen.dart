@@ -50,7 +50,7 @@ class HomeScreen extends StatelessWidget {
                     RsButton(
                       label: 'Open Scanner',
                       icon: Icons.camera_alt_outlined,
-                      onPressed: () => context.push('/scan'),
+                      onPressed: () => context.go('/scan'),
                     ),
                   ],
                 ),
@@ -93,7 +93,7 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.assignment_turned_in,
                 title: '7-Field Confirmation',
                 subtitle: 'Preview with mock scan data',
-                onTap: () => context.push('/scan/confirm'),
+                onTap: () => context.go('/scan/confirm'),
               ),
             ],
           ),

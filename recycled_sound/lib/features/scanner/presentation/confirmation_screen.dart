@@ -1,9 +1,12 @@
 // Excluded from coverage: large stateful form depending on Firestore writes + colour pickers
 // coverage:ignore-file
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../devices/data/incoming_device_repository.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -221,8 +224,10 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
 
-    final device = Device(
-      id: '',
+    // A confirmed scan has no persisted identity yet — it's a DraftDevice.
+    // Firestore allocates the id inside createIncoming, where the draft is
+    // promoted to a Device and `createdBy` is pinned for the rules layer.
+    final draft = DraftDevice(
       brand: result.brand.value,
       model: result.model.value,
       type: result.type.value,
@@ -236,7 +241,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     );
 
     try {
-      final id = await repo.createIncoming(device);
+      final id = await repo.createIncoming(draft);
       messenger.showSnackBar(
         SnackBar(
           content: Text('Added to register · $id'),
@@ -244,10 +249,19 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
         ),
       );
       router.go('/devices');
-    } catch (e) {
+    } on FirebaseException catch (e) {
+      // Discriminate by code so volunteers get actionable copy instead of a
+      // raw exception string.
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Failed to save: $e'),
+          content: Text(PersistErrorKind.fromCode(e.code).userMessage),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(PersistErrorKind.unknown.userMessage),
           backgroundColor: AppColors.error,
         ),
       );

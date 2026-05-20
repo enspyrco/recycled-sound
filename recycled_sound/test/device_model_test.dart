@@ -184,4 +184,46 @@ void main() {
       );
     });
   });
+
+  group('DraftDevice.toDevice', () {
+    test('promotes a draft to a Device, pinning the Firestore id', () {
+      const draft = DraftDevice(
+        brand: 'Oticon',
+        model: 'More 1',
+        type: 'BTE',
+        batterySize: '13',
+        qaStatus: QaStatus.pendingQa,
+        status: DeviceStatus.donated,
+        photos: ['gs://b/scan.jpg'],
+      );
+
+      final device = draft.toDevice(id: 'doc-123');
+
+      expect(device.id, 'doc-123');
+      expect(device.brand, 'Oticon');
+      expect(device.model, 'More 1');
+      expect(device.type, 'BTE');
+      expect(device.batterySize, '13');
+      expect(device.qaStatus, QaStatus.pendingQa);
+      expect(device.status, DeviceStatus.donated);
+      // photos default to the draft's when not overridden
+      expect(device.photos, ['gs://b/scan.jpg']);
+    });
+
+    test('overrides photos when given (post-upload URI merge)', () {
+      const draft = DraftDevice(
+        brand: 'Phonak',
+        model: 'P90',
+        photos: ['gs://b/scan.jpg'],
+      );
+
+      final device = draft.toDevice(
+        id: 'x',
+        photos: ['gs://b/scan.jpg', 'gs://b/incoming/x/photos/0.jpg'],
+      );
+
+      expect(device.photos, hasLength(2));
+      expect(device.photos.last, endsWith('0.jpg'));
+    });
+  });
 }

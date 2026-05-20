@@ -129,3 +129,38 @@ jobs:
       - name: Run rules tests against emulator
         working-directory: rules-tests
         run: npm run test:emu
+
+  # Auto-deploy the authorization config (Firestore rules + indexes, Storage
+  # rules) on every merge to main. Closes the merged-but-undeployed drift that
+  # caused permission-denied on every incoming/ query for 5 days: git rules
+  # said one thing, live Firebase ran the pre-PR rules.
+  #
+  # Gated on BOTH test and rules-tests passing — auto-deploying unverified
+  # rules just speeds up the boundary-crossing failure. The rules unit tests
+  # (PR #31) are the precondition that makes this deploy step safe.
+  #
+  # Only fires on push to main: PRs can't (and must not) deploy — repo secrets
+  # are unavailable to PR triggers and the rules haven't been reviewed yet.
+  deploy-rules:
+    needs: [test, rules-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Deploy Firestore rules + indexes + Storage rules
+        run: |
+          firebase deploy \
+            --only firestore:rules,firestore:indexes,storage \
+            --project recycled-sound-app \
+            --non-interactive \
+            --token "$FIREBASE_TOKEN"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

@@ -98,9 +98,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   /// Claim a fresh generation NOW (so any in-flight init is immediately stale)
   /// and append the init behind whatever camera op is already running.
+  ///
+  /// The trailing `catchError` is load-bearing: a bare `.then` chain stays
+  /// permanently rejected if ANY queued op throws (e.g. a native `dispose()`
+  /// failing mid-transition), and every later callback would then silently
+  /// never run — the camera would be dead for good. Swallowing here keeps the
+  /// queue self-healing; per-op errors are already surfaced via `_cameraError`.
   void _scheduleInit() {
     final gen = ++_initGen;
-    _cameraOp = _cameraOp.then((_) => _initCamera(gen));
+    _cameraOp = _cameraOp.then((_) => _initCamera(gen)).catchError((_) {});
   }
 
   /// Invalidate the current generation NOW, then append the teardown. The
@@ -108,7 +114,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   /// next checkpoint even before the chained teardown runs.
   void _scheduleStop() {
     _initGen++;
-    _cameraOp = _cameraOp.then((_) => _stopCamera());
+    _cameraOp = _cameraOp.then((_) => _stopCamera()).catchError((_) {});
   }
 
   Future<void> _initCamera(int gen) async {
@@ -139,7 +145,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       );
       await controller.initialize();
       if (_disposed || gen != _initGen) {
-        await controller.dispose();
+        await _safeDispose(controller);
         return;
       }
 
@@ -150,7 +156,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       // native path is unavailable (Android, older iPhones, simulator).
       final nearApplied = await FocusControl.setNearFocus();
       if (_disposed || gen != _initGen) {
-        await controller.dispose();
+        await _safeDispose(controller);
         return;
       }
       if (!nearApplied) {
@@ -162,13 +168,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         }
         // These awaits are another background window — re-check before publish.
         if (_disposed || gen != _initGen) {
-          await controller.dispose();
+          await _safeDispose(controller);
           return;
         }
       }
 
       if (!mounted) {
-        await controller.dispose();
+        await _safeDispose(controller);
         return;
       }
       setState(() {
@@ -179,7 +185,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     } catch (e) {
       // Dispose a controller we built but never published, then surface.
       if (controller != null && controller != _controller) {
-        await controller.dispose();
+        await _safeDispose(controller);
       }
       if (_disposed || gen != _initGen) return;
       if (mounted) setState(() => _cameraError = e.toString());
@@ -197,7 +203,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     // Unmount CameraPreview BEFORE disposing the hardware, so the widget tree
     // never holds a disposed controller (an assertion crash on background).
     if (mounted) setState(() {});
-    await c.dispose();
+    await _safeDispose(c);
+  }
+
+  /// Dispose a controller, swallowing any platform error. A failed dispose is
+  /// best-effort cleanup; it must not escape and poison the [_cameraOp] queue
+  /// or surface as a spurious capture error.
+  Future<void> _safeDispose(CameraController controller) async {
+    try {
+      await controller.dispose();
+    } catch (_) {
+      // Best-effort — nothing actionable if the native release fails.
+    }
   }
 
   Future<void> _capture() async {

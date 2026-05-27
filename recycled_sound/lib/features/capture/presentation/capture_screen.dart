@@ -45,12 +45,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   bool _saving = false;
   bool _disposed = false;
 
-  /// Monotonic token that serialises camera init against teardown. Each
-  /// [_initCamera] run captures the current value; [_stopCamera] bumps it.
+  /// Camera lifecycle uses TWO guards that answer different questions:
+  ///
+  /// [_initGen] — a monotonic token answering "is my result still wanted?".
+  /// Each init captures the value live at schedule time; a teardown bumps it.
   /// An init whose token is stale after an `await` disposes its half-built
-  /// controller and bails — so an `inactive→resumed` cycle *during* init (the
-  /// first-launch permission dialog) can't leave two controllers racing.
+  /// controller and bails, so it never publishes after a background.
+  ///
+  /// [_cameraOp] — a chained future answering "is the camera free to use?".
+  /// Every init/teardown is appended to it, so they run strictly one at a
+  /// time. Without this, a resume could call `initialize()` while a superseded
+  /// init's `initialize()`/`dispose()` is still touching the native device —
+  /// a transient camera-in-use error. The token alone can't prevent that; it
+  /// only stops the stale result from being kept.
   int _initGen = 0;
+  Future<void> _cameraOp = Future<void>.value();
 
   /// Active slot the volunteer is shooting.
   int _currentIndex = 0;
@@ -65,14 +74,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initCamera();
+    _scheduleInit();
   }
 
   @override
   void dispose() {
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
-    _stopCamera();
+    _scheduleStop();
     super.dispose();
   }
 
@@ -81,30 +90,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     if (_disposed) return;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      // Tear down on background. _stopCamera is null-safe and also invalidates
-      // any init still in flight (the permission-dialog window).
-      _stopCamera();
+      _scheduleStop();
     } else if (state == AppLifecycleState.resumed) {
-      // Always rebuild on resume. _initCamera bumps the generation, so a
-      // straggling earlier init bails and only this one publishes a controller.
-      _initCamera();
+      _scheduleInit();
     }
   }
 
-  Future<void> _initCamera() async {
-    // New generation; supersede any init currently mid-flight.
+  /// Claim a fresh generation NOW (so any in-flight init is immediately stale)
+  /// and append the init behind whatever camera op is already running.
+  void _scheduleInit() {
     final gen = ++_initGen;
+    _cameraOp = _cameraOp.then((_) => _initCamera(gen));
+  }
 
-    // Serialise against an existing controller: drop it before building a new
-    // one. If a teardown/resume bumps the generation while we dispose, bail.
-    final existing = _controller;
-    if (existing != null) {
-      _controller = null;
-      _cameraReady = false;
-      if (mounted) setState(() {});
-      await existing.dispose();
-      if (_disposed || gen != _initGen) return;
-    }
+  /// Invalidate the current generation NOW, then append the teardown. The
+  /// synchronous bump means an init already awaiting sees the staleness at its
+  /// next checkpoint even before the chained teardown runs.
+  void _scheduleStop() {
+    _initGen++;
+    _cameraOp = _cameraOp.then((_) => _stopCamera());
+  }
+
+  Future<void> _initCamera(int gen) async {
+    // Superseded before we even started, or a controller is already live.
+    if (_disposed || gen != _initGen || _controller != null) return;
 
     CameraController? controller;
     try {
@@ -151,6 +160,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         } catch (_) {
           // Some devices/simulators reject focus config — non-fatal.
         }
+        // These awaits are another background window — re-check before publish.
+        if (_disposed || gen != _initGen) {
+          await controller.dispose();
+          return;
+        }
       }
 
       if (!mounted) {
@@ -173,8 +187,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   }
 
   Future<void> _stopCamera() async {
-    // Invalidate any in-flight init so it disposes its half-built controller.
-    _initGen++;
+    // Generation was already bumped synchronously by _scheduleStop; this runs
+    // serialized behind any in-flight init, so the device is free when we
+    // dispose and the next scheduled init only starts after this returns.
     final c = _controller;
     if (c == null) return;
     _controller = null;

@@ -117,9 +117,16 @@ class IncomingDeviceRepository {
   /// `scans/{uid}/` prefix, the creator can actually delete them, so a partial
   /// failure leaves no orphaned objects AND no record (the doc isn't written
   /// until all uploads succeed). The happy path: upload all, then one `set`.
+  /// [localPhotoPaths] are uploaded under positional filenames (`0.jpg`,
+  /// `1.jpg`, …) — used by the scanner, which has no slot semantics.
+  /// [namedPhotoPaths] maps a stable key (the [CaptureSlot] name) to a local
+  /// path and uploads under `{key}.jpg`. Prefer the named form when the
+  /// filename must encode *which* photo it is: a positional scheme silently
+  /// mislabels photos when an earlier slot is skipped and the list compacts.
   Future<String> createIncoming(
     DraftDevice draft, {
     List<String> localPhotoPaths = const [],
+    Map<String, String> namedPhotoPaths = const {},
   }) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) {
@@ -138,6 +145,13 @@ class IncomingDeviceRepository {
       for (var i = 0; i < localPhotoPaths.length; i++) {
         final storageRef = _storage.ref('scans/$uid/incoming/$id/$i.jpg');
         uploads.add(_uploadPhoto(storageRef, localPhotoPaths[i], uploaded));
+      }
+      // Slot-keyed uploads: the filename IS the slot identity, so a skipped
+      // slot never shifts another photo's label.
+      for (final entry in namedPhotoPaths.entries) {
+        final storageRef =
+            _storage.ref('scans/$uid/incoming/$id/${entry.key}.jpg');
+        uploads.add(_uploadPhoto(storageRef, entry.value, uploaded));
       }
       final photoUris = await Future.wait(uploads);
 
@@ -198,10 +212,12 @@ class IncomingDeviceRepository {
     });
     // Best-effort: the doc is already consistent. A failed object delete
     // (including an already-missing object) leaves at worst a sweepable
-    // orphan, never a dangling reference, so it must not fail the call.
+    // orphan, never a dangling reference, so it must not fail the call. The
+    // refFromURL parse is inside the guard too — a malformed photoRef must not
+    // escape after the array is already cleaned (the doc-first invariant).
     try {
       await _storage.refFromURL(photoRef).delete();
-    } on FirebaseException catch (_) {
+    } catch (_) {
       // Swallow — orphan cleanup is a separate concern.
     }
   }

@@ -161,6 +161,36 @@ void main() {
       expect(docs.docs, isEmpty,
           reason: 'doc write never runs when uploads fail');
     });
+
+    test('named photos upload under slot-identity filenames, not positions',
+        () async {
+      // Sparse capture: 'scale' and 'lateral' shot, 'medial' (which sits
+      // between them in slot order) skipped. The storage filename must be the
+      // slot NAME — if it were a compacted position, 'lateral' would land at
+      // index 1 and be mislabelled 'medial'. This is the regression guard.
+      final tmp = await Directory.systemTemp.createTemp('slot_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      final scale = File('${tmp.path}/scale.jpg')..writeAsBytesSync([1]);
+      final lateral = File('${tmp.path}/lateral.jpg')..writeAsBytesSync([2]);
+
+      final id = await repo.createIncoming(
+        const DraftDevice(brand: 'Phonak', model: 'P90'),
+        namedPhotoPaths: {'scale': scale.path, 'lateral': lateral.path},
+      );
+
+      final paths = storage.storedFilesMap.keys.toList();
+      expect(paths.any((p) => p.endsWith('incoming/$id/scale.jpg')), isTrue,
+          reason: 'scale photo keyed by slot name');
+      expect(paths.any((p) => p.endsWith('incoming/$id/lateral.jpg')), isTrue,
+          reason: 'lateral photo keyed by slot name, not compacted index');
+      // The compacted positional name the old scheme produced must NOT appear.
+      expect(paths.any((p) => p.endsWith('incoming/$id/1.jpg')), isFalse,
+          reason: 'no positional filenames — that was the mislabelling bug');
+
+      final data =
+          (await firestore.collection('incoming').doc(id).get()).data()!;
+      expect((data['photos'] as List).length, 2);
+    });
   });
 
   group('PersistErrorKind.fromCode', () {

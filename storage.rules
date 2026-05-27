@@ -8,7 +8,14 @@ service firebase.storage {
     // resolve in production, so capture writes here instead (pure-uid, and
     // stricter isolation than the doc-gated path).
     match /scans/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;
+      // Owner-or-elevated read. A user reads their own prefix; audiologists
+      // and admins may read any (the web triage shell renders capture photos
+      // off another user's scans/{uid}/incoming path). Role comes from the
+      // synced `role` custom claim — no cross-service firestore.get, which
+      // does not resolve here. Plain authenticated read was a cross-user leak.
+      allow read: if request.auth != null
+        && (request.auth.uid == userId
+          || request.auth.token.role in ['audiologist', 'admin']);
       // create/update carry a resource to validate (size + image type).
       allow create, update: if request.auth != null
         && request.auth.uid == userId

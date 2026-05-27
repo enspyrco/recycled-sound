@@ -20,8 +20,10 @@ import 'widgets/capture_guide_hand.dart';
 ///
 /// Steps the volunteer through [CaptureSlot.sequence], one shot per slot, then
 /// saves the set to a new `incoming/` device via
-/// [IncomingDeviceRepository.createIncoming] (which uploads the local files
-/// atomically to `incoming/{id}/photos/{idx}.jpg`).
+/// [IncomingDeviceRepository.createIncoming], which uploads each local file
+/// atomically to `scans/{uid}/incoming/{id}/{slotName}.jpg`. The filename is
+/// the *slot identity*, not a position — so skipping a slot can never shift
+/// another slot's photo onto the wrong anatomical label.
 ///
 /// Camera lifecycle mirrors the scanner: a [WidgetsBindingObserver] tears the
 /// controller down on background and rebuilds on resume, so the camera never
@@ -69,11 +71,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null || !_controller!.value.isInitialized) return;
-    if (state == AppLifecycleState.inactive) {
-      _stopCamera();
+    if (_disposed) return;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      // Tear the camera down on background — but only if one is live.
+      if (_controller != null) _stopCamera();
     } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+      // Rebuild on resume when we have no live controller. The previous guard
+      // returned early whenever _controller was null — which is *exactly* the
+      // post-background state _stopCamera() leaves us in — so the camera never
+      // recovered after a lock screen, notification, or the permission dialog.
+      if (_controller == null) _initCamera();
     }
   }
 
@@ -165,15 +173,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   void _retakeCurrent() => setState(() => _captured.remove(_currentIndex));
 
-  /// Ordered local paths for upload — slot order, skipping un-shot slots.
-  List<String> get _orderedPaths => [
+  /// Captured local paths keyed by slot *identity* (the enum name), not
+  /// position. The storage filename is derived from this key, so a skipped
+  /// slot can never shift another slot's photo onto the wrong label.
+  Map<String, String> get _capturedBySlot => {
         for (var i = 0; i < CaptureSlot.sequence.length; i++)
-          if (_captured[i] != null) _captured[i]!,
-      ];
+          if (_captured[i] != null) CaptureSlot.sequence[i].name: _captured[i]!,
+      };
 
   Future<void> _save() async {
-    final paths = _orderedPaths;
-    if (paths.isEmpty || _saving) return;
+    final slotPhotos = _capturedBySlot;
+    if (slotPhotos.isEmpty || _saving) return;
     setState(() => _saving = true);
 
     final messenger = ScaffoldMessenger.of(context);
@@ -185,10 +195,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     const draft = DraftDevice(brand: '', model: '');
 
     try {
-      final id = await repo.createIncoming(draft, localPhotoPaths: paths);
+      final id = await repo.createIncoming(draft, namedPhotoPaths: slotPhotos);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Saved ${paths.length} photos · $id'),
+          content: Text('Saved ${slotPhotos.length} photos · $id'),
           backgroundColor: AppColors.success,
         ),
       );

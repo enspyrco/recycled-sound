@@ -1,8 +1,10 @@
 /// The fixed sequence of photos a volunteer captures for one hearing aid.
 ///
-/// Order is meaningful: the slot's index becomes its Storage index
-/// (`incoming/{id}/photos/{index}.jpg`), so the position encodes which face
-/// was shot without needing per-photo metadata on the model (v1).
+/// The slot's [name] becomes its Storage filename
+/// (`scans/{uid}/incoming/{id}/{name}.jpg`), so the *identity* of the photo —
+/// which face was shot — is encoded by the filename, not by list position.
+/// (An earlier position-based scheme silently mislabelled photos whenever a
+/// slot was skipped and the upload list compacted.)
 ///
 /// The face vocabulary (medial/lateral/anterior/posterior/superior/inferior)
 /// is the audiology-aligned anatomical taxonomy used across the project, so

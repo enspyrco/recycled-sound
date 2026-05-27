@@ -47,5 +47,6 @@ final scannerRepositoryProvider = Provider<ScannerRepository>((ref) {
     functions: ref.watch(firebaseFunctionsProvider),
     embeddingSearch: ref.watch(embeddingSearchProvider),
     deviceCatalog: ref.watch(deviceCatalogProvider),
+    firestore: ref.watch(firestoreProvider),
   );
 });

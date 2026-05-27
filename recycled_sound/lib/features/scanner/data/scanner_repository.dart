@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../providers/scanner_providers.dart';
 import 'device_catalog.dart';
@@ -27,6 +28,7 @@ class ScannerRepository {
     required FirebaseFunctions functions,
     required EmbeddingSearch embeddingSearch,
     required DeviceCatalog deviceCatalog,
+    required FirebaseFirestore firestore,
   })  : _auth = auth,
         _storage = storage,
         _functions = functions,
@@ -35,7 +37,8 @@ class ScannerRepository {
           deviceCatalog: deviceCatalog,
         ),
         _embeddingSearch = embeddingSearch,
-        _deviceCatalog = deviceCatalog;
+        _deviceCatalog = deviceCatalog,
+        _firestore = firestore;
 
   final FirebaseAuth _auth;
   final FirebaseStorage _storage;
@@ -43,6 +46,7 @@ class ScannerRepository {
   final ScanFusion _fusion;
   final EmbeddingSearch _embeddingSearch;
   final DeviceCatalog _deviceCatalog;
+  final FirebaseFirestore _firestore;
 
   /// Analyze a hearing aid photo using the hybrid scanner pipeline.
   ///
@@ -117,8 +121,23 @@ class ScannerRepository {
     required String userId,
     required String userRole,
   }) async {
-    // TODO: Wire up Firestore batch write to scans/{scanId}/corrections
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (corrections.isEmpty) return;
+
+    final batch = _firestore.batch();
+
+    final correctionsRef = _firestore
+        .collection('scans')
+        .doc(scanId)
+        .collection('corrections');
+
+    for (final correction in corrections) {
+      batch.set(
+        correctionsRef.doc(),
+        correction.toJson(),
+      );
+    }
+
+    await batch.commit();
   }
 
   /// Create a device in the register from a scan result.

@@ -45,6 +45,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   bool _saving = false;
   bool _disposed = false;
 
+  /// Monotonic token that serialises camera init against teardown. Each
+  /// [_initCamera] run captures the current value; [_stopCamera] bumps it.
+  /// An init whose token is stale after an `await` disposes its half-built
+  /// controller and bails — so an `inactive→resumed` cycle *during* init (the
+  /// first-launch permission dialog) can't leave two controllers racing.
+  int _initGen = 0;
+
   /// Active slot the volunteer is shooting.
   int _currentIndex = 0;
 
@@ -74,25 +81,47 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     if (_disposed) return;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      // Tear the camera down on background — but only if one is live.
-      if (_controller != null) _stopCamera();
+      // Tear down on background. _stopCamera is null-safe and also invalidates
+      // any init still in flight (the permission-dialog window).
+      _stopCamera();
     } else if (state == AppLifecycleState.resumed) {
-      // Rebuild on resume when we have no live controller. The previous guard
-      // returned early whenever _controller was null — which is *exactly* the
-      // post-background state _stopCamera() leaves us in — so the camera never
-      // recovered after a lock screen, notification, or the permission dialog.
-      if (_controller == null) _initCamera();
+      // Always rebuild on resume. _initCamera bumps the generation, so a
+      // straggling earlier init bails and only this one publishes a controller.
+      _initCamera();
     }
   }
 
   Future<void> _initCamera() async {
+    // New generation; supersede any init currently mid-flight.
+    final gen = ++_initGen;
+
+    // Serialise against an existing controller: drop it before building a new
+    // one. If a teardown/resume bumps the generation while we dispose, bail.
+    final existing = _controller;
+    if (existing != null) {
+      _controller = null;
+      _cameraReady = false;
+      if (mounted) setState(() {});
+      await existing.dispose();
+      if (_disposed || gen != _initGen) return;
+    }
+
+    CameraController? controller;
     try {
       final cameras = await availableCameras();
+      if (_disposed || gen != _initGen) return;
       if (cameras.isEmpty) throw Exception('No cameras available');
-      if (_disposed) return;
 
-      final controller = CameraController(
-        cameras.first,
+      // Pick the rear lens explicitly — enumeration order is not a contract,
+      // and the native `.near` focus targets the back wide camera. Fall back
+      // to the first camera only if there's no back-facing one.
+      final desc = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      controller = CameraController(
+        desc,
         ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: Platform.isIOS
@@ -100,7 +129,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
             : ImageFormatGroup.yuv420,
       );
       await controller.initialize();
-      if (_disposed) {
+      if (_disposed || gen != _initGen) {
         await controller.dispose();
         return;
       }
@@ -111,6 +140,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       // AVCaptureDevice could race. Fall back to centre AF only when the
       // native path is unavailable (Android, older iPhones, simulator).
       final nearApplied = await FocusControl.setNearFocus();
+      if (_disposed || gen != _initGen) {
+        await controller.dispose();
+        return;
+      }
       if (!nearApplied) {
         try {
           await controller.setFocusMode(FocusMode.auto);
@@ -120,22 +153,36 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         }
       }
 
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
       setState(() {
         _controller = controller;
         _cameraReady = true;
         _cameraError = null;
       });
     } catch (e) {
-      if (_disposed) return;
-      setState(() => _cameraError = e.toString());
+      // Dispose a controller we built but never published, then surface.
+      if (controller != null && controller != _controller) {
+        await controller.dispose();
+      }
+      if (_disposed || gen != _initGen) return;
+      if (mounted) setState(() => _cameraError = e.toString());
     }
   }
 
   Future<void> _stopCamera() async {
+    // Invalidate any in-flight init so it disposes its half-built controller.
+    _initGen++;
     final c = _controller;
+    if (c == null) return;
     _controller = null;
     _cameraReady = false;
-    await c?.dispose();
+    // Unmount CameraPreview BEFORE disposing the hardware, so the widget tree
+    // never holds a disposed controller (an assertion crash on background).
+    if (mounted) setState(() {});
+    await c.dispose();
   }
 
   Future<void> _capture() async {
@@ -150,10 +197,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       HapticFeedback.lightImpact();
       setState(() {
         _captured[_currentIndex] = xFile.path;
-        // Advance to the next un-shot slot if one remains.
-        if (_currentIndex < CaptureSlot.sequence.length - 1) {
-          _currentIndex++;
-        }
+        _currentIndex = _nextUnshotSlot();
       });
     } catch (e) {
       if (mounted) {
@@ -170,6 +214,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   }
 
   void _selectSlot(int index) => setState(() => _currentIndex = index);
+
+  /// The next slot with no photo yet, scanning forward from the current slot
+  /// and wrapping. Returns the current index unchanged when every slot is shot,
+  /// so a full set leaves the user on the last-shot slot rather than jumping
+  /// back onto one already captured.
+  int _nextUnshotSlot() {
+    final n = CaptureSlot.sequence.length;
+    for (var step = 1; step <= n; step++) {
+      final i = (_currentIndex + step) % n;
+      if (_captured[i] == null) return i;
+    }
+    return _currentIndex;
+  }
 
   void _retakeCurrent() => setState(() => _captured.remove(_currentIndex));
 

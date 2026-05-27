@@ -51,6 +51,8 @@
 	<string>Recycled Sound needs camera access to scan and identify hearing aids.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Recycled Sound needs photo library access to select hearing aid photos for scanning.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

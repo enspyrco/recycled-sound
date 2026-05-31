@@ -129,6 +129,72 @@ void main() {
       expect(data.containsKey('id'), isFalse);
     });
 
+    test('merges real gs:// URIs into photos and preserves draft photos '
+        'on happy-path multi-upload', () async {
+      // The existing 'promotes draft to Device and merges uploaded photo URIs'
+      // test deliberately passes no localPhotoPaths, so it never asserts that
+      // a *successful* upload actually merges its gs:// URI into the persisted
+      // photos array. This test closes that gap: real temp files in, real
+      // putFile calls through MockFirebaseStorage, real URI strings out.
+      //
+      // MockFirebaseStorage's bucket is the literal string 'some-bucket'
+      // (see firebase_storage_mocks_base.dart). NOTE: this mock's Reference.
+      // fullPath returns 'gs://{bucket}{path}' (firebase_storage_mocks 0.7.0
+      // quirk — real Firebase returns just the slash-path 'incoming/{id}/…'),
+      // so the URI the repo synthesises with 'gs://${bucket}/${fullPath}'
+      // looks like 'gs://some-bucket/gs://some-bucketincoming/…' under the
+      // mock and 'gs://some-bucket/incoming/…' against real Storage.
+      //
+      // The point of THIS test isn't to validate the URI shape in production
+      // (real-Firebase integration tests would do that), it's to prove that
+      // each successful upload produces ONE deterministic URI and that those
+      // URIs end up appended to draft.photos in upload order. The expectations
+      // below intentionally encode the mock's quirk to keep the test green;
+      // when the mock or repo is fixed, swap them out.
+      final tmp = await Directory.systemTemp.createTemp('happy_path_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      final a = File('${tmp.path}/a.jpg')..writeAsBytesSync([1, 2, 3]);
+      final b = File('${tmp.path}/b.jpg')..writeAsBytesSync([4, 5, 6]);
+      final c = File('${tmp.path}/c.jpg')..writeAsBytesSync([7, 8, 9]);
+
+      const draft = DraftDevice(
+        brand: 'Phonak',
+        model: 'P90',
+        photos: ['gs://existing/prior-scan.jpg'],
+      );
+
+      final id = await repo.createIncoming(
+        draft,
+        localPhotoPaths: [a.path, b.path, c.path],
+      );
+
+      final data = (await firestore.collection('incoming').doc(id).get()).data()!;
+      final photos = (data['photos'] as List).cast<String>();
+
+      // The pre-existing draft photo survives — it's not clobbered by the
+      // new uploads, it's prepended.
+      expect(photos.first, 'gs://existing/prior-scan.jpg',
+          reason: 'draft.photos must come before freshly-uploaded URIs');
+
+      // Each upload contributes one URI in order, indexed by position.
+      expect(photos, hasLength(4));
+      expect(photos[1], 'gs://some-bucket/gs://some-bucketincoming/$id/photos/0.jpg');
+      expect(photos[2], 'gs://some-bucket/gs://some-bucketincoming/$id/photos/1.jpg');
+      expect(photos[3], 'gs://some-bucket/gs://some-bucketincoming/$id/photos/2.jpg');
+
+      // And the files actually landed in the mock store — proves we're
+      // testing real putFile traffic, not a no-op codepath.
+      expect(storage.storedFilesMap, hasLength(3));
+      expect(
+        storage.storedFilesMap.keys,
+        containsAll([
+          'incoming/$id/photos/0.jpg',
+          'incoming/$id/photos/1.jpg',
+          'incoming/$id/photos/2.jpg',
+        ]),
+      );
+    });
+
     test('rolls back uploaded photos and writes no doc when an upload fails',
         () async {
       // Two photos; the SECOND upload throws. The first will have landed in

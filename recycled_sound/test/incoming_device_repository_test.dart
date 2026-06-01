@@ -1,5 +1,13 @@
+// CollectionReference / DocumentReference / Query are sealed in cloud_firestore
+// 5.x. We implement them here only to build a thin decorator that fails one
+// specific call site (incoming/{id}.set) while delegating everything else —
+// strictly a test-double pattern, not a real subtype. Suppress the warning
+// instead of pulling in mocktail/mockito as a dev-dependency for one test.
+// ignore_for_file: subtype_of_sealed_class
+
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -61,6 +69,69 @@ class _FailingReference implements Reference {
 /// the mock framework probes.
 dynamic reflectInvocation(Object target, Invocation invocation) =>
     (target as dynamic).noSuchMethod(invocation);
+
+/// Firestore decorator whose `incoming/{newId}.set(...)` throws — used to
+/// exercise the post-upload Firestore-write rollback path.
+///
+/// Mirrors the [_FailingStorage] strategy: wrap a real
+/// [FakeFirebaseFirestore], intercept only the one call site we need to fail
+/// (here: the doc-ref `.set` on the `incoming` collection), delegate every-
+/// thing else. Lets us assert the compensating-delete fires and no Firestore
+/// doc lingers, without pulling in mocktail/mockito just for this one test.
+class _FailingFirestore implements FirebaseFirestore {
+  _FailingFirestore(this._delegate);
+  final FakeFirebaseFirestore _delegate;
+
+  @override
+  CollectionReference<Map<String, dynamic>> collection(String path) {
+    final inner = _delegate.collection(path);
+    if (path == 'incoming') return _FailingCollectionRef(inner);
+    return inner;
+  }
+
+  @override
+  WriteBatch batch() => _delegate.batch();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      reflectInvocation(_delegate, invocation);
+}
+
+class _FailingCollectionRef implements CollectionReference<Map<String, dynamic>> {
+  _FailingCollectionRef(this._delegate);
+  final CollectionReference<Map<String, dynamic>> _delegate;
+
+  @override
+  DocumentReference<Map<String, dynamic>> doc([String? path]) {
+    final inner = _delegate.doc(path);
+    return _FailingDocRef(inner);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      reflectInvocation(_delegate, invocation);
+}
+
+class _FailingDocRef implements DocumentReference<Map<String, dynamic>> {
+  _FailingDocRef(this._delegate);
+  final DocumentReference<Map<String, dynamic>> _delegate;
+
+  @override
+  String get id => _delegate.id;
+
+  @override
+  Future<void> set(Map<String, dynamic> data, [SetOptions? options]) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'unavailable',
+      message: 'simulated write failure',
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      reflectInvocation(_delegate, invocation);
+}
 
 void main() {
   late FakeFirebaseFirestore firestore;
@@ -160,6 +231,50 @@ void main() {
       final docs = await firestore.collection('incoming').get();
       expect(docs.docs, isEmpty,
           reason: 'doc write never runs when uploads fail');
+    });
+
+    test('rolls back uploaded photos when the Firestore write fails',
+        () async {
+      // PR #33's catch block is symmetric — it triggers on ANY throw inside
+      // the try block, including the Firestore .set after all uploads land.
+      // The upload-failure test above covers the first branch; this covers
+      // the second: every upload succeeds, then .set throws, and the
+      // already-uploaded photos must still be compensated-deleted.
+      //
+      // We can't use fake_cloud_firestore as-is — its DocumentReference.set
+      // always succeeds. Wrap it in _FailingFirestore (above) which throws
+      // on incoming/{id}.set while delegating everything else.
+      final tmp = await Directory.systemTemp.createTemp('write_fail_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      final a = File('${tmp.path}/a.jpg')..writeAsBytesSync([1, 2, 3]);
+      final b = File('${tmp.path}/b.jpg')..writeAsBytesSync([4, 5, 6]);
+
+      final failingFirestore = _FailingFirestore(firestore);
+      final failingRepo = IncomingDeviceRepository(
+        firestore: failingFirestore,
+        storage: storage,
+        auth: auth,
+      );
+
+      await expectLater(
+        failingRepo.createIncoming(
+          const DraftDevice(brand: 'Phonak', model: 'P90'),
+          localPhotoPaths: [a.path, b.path],
+        ),
+        throwsA(
+          isA<FirebaseException>()
+              .having((e) => e.code, 'code', 'unavailable'),
+        ),
+      );
+
+      // Both uploads succeeded before .set threw — both must be deleted.
+      expect(storage.storedFilesMap, isEmpty,
+          reason:
+              'all successful uploads must be compensated-deleted when the '
+              'Firestore write that follows fails');
+      // And nothing got written to Firestore.
+      final docs = await firestore.collection('incoming').get();
+      expect(docs.docs, isEmpty);
     });
   });
 

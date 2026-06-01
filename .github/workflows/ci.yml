@@ -25,9 +25,14 @@ jobs:
       #   .github/**              — workflow + repo config
       #   data/**                 — Python data pipeline + training
       #   docs/**                 — design docs + capture guides
+      #   <root>/*.html           — top-level HTML guides (capture-protocols,
+      #                             privacy, index). Anchored to root so
+      #                             recycled_sound/web/index.html (the Flutter
+      #                             build input) still triggers CI.
       #
       # NOT skipped (intentionally): pubspec.yaml (affects build),
-      # any *.dart, *.swift, *.ts, *.kt, assets/**, ios/**, android/**
+      # any *.dart, *.swift, *.ts, *.kt, assets/**, ios/**, android/**,
+      # recycled_sound/web/index.html
       - name: Check for infra-only changes
         id: docs-check
         run: |
@@ -36,7 +41,7 @@ jobs:
           else
             FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
           fi
-          NON_DOCS=$(echo "$FILES" | grep -vE '\.(md|txt|LICENSE)$|^\.github/|^data/|^docs/' || true)
+          NON_DOCS=$(echo "$FILES" | grep -vE '\.(md|txt|LICENSE)$|^\.github/|^data/|^docs/|^[^/]+\.html$' || true)
           if [ -z "$NON_DOCS" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else

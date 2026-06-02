@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -136,17 +137,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       // iPhones that lack ultra-wide.
       //
       // Enumeration order is not a contract, so filter by `lensType` /
-      // `lensDirection` rather than indexing.
+      // `lensDirection` rather than indexing. `firstOrNull` keeps the
+      // priority cascade a flat null-coalesce chain — each predicate runs
+      // at most once.
       final backCameras = cameras
           .where((c) => c.lensDirection == CameraLensDirection.back)
           .toList(growable: false);
-      CameraDescription pickBackLens(CameraLensType type) => backCameras
-          .firstWhere((c) => c.lensType == type, orElse: () => backCameras.first);
-      final desc = backCameras.isEmpty
-          ? cameras.first
-          : (backCameras.any((c) => c.lensType == CameraLensType.ultraWide)
-              ? pickBackLens(CameraLensType.ultraWide)
-              : pickBackLens(CameraLensType.wide));
+      final desc = backCameras
+              .where((c) => c.lensType == CameraLensType.ultraWide)
+              .firstOrNull ??
+          backCameras
+              .where((c) => c.lensType == CameraLensType.wide)
+              .firstOrNull ??
+          backCameras.firstOrNull ??
+          cameras.first;
 
       controller = CameraController(
         desc,
@@ -170,8 +174,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       // On iOS the camera plugin reports `CameraDescription.name` as the
       // AVCaptureDevice uniqueID — pass it so `.near` is applied to the exact
       // lens we just opened, not a sibling lens guessed by the native side.
+      // Use `defaultTargetPlatform` (not `dart:io` Platform) so this file
+      // doesn't add yet another Web-incompatible reference; the channel
+      // itself is iOS-only anyway and resolves to false elsewhere.
       final nearApplied = await FocusControl.setNearFocus(
-        deviceUniqueId: Platform.isIOS ? desc.name : null,
+        deviceUniqueId:
+            defaultTargetPlatform == TargetPlatform.iOS ? desc.name : null,
       );
       if (_disposed || gen != _initGen) {
         await _safeDispose(controller);

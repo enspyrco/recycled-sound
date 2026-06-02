@@ -14,13 +14,15 @@ import Flutter
 /// Methods:
 ///   setNearFocus(deviceUniqueId: String?) → Bool
 ///     Apply `.near` range restriction (+ continuous AF) to the AVCaptureDevice
-///     with the given `uniqueID`. When the argument is nil (or unsupplied), the
-///     plugin falls back to the back ultra-wide camera (macro-capable, ~2 cm
-///     minimum focus distance), and then to the back wide-angle camera. The
-///     uniqueID-targeted path is preferred so the restriction lands on
-///     whichever device `camera_avfoundation` actually opened — keeping the
-///     two sides aligned across iPhones with different lens lineups (non-Pro
-///     pre-12s have only the wide; 11/12+ add the ultra-wide; Pros add tele).
+///     with the given `uniqueID`. When an ID is supplied and doesn't resolve,
+///     the call returns false rather than locking a fallback lens — guessing
+///     would desync Dart's preview from native's focus restriction. When the
+///     argument is nil (or unsupplied), the plugin falls back to the back
+///     wide-angle camera, preserving the pre-macro-lens contract for any
+///     pre-existing channel callers. Modern callers (the capture screen)
+///     should pass the explicit uniqueID — the screen now opens the back
+///     ultra-wide for macro focus and passes its `CameraDescription.name`
+///     so `.near` lands on that exact lens.
 ///     Returns true if applied, false if the device/feature is unavailable.
 ///
 /// **Macro framing rationale.** Volunteers hold hearing aids ~5–8 cm from the
@@ -65,19 +67,27 @@ class FocusControlPlugin: NSObject {
 
   /// Resolve which `AVCaptureDevice` to lock.
   ///
-  /// Priority: explicit uniqueID (so we match whichever lens Dart selected) →
-  /// back ultra-wide (macro-capable) → back wide. Returning the wide as a
-  /// final fallback preserves the old behaviour on pre-12 non-Pro iPhones,
-  /// where ultra-wide simply doesn't exist.
+  /// Two disjoint paths, not a cascade:
+  ///
+  /// * **Explicit uniqueID supplied.** Look it up via
+  ///   `AVCaptureDevice(uniqueID:)` and return whatever that resolves to —
+  ///   `nil` if it doesn't resolve. We deliberately do NOT silently fall
+  ///   through to a default lens here: the caller passed an ID because they
+  ///   want THAT lens, and locking a sibling lens would create a state
+  ///   mismatch (Dart viewing lens A while native restricts lens B).
+  ///   Returning nil surfaces the failure as `setNearFocus → false`, which
+  ///   the capture flow already handles (it falls back to Dart-driven
+  ///   centre AF).
+  ///
+  /// * **No uniqueID supplied** (or empty). Preserve the pre-macro-lens
+  ///   contract — the original `setNearFocus()` targeted the back
+  ///   wide-angle camera, so legacy callers (none in-tree today, but the
+  ///   method-channel API is observable) keep getting the wide. Modern
+  ///   callers should pass the explicit uniqueID to opt into the ultra-wide
+  ///   path; the capture screen does.
   private func resolveDevice(deviceUniqueId: String?) -> AVCaptureDevice? {
-    if let uid = deviceUniqueId, !uid.isEmpty,
-       let device = AVCaptureDevice(uniqueID: uid) {
-      return device
-    }
-    if let ultraWide = AVCaptureDevice.default(
-      .builtInUltraWideCamera, for: .video, position: .back
-    ) {
-      return ultraWide
+    if let uid = deviceUniqueId, !uid.isEmpty {
+      return AVCaptureDevice(uniqueID: uid)
     }
     return AVCaptureDevice.default(
       .builtInWideAngleCamera, for: .video, position: .back

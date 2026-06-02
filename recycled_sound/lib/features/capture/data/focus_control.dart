@@ -12,12 +12,24 @@ import 'package:flutter/services.dart';
 class FocusControl {
   static const _channel = MethodChannel('recycled_sound/focus_control');
 
-  /// Apply `.near` autofocus range restriction to the back wide camera.
-  /// Returns true if applied, false if unsupported/unavailable. Never throws
-  /// out of the capture flow — a platform exception resolves to false.
-  static Future<bool> setNearFocus() async {
+  /// Apply `.near` autofocus range restriction to the capture device.
+  ///
+  /// Pass [deviceUniqueId] (the `CameraDescription.name` reported by the
+  /// `camera` plugin on iOS — which IS the AVCaptureDevice uniqueID) so the
+  /// restriction lands on the exact lens the controller opened. When the id is
+  /// null/empty, the native side falls back to the back ultra-wide camera
+  /// (macro-capable), then to the back wide-angle camera. Returns true if
+  /// applied, false if unsupported/unavailable. Never throws out of the
+  /// capture flow — a platform exception resolves to false.
+  static Future<bool> setNearFocus({String? deviceUniqueId}) async {
     try {
-      final ok = await _channel.invokeMethod<bool>('setNearFocus');
+      final ok = await _channel.invokeMethod<bool>(
+        'setNearFocus',
+        <String, dynamic>{
+          if (deviceUniqueId != null && deviceUniqueId.isNotEmpty)
+            'deviceUniqueId': deviceUniqueId,
+        },
+      );
       return ok ?? false;
     } on PlatformException {
       return false;

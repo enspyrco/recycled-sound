@@ -222,6 +222,46 @@ class IncomingDeviceRepository {
     }
   }
 
+  /// Delete an entire incoming device — the Firestore doc and every photo
+  /// blob beneath the caller's `scans/{uid}/incoming/{id}/` prefix.
+  ///
+  /// **Photos first, then doc — best-effort on Storage.** Mirrors the
+  /// rollback intent of [createIncoming] from the opposite direction: the
+  /// recoverable side of the boundary (Storage objects, sweepable orphans)
+  /// runs first; the authoritative side (the Firestore doc, the only thing
+  /// the UI streams) flips last. If a blob delete fails mid-loop, we log the
+  /// failure and still delete the doc — the volunteer cannot realistically
+  /// retry a half-deleted device, and a leftover blob is a separate
+  /// sweep-job concern (cf. [deletePhoto]'s "object 404 is fine" stance).
+  /// If the Firestore delete itself fails (rules rejection, offline) we
+  /// rethrow — the user-visible record is still there and the action did
+  /// nothing the user can see.
+  ///
+  /// Storage path is the per-uid `scans/{uid}/incoming/{id}/` prefix used by
+  /// the in-app capture flow (see [createIncoming]'s doc-comment for why the
+  /// cross-service-gated `incoming/{id}/photos/` path was abandoned).
+  /// [listAll] is bounded by the small per-device photo count (≤ a handful of
+  /// slot photos) — no pagination needed at this scale.
+  Future<void> deleteIncoming(String id) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      throw StateError('Must be signed in to delete an incoming device');
+    }
+    // Best-effort photo sweep. Listing the prefix can itself fail (e.g.
+    // offline) — that's still an acceptable degenerate, the doc-delete
+    // below is the authoritative half.
+    try {
+      final listing = await _storage.ref('scans/$uid/incoming/$id').listAll();
+      await Future.wait(
+        listing.items.map((r) => r.delete().catchError((_) {})),
+      );
+    } catch (_) {
+      // Swallow — orphan cleanup is a separate concern, identical reasoning
+      // to [deletePhoto].
+    }
+    await _col.doc(id).delete();
+  }
+
   /// Stream of incoming records created by the current user, newest first.
   ///
   /// The `.where('createdBy', isEqualTo: uid)` clause is REQUIRED — Firestore

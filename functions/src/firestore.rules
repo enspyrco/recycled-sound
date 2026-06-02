@@ -92,7 +92,11 @@ service cloud.firestore {
         isElevated() ||
         (isCreator() && createdByUnchanged() && onlyAllowedFieldsChanged())
       );
-      allow delete: if request.auth != null && isElevated();
+      // Creator may delete their own draft (volunteer fixing a mis-capture
+      // or duplicate during intake); audiologists/admins may delete any.
+      // The doc-delete cascades to the per-uid scans/{uid}/incoming/{id}/
+      // Storage prefix client-side — see IncomingDeviceRepository.deleteIncoming.
+      allow delete: if request.auth != null && (isCreator() || isElevated());
     }
 
     // Devices: post-triage register. Anyone authed can read; only

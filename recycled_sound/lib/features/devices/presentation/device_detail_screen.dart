@@ -1,11 +1,14 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/rs_card.dart';
 import '../../../core/widgets/rs_chip.dart';
 import '../../../core/widgets/rs_spec_row.dart';
+import '../data/incoming_device_repository.dart';
 import '../data/models/device.dart';
 import '../providers/device_providers.dart';
 import 'widgets/storage_image.dart';
@@ -41,10 +44,20 @@ class DeviceDetailScreen extends ConsumerWidget {
   }
 }
 
-class _DetailView extends StatelessWidget {
+class _DetailView extends ConsumerStatefulWidget {
   const _DetailView({required this.device});
 
   final Device device;
+
+  @override
+  ConsumerState<_DetailView> createState() => _DetailViewState();
+}
+
+class _DetailViewState extends ConsumerState<_DetailView> {
+  /// Latched while a delete is in flight — disables the delete button to
+  /// prevent the volunteer from double-tapping and racing two cascade
+  /// deletes against the same doc.
+  bool _deleting = false;
 
   RsChipVariant _qaVariant(QaStatus status) => switch (status) {
         QaStatus.passed => RsChipVariant.success,
@@ -52,8 +65,77 @@ class _DetailView extends StatelessWidget {
         QaStatus.pendingQa => RsChipVariant.warning,
       };
 
+  /// Two-step delete: confirmation dialog (named device + permanence warning),
+  /// then [IncomingDeviceRepository.deleteIncoming]. On success, navigate
+  /// back to the gallery — `canPop` fallback to `/` matches the home-or-pop
+  /// idiom used elsewhere when this screen is the deep-link entry point.
+  Future<void> _confirmDelete() async {
+    final device = widget.device;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete the ${device.brand} ${device.model}?'),
+        content: const Text(
+          'This permanently removes the device record and all its photos. '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _delete();
+  }
+
+  Future<void> _delete() async {
+    setState(() => _deleting = true);
+    // Capture pre-await handles — context becomes invalid the moment we
+    // navigate (the doc stream emits null and the parent rebuilds).
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+    final repo = ref.read(incomingDeviceRepositoryProvider);
+    try {
+      await repo.deleteIncoming(widget.device.id);
+      // Home-or-pop: this screen may be the entry route on a deep-link wake,
+      // in which case canPop() is false and we land on the gallery root.
+      if (router.canPop()) {
+        router.pop();
+      } else {
+        router.go('/');
+      }
+    } on FirebaseException catch (e) {
+      if (mounted) setState(() => _deleting = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(PersistErrorKind.fromCode(e.code).userMessage),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } catch (_) {
+      if (mounted) setState(() => _deleting = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(PersistErrorKind.unknown.userMessage),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final device = widget.device;
     return Scaffold(
       appBar: AppBar(
         title: Text('${device.brand} ${device.model}'),
@@ -62,7 +144,15 @@ class _DetailView extends StatelessWidget {
             label: device.qaStatus.wire.replaceAll('_', ' ').toUpperCase(),
             variant: _qaVariant(device.qaStatus),
           ),
-          const SizedBox(width: 16),
+          IconButton(
+            tooltip: 'Delete device',
+            icon: const Icon(Icons.delete_outline),
+            // While a delete is in flight the handler is null so the
+            // material ripple visibly disables — clearer than an enabled
+            // button that silently no-ops.
+            onPressed: _deleting ? null : _confirmDelete,
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(

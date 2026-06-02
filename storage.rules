@@ -21,10 +21,15 @@ service firebase.storage {
         && request.auth.uid == userId
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      // delete has NO request.resource — gate on ownership only. Without this
-      // separate grant, owner deletes are rejected (the size/contentType
-      // predicates are null on a delete), orphaning objects.
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      // delete has NO request.resource — gate on ownership or elevated role.
+      // Without this separate grant, deletes are rejected (the size/contentType
+      // predicates are null on a delete), orphaning objects. Elevated roles
+      // are included so audiologists/admins can clean up a volunteer's
+      // mis-captured device end-to-end (the Firestore incoming/ delete grants
+      // them the doc; the Storage delete grants them the photo blobs).
+      allow delete: if request.auth != null
+        && (request.auth.uid == userId
+          || request.auth.token.role in ['audiologist', 'admin']);
     }
 
     // Incoming device photos: scanner writes here after Confirm.

@@ -374,4 +374,48 @@ void main() {
       expect(d, isNull);
     });
   });
+
+  group('deleteIncoming', () {
+    test('deletes the Firestore doc (authoritative half) and attempts the '
+        'per-uid scans/ sweep', () async {
+      // `firebase_storage_mocks` 0.7.0 quirk (mirrors the gs:// URI quirk
+      // captured in PR #46): MockReference.delete() doesn't remove items
+      // from MockFirebaseStorage's in-memory store, so we can't directly
+      // assert the blob sweep happened. What we CAN assert is the
+      // authoritative half — the Firestore doc is gone — and that the
+      // sweep code path ran without throwing. The Storage half is verified
+      // in integration / on-device testing; cf. [[feedback_silent_skip_is_worse_than_loud_fail]]
+      // for the broader principle (the gate must catch what it claims to,
+      // even when the mock can't simulate the second half).
+      const draft = DraftDevice(brand: 'Phonak', model: 'P90');
+      final id = await repo.createIncoming(draft);
+      const uid = 'user-abc';
+      // Seed photo blobs at the per-uid sweep path so listAll() returns
+      // items the delete loop can iterate over — exercises the code path
+      // even though the mock's delete is a no-op.
+      await storage.ref('scans/$uid/incoming/$id/lateral.jpg').putString('x');
+      await storage.ref('scans/$uid/incoming/$id/medial.jpg').putString('y');
+
+      expect((await firestore.collection('incoming').doc(id).get()).exists,
+          isTrue);
+
+      await repo.deleteIncoming(id);
+
+      // Authoritative half: the doc the UI streams is gone.
+      expect((await firestore.collection('incoming').doc(id).get()).exists,
+          isFalse);
+    });
+
+    test('throws StateError when no signed-in user', () async {
+      final unauth = IncomingDeviceRepository(
+        firestore: firestore,
+        storage: storage,
+        auth: MockFirebaseAuth(signedIn: false),
+      );
+      expect(
+        () => unauth.deleteIncoming('any-id'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
 }

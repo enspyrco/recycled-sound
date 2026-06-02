@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -127,13 +128,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       if (_disposed || gen != _initGen) return;
       if (cameras.isEmpty) throw Exception('No cameras available');
 
-      // Pick the rear lens explicitly — enumeration order is not a contract,
-      // and the native `.near` focus targets the back wide camera. Fall back
-      // to the first camera only if there's no back-facing one.
-      final desc = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
-        orElse: () => cameras.first,
-      );
+      // Pick the rear ULTRA-WIDE lens preferentially: hearing aids are held
+      // ~5–8 cm from the lens to fill the frame, which is well inside the
+      // wide-angle camera's ~10 cm minimum focus distance. The ultra-wide
+      // camera (iPhone 11+, all 12+ models) does macro down to ~2 cm — the
+      // same lens iOS's own Camera app uses for "Macro mode". Falling back
+      // through wide → first-back → first preserves behaviour on older non-Pro
+      // iPhones that lack ultra-wide.
+      //
+      // Enumeration order is not a contract, so filter by `lensType` /
+      // `lensDirection` rather than indexing. `firstOrNull` keeps the
+      // priority cascade a flat null-coalesce chain — each predicate runs
+      // at most once.
+      final backCameras = cameras
+          .where((c) => c.lensDirection == CameraLensDirection.back)
+          .toList(growable: false);
+      final desc = backCameras
+              .where((c) => c.lensType == CameraLensType.ultraWide)
+              .firstOrNull ??
+          backCameras
+              .where((c) => c.lensType == CameraLensType.wide)
+              .firstOrNull ??
+          backCameras.firstOrNull ??
+          cameras.first;
 
       controller = CameraController(
         desc,
@@ -154,7 +171,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       // also drive focus mode/point from Dart — both sides locking the shared
       // AVCaptureDevice could race. Fall back to centre AF only when the
       // native path is unavailable (Android, older iPhones, simulator).
-      final nearApplied = await FocusControl.setNearFocus();
+      // On iOS the camera plugin reports `CameraDescription.name` as the
+      // AVCaptureDevice uniqueID — pass it so `.near` is applied to the exact
+      // lens we just opened, not a sibling lens guessed by the native side.
+      // Use `defaultTargetPlatform` (not `dart:io` Platform) so this file
+      // doesn't add yet another Web-incompatible reference; the channel
+      // itself is iOS-only anyway and resolves to false elsewhere.
+      final nearApplied = await FocusControl.setNearFocus(
+        deviceUniqueId:
+            defaultTargetPlatform == TargetPlatform.iOS ? desc.name : null,
+      );
       if (_disposed || gen != _initGen) {
         await _safeDispose(controller);
         return;

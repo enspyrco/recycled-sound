@@ -252,11 +252,13 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       );
       final corrections = ref.read(scanResultProvider.notifier).corrections;
       final scanner = ref.read(scannerRepositoryProvider);
+      final profile = ref.read(currentUserProfileProvider).value;
+      final userRole = profile?.role.wire ?? 'volunteer';
       await scanner.submitCorrections(
         scanId: result.scanId,
         corrections: corrections,
         userId: ref.read(firebaseAuthProvider).currentUser?.uid ?? '',
-        userRole: ref.read(currentUserProfileProvider).value?.role.wire ?? 'volunteer',
+        userRole: userRole,
       );
 
       router.go('/devices');

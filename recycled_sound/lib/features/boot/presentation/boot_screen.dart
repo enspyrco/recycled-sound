@@ -3,8 +3,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/providers/device_telemetry_provider.dart';
 import '../../../core/services/app_bootstrap.dart';
 import '../../../core/services/device_telemetry.dart';
 import '../../../core/widgets/thermal_gauge.dart';
@@ -17,18 +19,22 @@ import '../../../core/widgets/thermal_gauge.dart';
 /// Auto-advances to `/` after [_holdDuration]. Tap anywhere to skip.
 /// Advancement happens regardless of Firebase outcome — failure becomes a
 /// visible "FB FAIL" tag in the footer rather than an infinite-await trap.
-class BootScreen extends StatefulWidget {
+class BootScreen extends ConsumerStatefulWidget {
   const BootScreen({super.key});
 
   @override
-  State<BootScreen> createState() => _BootScreenState();
+  ConsumerState<BootScreen> createState() => _BootScreenState();
 }
 
-class _BootScreenState extends State<BootScreen> {
+class _BootScreenState extends ConsumerState<BootScreen> {
   static const _holdDuration = Duration(milliseconds: 4200);
   static const _staggerStep = Duration(milliseconds: 80);
 
-  final _service = DeviceTelemetryService();
+  /// Shared telemetry service — the same instance backing Settings → Device
+  /// Info and a future bug-report flow, so the platform-channel read logic
+  /// lives in exactly one place.
+  DeviceTelemetryService get _service =>
+      ref.read(deviceTelemetryServiceProvider);
   DeviceTelemetry? _telemetry;
   Timer? _advance;
   Timer? _refresh;

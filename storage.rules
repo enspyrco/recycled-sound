@@ -2,6 +2,16 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // Elevated roles — audiologists and admins — get cross-tenant write
+    // access (they own triage + QA). Single source of truth for the role
+    // list, mirroring `firestore.rules`' `isElevated()` so the two rule
+    // sets can't drift. Declared once at the bucket scope and reused below
+    // instead of being copy-pasted into every match block.
+    function isElevated() {
+      return request.auth != null
+        && request.auth.token.role in ['audiologist', 'admin'];
+    }
+
     // Scan images: user can upload to their own folder
     match /scans/{userId}/{allPaths=**} {
       allow read: if request.auth != null;
@@ -21,9 +31,6 @@ service firebase.storage {
           /databases/(default)/documents/incoming/$(incomingId)
         );
       }
-      function isElevated() {
-        return request.auth.token.role in ['audiologist', 'admin'];
-      }
 
       allow read: if request.auth != null;
       allow write: if request.auth != null
@@ -39,8 +46,7 @@ service firebase.storage {
     // audiologists/admins may write — mirrors the Firestore devices/ rule.
     match /devices/{deviceId}/photos/{photoId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.auth.token.role in ['audiologist', 'admin']
+      allow write: if isElevated()
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }

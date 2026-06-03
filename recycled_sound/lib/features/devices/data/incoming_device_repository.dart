@@ -67,9 +67,18 @@ enum PersistErrorKind {
 /// Read/write access to the `incoming/` collection — the scanner's write-target
 /// for newly-identified devices awaiting audiologist triage.
 ///
-/// Photos land in Storage at `incoming/{incomingId}/photos/{idx}.jpg`; the
-/// Firestore doc holds their gs:// URIs in the `photos` array so clients can
-/// resolve them with [FirebaseStorage.refFromURL].
+/// Photos land in Storage at `captures/{uid}/{deviceId}/{slot}.jpg`, where
+/// `{deviceId}` is this `incoming/{id}` doc's id. The Firestore doc holds their
+/// gs:// URIs in the `photos` array so clients can resolve them with
+/// [FirebaseStorage.refFromURL].
+///
+/// **Why `captures/{uid}/...`.** uid is the OUTER path segment so it acts as
+/// the storage-rules security boundary (the rule gates on the path alone —
+/// no cross-service `firestore.get` needed). `captures/` is the durable intake
+/// bucket, deliberately distinct from the transient `scans/` snapshots the
+/// live scanner writes mid-session. The redundant `incoming/` path segment of
+/// the old `scans/{uid}/incoming/{id}/` shape is dropped — the doc id already
+/// scopes the device.
 class IncomingDeviceRepository {
   IncomingDeviceRepository({
     required FirebaseFirestore firestore,
@@ -89,7 +98,7 @@ class IncomingDeviceRepository {
   /// Create a new incoming device record from an unpersisted [DraftDevice].
   ///
   /// Allocates a fresh doc id, uploads each local photo to Storage under
-  /// `incoming/{id}/photos/`, then writes the Firestore document with the
+  /// `captures/{uid}/{deviceId}/`, then writes the Firestore document with the
   /// resulting gs:// URIs merged into the draft's `photos` field. Returns the
   /// new document id.
   ///
@@ -124,7 +133,9 @@ class IncomingDeviceRepository {
       // Parallel uploads: ~max(upload latency) instead of sum of all.
       final uploads = <Future<String>>[];
       for (var i = 0; i < localPhotoPaths.length; i++) {
-        final storageRef = _storage.ref('incoming/$id/photos/$i.jpg');
+        // captures/{uid}/{deviceId}/{slot}.jpg — uid is the security boundary,
+        // the doc id is the device, `$i` is the slot/index filename.
+        final storageRef = _storage.ref('captures/$uid/$id/$i.jpg');
         uploads.add(_uploadPhoto(storageRef, localPhotoPaths[i], uploaded));
       }
       final photoUris = await Future.wait(uploads);

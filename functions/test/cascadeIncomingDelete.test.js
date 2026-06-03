@@ -32,15 +32,22 @@ function fakeBucket({failPrefix} = {}) {
 }
 
 describe("sweepIncomingStorage", () => {
-  it("sweeps both prefixes when createdBy is present, without throwing", async () => {
+  it("sweeps the canonical + both legacy prefixes when createdBy is present", async () => {
     const bucket = fakeBucket();
     await sweepIncomingStorage("dev123", {createdBy: "uidABC"}, bucket);
 
     const prefixes = bucket.calls.map((c) => c.prefix);
     assert.deepStrictEqual(
       prefixes.sort(),
-      ["incoming/dev123/", "scans/uidABC/incoming/dev123/"].sort(),
-      "should sweep the legacy incoming/ prefix and the uid-scoped scans/ prefix"
+      [
+        // new canonical intake path
+        "captures/uidABC/dev123/",
+        // legacy uid-less, doc-gated path
+        "incoming/dev123/",
+        // legacy uid-scoped path
+        "scans/uidABC/incoming/dev123/",
+      ].sort(),
+      "should sweep captures/ (canonical) plus both legacy prefixes"
     );
     // force:true so a single bad object doesn't abort the batch.
     assert.ok(
@@ -65,21 +72,25 @@ describe("sweepIncomingStorage", () => {
     assert.deepStrictEqual(
       bucket.calls.map((c) => c.prefix),
       ["incoming/dev789/"],
-      "a garbage createdBy must not produce a scans/42/... prefix"
+      "a garbage createdBy must not produce a captures/42/... or scans/42/... prefix"
     );
   });
 
   it("does not throw when one prefix sweep fails (best-effort)", async () => {
-    const bucket = fakeBucket({failPrefix: "incoming/devERR/"});
+    const bucket = fakeBucket({failPrefix: "captures/uidX/devERR/"});
     // Must resolve, not reject — the authoritative Firestore doc is already
     // gone, so a sweep failure is logged and swallowed.
     await sweepIncomingStorage("devERR", {createdBy: "uidX"}, bucket);
-    // The OTHER prefix is still attempted despite the first failing.
+    // The OTHER prefixes are still attempted despite the first failing.
     const prefixes = bucket.calls.map((c) => c.prefix).sort();
     assert.deepStrictEqual(
       prefixes,
-      ["incoming/devERR/", "scans/uidX/incoming/devERR/"].sort(),
-      "a failure on one prefix must not skip the other"
+      [
+        "captures/uidX/devERR/",
+        "incoming/devERR/",
+        "scans/uidX/incoming/devERR/",
+      ].sort(),
+      "a failure on one prefix must not skip the others"
     );
   });
 

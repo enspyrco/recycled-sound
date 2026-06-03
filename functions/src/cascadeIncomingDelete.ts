@@ -35,18 +35,25 @@ export async function sweepIncomingStorage(
     logger.warn(
       `incoming/${id} deleted with no usable createdBy (got ` +
         `${JSON.stringify(createdBy)}); sweeping the uid-independent ` +
-        "prefix only. Any scans/{uid}/incoming/ blobs may orphan."
+        "prefix only. Any captures/{uid}/ or scans/{uid}/incoming/ blobs " +
+        "may orphan."
     );
   }
 
-  // Both prefixes a device's photos can live under:
-  //   incoming/{id}/                 — where createIncoming actually uploads
-  //   scans/{uid}/incoming/{id}/     — what the client delete + capture flow
-  //                                    target (uid-scoped)
-  // Trailing slash keeps the prefix from matching a sibling like
+  // Every prefix a device's intake photos can live under, across the path
+  // migration. Trailing slash keeps a prefix from matching a sibling like
   // `incoming/{id}-other/`.
+  //
+  //   captures/{uid}/{id}/         — NEW canonical intake path
+  //   scans/{uid}/incoming/{id}/   — legacy uid-scoped path (pre-migration)
+  //   incoming/{id}/               — legacy uid-less, doc-gated path
+  //
+  // The uid-less `incoming/{id}/` prefix is always swept (it's the fallback
+  // when createdBy is missing); the two uid-scoped prefixes only when we have
+  // a uid.
   const prefixes = [`incoming/${id}/`];
   if (uid) {
+    prefixes.push(`captures/${uid}/${id}/`);
     prefixes.push(`scans/${uid}/incoming/${id}/`);
   }
 
@@ -97,11 +104,13 @@ export async function sweepIncomingStorage(
  *
  * **What this does.** The Firestore doc is the authoritative half — once it's
  * gone, this trigger fires and reconciles Storage to match via
- * [sweepIncomingStorage], which recursively deletes every object under BOTH
- * prefixes a device's photos can live in. This is the mirror image of
- * `createIncoming`'s rollback intent: there, a failed write compensates by
- * deleting uploaded blobs; here, a successful delete compensates by deleting
- * any blobs the client missed.
+ * [sweepIncomingStorage], which recursively deletes every object under each
+ * prefix a device's photos can live in across the path migration: the new
+ * canonical `captures/{uid}/{id}/`, plus the legacy `scans/{uid}/incoming/{id}/`
+ * and uid-less `incoming/{id}/`. This is the mirror image of `createIncoming`'s
+ * rollback intent: there, a failed write compensates by deleting uploaded
+ * blobs; here, a successful delete compensates by deleting any blobs a partial
+ * client-side delete missed.
  *
  * **uid source.** The deleted doc carries the owner uid in `createdBy` (the
  * same field the `incoming/` security rules pin on create — see

@@ -12,15 +12,47 @@ service firebase.storage {
         && request.auth.token.role in ['audiologist', 'admin'];
     }
 
-    // Scan images: user can upload to their own folder
+    // Scan-mode snapshots: transient stills the live scanner writes during a
+    // detection session, namespaced by uid. Owner read/write; audiologists +
+    // admins may read across users (triage review).
+    //
+    // READ is uid-gated, NOT just `request.auth != null` — the old rule let any
+    // signed-in user read any other user's photos (a cross-user read leak).
+    // WRITE is split into create/update vs delete so the owner can clean up
+    // their own objects without the image-size/type predicate blocking a
+    // delete (deletes carry no `request.resource`).
     match /scans/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId
+      allow read: if request.auth != null
+        && (request.auth.uid == userId || isElevated());
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Incoming device photos: scanner writes here after Confirm.
+    // Intake captures: the DURABLE photo bucket for the device-intake flow,
+    // distinct from the transient scan-mode snapshots above. Canonical path is
+    // `captures/{uid}/{deviceId}/{slot}.jpg` — uid is the OUTER security
+    // boundary so the rule can gate on the path alone (no cross-service
+    // firestore.get needed, unlike the legacy `incoming/{id}/photos/` block).
+    // Same grants as the hardened scans block: owner read/write, elevated
+    // (audiologist/admin) cross-user read for the triage register.
+    match /captures/{userId}/{allPaths=**} {
+      allow read: if request.auth != null
+        && (request.auth.uid == userId || isElevated());
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Incoming device photos (LEGACY): pre-migration intake photos written to
+    // a uid-less path, doc-gated by the incoming/{id} doc's createdBy. New
+    // intake photos go to `captures/{uid}/...` above; this block stays for
+    // pre-migration objects still resolved via their stored gs:// URIs.
+    //
     // The Firestore doc's createdBy gates write access — only the creator
     // (or an audiologist/admin) may upload to a given incoming/{id}/photos/
     // path. Cross-tenant photo overwrites would otherwise be possible since

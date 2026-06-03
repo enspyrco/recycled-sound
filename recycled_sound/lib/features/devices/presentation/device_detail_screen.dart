@@ -10,6 +10,29 @@ import '../data/models/device.dart';
 import '../providers/device_providers.dart';
 import 'widgets/storage_image.dart';
 
+/// Back-affordance for the device-detail surface.
+///
+/// This route is registered on the *root* navigator (not the shell), so it
+/// gets no bottom-tab fallback. It's also entered two different ways:
+///
+///   * From the device list via `context.push('/devices/:id')` — stack push,
+///     so a `pop` returns to the list.
+///   * From the capture flow's `_save()` via `context.go('/devices/:id')` —
+///     stack replace, so there's nothing to pop and the user is stranded
+///     (the failure mode Delia reported as #92).
+///
+/// `canPop() ? pop : go('/')` handles both entry points from a single call
+/// site — the right idiom for any go_router screen that can be reached via
+/// both push and go. Replacing the AppBar's auto-generated back button (which
+/// would silently do nothing in the go-entry case) with this widget makes
+/// the back action work regardless of how the user got here.
+Widget _homeOrPopButton(BuildContext context) => IconButton(
+      icon: const Icon(Icons.arrow_back),
+      tooltip: 'Back',
+      onPressed: () =>
+          context.canPop() ? context.pop() : context.go('/'),
+    );
+
 /// Device detail screen — live stream of a single `incoming/{id}` doc.
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({super.key, required this.deviceId});
@@ -21,17 +44,27 @@ class DeviceDetailScreen extends ConsumerWidget {
     final async = ref.watch(incomingDeviceByIdProvider(deviceId));
 
     return async.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      loading: () => Scaffold(
+        appBar: AppBar(
+          leading: _homeOrPopButton(context),
+          title: const Text('Device'),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        appBar: AppBar(title: const Text('Device')),
+        appBar: AppBar(
+          leading: _homeOrPopButton(context),
+          title: const Text('Device'),
+        ),
         body: Center(child: Text('Failed to load: $e')),
       ),
       data: (device) {
         if (device == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Device')),
+            appBar: AppBar(
+              leading: _homeOrPopButton(context),
+              title: const Text('Device'),
+            ),
             body: const Center(child: Text('Device not found.')),
           );
         }
@@ -56,6 +89,7 @@ class _DetailView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: _homeOrPopButton(context),
         title: Text('${device.brand} ${device.model}'),
         actions: [
           RsChip(

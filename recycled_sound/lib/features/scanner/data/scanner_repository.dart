@@ -133,7 +133,12 @@ class ScannerRepository {
     for (final correction in corrections) {
       batch.set(
         correctionsRef.doc(),
-        correction.toJson(),
+        {
+          ...correction.toJson(),
+          'userId': userId,
+          'userRole': userRole,
+          'timestamp': FieldValue.serverTimestamp(),
+        }
       );
     }
 

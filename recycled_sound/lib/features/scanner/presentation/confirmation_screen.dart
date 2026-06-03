@@ -10,12 +10,14 @@ import '../../devices/data/incoming_device_repository.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/providers/firebase_providers.dart';
 import '../../devices/data/models/device.dart';
 import '../../devices/providers/device_providers.dart';
 import '../data/brand_colour_palettes.dart';
 import '../data/colour_classifier.dart';
 import '../data/models/scan_result.dart';
 import '../providers/scanner_providers.dart';
+import '../../auth_providers.dart';
 
 /// The 7-field confirmation screen — where AI meets audiologist.
 ///
@@ -248,6 +250,15 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
           backgroundColor: AppColors.success,
         ),
       );
+      final corrections = ref.read(scanResultProvider.notifier).corrections;
+      final scanner = ref.read(scannerRepositoryProvider);
+      await scanner.submitCorrections(
+        scanId: result.scanId,
+        corrections: corrections,
+        userId: ref.read(firebaseAuthProvider)?.currentUser?.uid ?? '',
+        userRole: ref.read(firebaseUserRoleProvider) ?? 'volunteer',
+      );
+
       router.go('/devices');
     } on FirebaseException catch (e) {
       // Discriminate by code so volunteers get actionable copy instead of a

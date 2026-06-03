@@ -256,7 +256,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
         scanId: result.scanId,
         corrections: corrections,
         userId: ref.read(firebaseAuthProvider).currentUser?.uid ?? '',
-        userRole: ref.read(currentUserProfileProvider) ?? 'volunteer',
+        userRole: ref.read(currentUserProfileProvider).value?.role.wire ?? 'volunteer',
       );
 
       router.go('/devices');

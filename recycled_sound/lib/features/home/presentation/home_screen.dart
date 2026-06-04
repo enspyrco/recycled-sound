@@ -48,25 +48,57 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Text('Scan a Hearing Aid', style: AppTypography.h2),
+                    Text('Add a Hearing Aid', style: AppTypography.h2),
                     const SizedBox(height: 8),
                     Text(
-                      'Use your camera to identify the brand, model, and specs of a donated hearing aid.',
-                      style: AppTypography.body.copyWith(color: AppColors.textMuted),
+                      'Two ways to add a donated hearing aid — pick the one that fits.',
+                      style:
+                          AppTypography.body.copyWith(color: AppColors.textMuted),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
+                    // ── Scan mode ────────────────────────────────────────
+                    // Sets the expectation up front: the scanner *tries* to
+                    // read the device live, and a partial / blank result is
+                    // normal because the model is still learning. Without this,
+                    // an inconsistent field read looks like a bug to a
+                    // volunteer (Delia's build-9 feedback).
                     RsButton(
-                      label: 'Open Scanner',
-                      icon: Icons.camera_alt_outlined,
+                      label: 'Scan to identify',
+                      icon: Icons.center_focus_strong,
                       onPressed: () => context.push('/scan'),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Point the camera and the app tries to read the brand, '
+                      'model and specs on the spot. It is still learning, so '
+                      'some scans fill every field and others only the brand — '
+                      'that is expected, not a fault.',
+                      style: AppTypography.caption
+                          .copyWith(color: AppColors.textMuted),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    // ── Capture mode ─────────────────────────────────────
+                    // The complement: no live ID at all, just a guided set of
+                    // photos saved for an audiologist to read later. Naming the
+                    // absence of identification stops "couldn't even get the
+                    // info, unlike scanning" from reading as a failure.
                     RsButton(
-                      label: 'Capture Photos',
+                      label: 'Capture photos for later',
                       icon: Icons.photo_camera_outlined,
                       variant: RsButtonVariant.outline,
                       onPressed: () => context.push('/capture'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'A step-by-step photo guide. It does not identify the '
+                      'device — it just saves a clear set of photos for an '
+                      'audiologist to review later. Use this when scanning is '
+                      'hard or you just want a good photo record.',
+                      style: AppTypography.caption
+                          .copyWith(color: AppColors.textMuted),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),

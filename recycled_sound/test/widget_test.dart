@@ -44,8 +44,9 @@ void main() {
     await tester.pumpWidget(testApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Scan a Hearing Aid'), findsOneWidget);
-    expect(find.text('Open Scanner'), findsOneWidget);
+    expect(find.text('Add a Hearing Aid'), findsOneWidget);
+    expect(find.text('Scan to identify'), findsOneWidget);
+    expect(find.text('Capture photos for later'), findsOneWidget);
     expect(find.text('Impact'), findsOneWidget);
     expect(find.text('Quick Actions'), findsOneWidget);
   });

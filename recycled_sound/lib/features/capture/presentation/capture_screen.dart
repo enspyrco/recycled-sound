@@ -18,9 +18,9 @@ import 'widgets/capture_guide_hand.dart';
 /// Guided photo-capture flow — a peer to the scanner (`/scan`).
 ///
 /// Steps the volunteer through [CaptureSlot.sequence], one shot per slot, then
-/// saves the set to a new `incoming/` device via
+/// saves the set to a new device via
 /// [IncomingDeviceRepository.createIncoming], which uploads each local file
-/// atomically to `scans/{uid}/incoming/{id}/{slotName}.jpg`. The filename is
+/// atomically to `captures/{uid}/{deviceId}/{slot}.jpg`. The filename is
 /// the *slot identity*, not a position — so skipping a slot can never shift
 /// another slot's photo onto the wrong anatomical label.
 ///
@@ -371,6 +371,26 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 onPressed: () => context.go('/'),
               ),
               const Spacer(),
+              // Mode reminder: this flow only collects photos, it does not try
+              // to read the device. Naming that here prevents the "no info,
+              // unlike scanning" confusion from the entry point onward.
+              Flexible(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Photo capture · no live ID',
+                    style:
+                        AppTypography.caption.copyWith(color: Colors.white70),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -402,14 +422,25 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // "Photo N of M" so the volunteer always knows where they
+                    // are in the set — concrete progress, not just a fraction.
                     Text(
-                      _currentSlot.title,
-                      style: AppTypography.h2.copyWith(color: Colors.white),
+                      'Photo ${_currentIndex + 1} of $total · ${_currentSlot.title}',
+                      style: AppTypography.label.copyWith(color: Colors.white60),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
+                    // What to shoot — the action, in plain language.
                     Text(
                       _currentSlot.hint,
-                      style: AppTypography.body.copyWith(color: Colors.white70),
+                      style: AppTypography.h4.copyWith(color: Colors.white),
+                    ),
+                    const SizedBox(height: 6),
+                    // Why it matters — keeps the step from feeling arbitrary to
+                    // a non-expert (recognition over recall).
+                    Text(
+                      'Why: ${_currentSlot.why}',
+                      style:
+                          AppTypography.caption.copyWith(color: Colors.white70),
                     ),
                   ],
                 ),

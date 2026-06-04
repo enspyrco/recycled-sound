@@ -249,12 +249,12 @@ void main() {
 
       // Each upload contributes one URI in order, indexed by position.
       expect(photos, hasLength(4));
-      expect(photos[1],
-          'gs://some-bucket/gs://some-bucketscans/user-abc/incoming/$id/0.jpg');
-      expect(photos[2],
-          'gs://some-bucket/gs://some-bucketscans/user-abc/incoming/$id/1.jpg');
-      expect(photos[3],
-          'gs://some-bucket/gs://some-bucketscans/user-abc/incoming/$id/2.jpg');
+      // Canonical intake path: captures/{uid}/{deviceId}/{slot}.jpg. uid is
+      // `user-abc` (the mock signed-in user). The doubled `gs://some-bucket`
+      // prefix is a firebase_storage_mocks artifact, not the path under test.
+      expect(photos[1], 'gs://some-bucket/gs://some-bucketcaptures/user-abc/$id/0.jpg');
+      expect(photos[2], 'gs://some-bucket/gs://some-bucketcaptures/user-abc/$id/1.jpg');
+      expect(photos[3], 'gs://some-bucket/gs://some-bucketcaptures/user-abc/$id/2.jpg');
 
       // And the files actually landed in the mock store — proves we're
       // testing real putFile traffic, not a no-op codepath.
@@ -262,9 +262,9 @@ void main() {
       expect(
         storage.storedFilesMap.keys,
         containsAll([
-          'scans/user-abc/incoming/$id/0.jpg',
-          'scans/user-abc/incoming/$id/1.jpg',
-          'scans/user-abc/incoming/$id/2.jpg',
+          'captures/user-abc/$id/0.jpg',
+          'captures/user-abc/$id/1.jpg',
+          'captures/user-abc/$id/2.jpg',
         ]),
       );
     });
@@ -363,12 +363,15 @@ void main() {
       );
 
       final paths = storage.storedFilesMap.keys.toList();
-      expect(paths.any((p) => p.endsWith('incoming/$id/scale.jpg')), isTrue,
+      expect(paths.any((p) => p.endsWith('captures/user-abc/$id/scale.jpg')),
+          isTrue,
           reason: 'scale photo keyed by slot name');
-      expect(paths.any((p) => p.endsWith('incoming/$id/lateral.jpg')), isTrue,
+      expect(paths.any((p) => p.endsWith('captures/user-abc/$id/lateral.jpg')),
+          isTrue,
           reason: 'lateral photo keyed by slot name, not compacted index');
       // The compacted positional name the old scheme produced must NOT appear.
-      expect(paths.any((p) => p.endsWith('incoming/$id/1.jpg')), isFalse,
+      expect(paths.any((p) => p.endsWith('captures/user-abc/$id/1.jpg')),
+          isFalse,
           reason: 'no positional filenames — that was the mislabelling bug');
 
       final data =
@@ -561,7 +564,7 @@ void main() {
 
   group('deleteIncoming', () {
     test('deletes the Firestore doc (authoritative half) and attempts the '
-        'per-uid scans/ sweep', () async {
+        'per-uid captures/ sweep', () async {
       // `firebase_storage_mocks` 0.7.0 quirk (mirrors the gs:// URI quirk
       // captured in PR #46): MockReference.delete() doesn't remove items
       // from MockFirebaseStorage's in-memory store, so we can't directly
@@ -577,8 +580,8 @@ void main() {
       // Seed photo blobs at the per-uid sweep path so listAll() returns
       // items the delete loop can iterate over — exercises the code path
       // even though the mock's delete is a no-op.
-      await storage.ref('scans/$uid/incoming/$id/lateral.jpg').putString('x');
-      await storage.ref('scans/$uid/incoming/$id/medial.jpg').putString('y');
+      await storage.ref('captures/$uid/$id/lateral.jpg').putString('x');
+      await storage.ref('captures/$uid/$id/medial.jpg').putString('y');
 
       expect((await firestore.collection('incoming').doc(id).get()).exists,
           isTrue);

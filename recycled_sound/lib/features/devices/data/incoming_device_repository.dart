@@ -67,9 +67,18 @@ enum PersistErrorKind {
 /// Read/write access to the `incoming/` collection — the scanner's write-target
 /// for newly-identified devices awaiting audiologist triage.
 ///
-/// Photos land in Storage at `incoming/{incomingId}/photos/{idx}.jpg`; the
-/// Firestore doc holds their gs:// URIs in the `photos` array so clients can
-/// resolve them with [FirebaseStorage.refFromURL].
+/// Photos land in Storage at `captures/{uid}/{deviceId}/{slot}.jpg`, where
+/// `{deviceId}` is this `incoming/{id}` doc's id. The Firestore doc holds their
+/// gs:// URIs in the `photos` array so clients can resolve them with
+/// [FirebaseStorage.refFromURL].
+///
+/// **Why `captures/{uid}/...`.** uid is the OUTER path segment so it acts as
+/// the storage-rules security boundary (the rule gates on the path alone —
+/// no cross-service `firestore.get` needed). `captures/` is the durable intake
+/// bucket, deliberately distinct from the transient `scans/` snapshots the
+/// live scanner writes mid-session. The redundant `incoming/` path segment of
+/// the old `scans/{uid}/incoming/{id}/` shape is dropped — the doc id already
+/// scopes the device.
 class IncomingDeviceRepository {
   IncomingDeviceRepository({
     required FirebaseFirestore firestore,
@@ -88,9 +97,10 @@ class IncomingDeviceRepository {
 
   /// Create a new incoming device record from an unpersisted [DraftDevice].
   ///
-  /// Allocates a fresh doc id, uploads each local photo to Storage, then
-  /// writes the Firestore document with the resulting gs:// URIs merged into
-  /// the draft's `photos` field. Returns the new document id.
+  /// Allocates a fresh doc id, uploads each local photo to Storage under
+  /// `captures/{uid}/{deviceId}/`, then writes the Firestore document with the
+  /// resulting gs:// URIs merged into the draft's `photos` field. Returns the
+  /// new document id.
   ///
   /// Takes a [DraftDevice], not a [Device]: the caller has no id to give
   /// (Firestore allocates it here), and the DraftDevice→Device promotion via
@@ -98,15 +108,16 @@ class IncomingDeviceRepository {
   /// rules layer. Modelling the pre-persist state with a sentinel `id: ''`
   /// would let a never-persisted record masquerade as a real one.
   ///
-  /// **Photo path: `scans/{uid}/…`, NOT `incoming/{id}/photos/…`.** The
-  /// `incoming/{id}/photos` Storage rule gates writes via a cross-service
+  /// **Photo path: `captures/{uid}/{deviceId}/…`, NOT `incoming/{id}/photos/…`.**
+  /// The `incoming/{id}/photos` Storage rule gates writes via a cross-service
   /// `firestore.get` of the doc's `createdBy`. That cross-service lookup does
   /// not resolve in production (verified 2026-05-21: an anonymous user with
   /// the doc present and `createdBy == uid` still gets `storage/unauthorized`),
-  /// so every non-elevated upload there is denied. The `scans/{uid}/**` rule
+  /// so every non-elevated upload there is denied. The `captures/{uid}/**` rule
   /// is pure-uid (no Firestore lookup) and works, and gives STRICTER isolation
-  /// (each user owns their own prefix). So capture photos live under
-  /// `scans/{uid}/incoming/{id}/…`; the device doc just references their URIs.
+  /// (each user owns their own prefix). `captures/` is the DURABLE intake bucket,
+  /// distinct from the transient scan-mode `scans/` snapshots. So capture photos
+  /// live under `captures/{uid}/{deviceId}/…`; the device doc references URIs.
   /// `contentType` is set explicitly so the rule's `image/.*` predicate holds
   /// regardless of how the platform infers it from the file.
   ///
@@ -143,14 +154,16 @@ class IncomingDeviceRepository {
       // Parallel uploads: ~max(upload latency) instead of sum of all.
       final uploads = <Future<String>>[];
       for (var i = 0; i < localPhotoPaths.length; i++) {
-        final storageRef = _storage.ref('scans/$uid/incoming/$id/$i.jpg');
+        // captures/{uid}/{deviceId}/{slot}.jpg — uid is the security boundary,
+        // the doc id is the device, `$i` is the slot/index filename.
+        final storageRef = _storage.ref('captures/$uid/$id/$i.jpg');
         uploads.add(_uploadPhoto(storageRef, localPhotoPaths[i], uploaded));
       }
       // Slot-keyed uploads: the filename IS the slot identity, so a skipped
       // slot never shifts another photo's label.
       for (final entry in namedPhotoPaths.entries) {
         final storageRef =
-            _storage.ref('scans/$uid/incoming/$id/${entry.key}.jpg');
+            _storage.ref('captures/$uid/$id/${entry.key}.jpg');
         uploads.add(_uploadPhoto(storageRef, entry.value, uploaded));
       }
       final photoUris = await Future.wait(uploads);
@@ -223,7 +236,7 @@ class IncomingDeviceRepository {
   }
 
   /// Delete an entire incoming device — the Firestore doc and every photo
-  /// blob beneath the caller's `scans/{uid}/incoming/{id}/` prefix.
+  /// blob beneath the caller's `captures/{uid}/{deviceId}/` prefix.
   ///
   /// **Photos first, then doc — best-effort on Storage.** Mirrors the
   /// rollback intent of [createIncoming] from the opposite direction: the
@@ -237,9 +250,12 @@ class IncomingDeviceRepository {
   /// rethrow — the user-visible record is still there and the action did
   /// nothing the user can see.
   ///
-  /// Storage path is the per-uid `scans/{uid}/incoming/{id}/` prefix used by
+  /// Storage path is the per-uid `captures/{uid}/{deviceId}/` prefix used by
   /// the in-app capture flow (see [createIncoming]'s doc-comment for why the
-  /// cross-service-gated `incoming/{id}/photos/` path was abandoned).
+  /// cross-service-gated `incoming/{id}/photos/` path was abandoned). The
+  /// server-side cascade (cascadeIncomingDelete) ALSO fires on the doc delete
+  /// below and sweeps legacy prefixes for pre-migration data; this client
+  /// sweep targets the current `captures/` path.
   /// [listAll] is bounded by the small per-device photo count (≤ a handful of
   /// slot photos) — no pagination needed at this scale.
   Future<void> deleteIncoming(String id) async {
@@ -251,7 +267,7 @@ class IncomingDeviceRepository {
     // offline) — that's still an acceptable degenerate, the doc-delete
     // below is the authoritative half.
     try {
-      final listing = await _storage.ref('scans/$uid/incoming/$id').listAll();
+      final listing = await _storage.ref('captures/$uid/$id').listAll();
       await Future.wait(
         listing.items.map((r) => r.delete().catchError((_) {})),
       );

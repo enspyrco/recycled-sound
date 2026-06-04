@@ -2,11 +2,11 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Elevated roles — audiologists and admins — get cross-tenant write
-    // access (they own triage + QA). Single source of truth for the role
-    // list, mirroring `firestore.rules`' `isElevated()` so the two rule
-    // sets can't drift. Declared once at the bucket scope and reused below
-    // instead of being copy-pasted into every match block.
+    // Elevated roles — audiologists and admins — get cross-tenant access
+    // (they own triage + QA). Single source of truth for the role list,
+    // mirroring `firestore.rules`' `isElevated()` so the two rule sets can't
+    // drift. Declared once at the bucket scope and reused below instead of
+    // being copy-pasted into every match block.
     function isElevated() {
       return request.auth != null
         && request.auth.token.role in ['audiologist', 'admin'];
@@ -20,7 +20,10 @@ service firebase.storage {
     // signed-in user read any other user's photos (a cross-user read leak).
     // WRITE is split into create/update vs delete so the owner can clean up
     // their own objects without the image-size/type predicate blocking a
-    // delete (deletes carry no `request.resource`).
+    // delete (deletes carry no `request.resource`). DELETE also allows elevated
+    // roles so an audiologist/admin can clean up a volunteer's mis-captured
+    // device end-to-end (the Firestore incoming/ delete grants them the doc;
+    // this grants them the photo blobs).
     match /scans/{userId}/{allPaths=**} {
       allow read: if request.auth != null
         && (request.auth.uid == userId || isElevated());
@@ -28,7 +31,8 @@ service firebase.storage {
         && request.auth.uid == userId
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null
+        && (request.auth.uid == userId || isElevated());
     }
 
     // Intake captures: the DURABLE photo bucket for the device-intake flow,
@@ -37,7 +41,8 @@ service firebase.storage {
     // boundary so the rule can gate on the path alone (no cross-service
     // firestore.get needed, unlike the legacy `incoming/{id}/photos/` block).
     // Same grants as the hardened scans block: owner read/write, elevated
-    // (audiologist/admin) cross-user read for the triage register.
+    // (audiologist/admin) cross-user read for the triage register and elevated
+    // delete for end-to-end cleanup.
     match /captures/{userId}/{allPaths=**} {
       allow read: if request.auth != null
         && (request.auth.uid == userId || isElevated());
@@ -45,7 +50,8 @@ service firebase.storage {
         && request.auth.uid == userId
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null
+        && (request.auth.uid == userId || isElevated());
     }
 
     // Incoming device photos (LEGACY): pre-migration intake photos written to

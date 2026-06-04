@@ -9,6 +9,7 @@ import UIKit
   // hazard documented in feedback_native_plugin_gc.md.
   private var visionOcrPlugin: VisionOcrPlugin?
   private var deviceTelemetryPlugin: DeviceTelemetryPlugin?
+  private var focusControlPlugin: FocusControlPlugin?
 
   override func application(
     _ application: UIApplication,
@@ -39,6 +40,11 @@ import UIKit
     // Register device telemetry channel (thermal, low-power, RAM, LiDAR, NE).
     if let telemRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceTelemetry") {
       deviceTelemetryPlugin = DeviceTelemetryPlugin(messenger: telemRegistrar.messenger())
+    }
+
+    // Register native focus control (autoFocusRangeRestriction = .near).
+    if let focusRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "FocusControl") {
+      focusControlPlugin = FocusControlPlugin(messenger: focusRegistrar.messenger())
     }
   }
 }

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Volunteer Photo Day - Recycled Sound</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      color: #333;
+      line-height: 1.7;
+      background: #fafafa;
+    }
+    header {
+      background: #2A7D5F;
+      color: #fff;
+      padding: 40px 24px;
+      text-align: center;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    header p {
+      font-size: 1rem;
+      opacity: 0.9;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+    h2 {
+      color: #2A7D5F;
+      font-size: 1.3rem;
+      margin-top: 40px;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    h2:first-of-type { margin-top: 0; }
+    h3 {
+      color: #2A7D5F;
+      font-size: 1.1rem;
+      margin-top: 24px;
+      margin-bottom: 8px;
+    }
+    p, li { font-size: 1rem; margin-bottom: 12px; }
+    ul, ol { padding-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    a { color: #2A7D5F; }
+    strong { color: #1f5c46; }
+
+    /* The "gist" panel - the one-screen summary */
+    .gist {
+      background: #fff;
+      border-left: 4px solid #2A7D5F;
+      border-radius: 4px;
+      padding: 24px 28px;
+      margin-bottom: 32px;
+    }
+    .gist h2 {
+      margin-top: 0;
+      border: none;
+      padding: 0;
+      margin-bottom: 16px;
+    }
+    .gist ol { margin-bottom: 0; }
+    .gist li { font-size: 1.05rem; margin-bottom: 12px; }
+
+    /* Good / bad example cards */
+    .examples {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin: 16px 0 20px;
+    }
+    .example {
+      flex: 1 1 220px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #ddd;
+      background: #fff;
+    }
+    .example .tag {
+      padding: 8px 14px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #fff;
+    }
+    .example.good .tag { background: #2A7D5F; }
+    .example.bad  .tag { background: #b23b3b; }
+    .example .photo {
+      background: #eee;
+      color: #888;
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 36px 16px;
+      border-top: 1px solid #ddd;
+      border-bottom: 1px solid #eee;
+      font-style: italic;
+    }
+    .example .why {
+      padding: 10px 14px;
+      font-size: 0.92rem;
+      color: #444;
+    }
+
+    /* Detail disclosure blocks */
+    details {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      padding: 0 20px;
+    }
+    details[open] { padding-bottom: 16px; }
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: #2A7D5F;
+      padding: 16px 0;
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before {
+      content: "\25B8";
+      display: inline-block;
+      margin-right: 10px;
+      transition: transform 0.15s;
+      color: #2A7D5F;
+    }
+    details[open] summary::before { transform: rotate(90deg); }
+
+    .callout {
+      background: #f3f9f6;
+      border: 1px solid #cfe7dc;
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 16px 0;
+    }
+    .callout.warn {
+      background: #fdf4f2;
+      border-color: #f0d4cd;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.95rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid #e4e4e4;
+      vertical-align: top;
+    }
+    th { color: #2A7D5F; }
+
+    .checklist {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 20px 24px;
+      font-size: 1rem;
+    }
+    .checklist label {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 0.85rem;
+      color: #888;
+    }
+
+    @media print {
+      body { background: #fff; }
+      header { background: #2A7D5F !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      details { border: 1px solid #bbb; }
+      details:not([open]) { /* keep collapsed sections hinted but compact */ }
+      summary { color: #1f5c46; }
+      .example .photo { background: #f0f0f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      a { color: #1f5c46; text-decoration: underline; }
+    }
+    .print-note {
+      font-size: 0.85rem;
+      color: #777;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Volunteer Photo Day</h1>
+  <p>How to photograph hearing aids with the Recycled Sound app</p>
+</header>
+
+<main>
+
+  <div class="gist">
+    <h2>The 5 things that matter most</h2>
+    <ol>
+      <li><strong>Let the app guide you.</strong> The app walks you through each shot. Follow the on-screen prompt, line up the device, and let it capture. You don't need to remember angles.</li>
+      <li><strong>Get the brand name in focus.</strong> The single most useful shot is a sharp, close photo of the side with the brand and model printed on it. That text is what the scanner reads.</li>
+      <li><strong>Good light, no flash.</strong> Bright, even light (a window or overhead light) beats a dark room. Turn the flash off, it bounces glare off the shiny shell.</li>
+      <li><strong>Steady and sharp beats fast.</strong> Hold still for a second so the photo isn't blurry. A blurry close-up is worse than no close-up.</li>
+      <li><strong>Include the credit card when asked.</strong> One shot puts a standard bank card next to the device. The card is a known size, so it tells the scanner exactly how big the hearing aid is.</li>
+    </ol>
+  </div>
+
+  <p>
+    Thank you for helping. Today the goal is simple: photograph each hearing aid clearly so the app can identify it.
+    You do <strong>not</strong> need to know anything about hearing aids. The app does the thinking; you just point and shoot.
+    Read the box above and you are ready. The sections below have the detail if you want it, but the app prompts will lead you through.
+  </p>
+
+  <h2>What a good photo looks like</h2>
+  <p>The quickest way to get this right is to recognise a good shot when you see one. Compare these:</p>
+
+  <div class="examples">
+    <div class="example good">
+      <div class="tag">GOOD &#10003;</div>
+      <div class="photo">[reference photo: sharp close-up of a hearing aid with "Phonak" and the model name clearly readable, filling most of the frame, plain background]</div>
+      <div class="why">Brand and model text is sharp and fills the frame. Plain background. Even light, no glare.</div>
+    </div>
+    <div class="example bad">
+      <div class="tag">BAD &#10007;</div>
+      <div class="photo">[reference photo: same hearing aid but blurry, tiny in a cluttered frame, hard glare spot over the text]</div>
+      <div class="why">Too far away, blurry, and a bright glare spot hides the text. The scanner can't read it.</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Rule of thumb:</strong> if <em>you</em> can read the brand name on your phone screen before you tap capture, the scanner can too. If you can't read it, move closer, steady your hand, or change the angle to kill the glare.
+  </div>
+
+  <h2>Step by step on the day</h2>
+  <ol>
+    <li>Pick up the next hearing aid (or its numbered box).</li>
+    <li>Open the Recycled Sound app and start the guided capture for that device.</li>
+    <li>Follow each on-screen prompt. The app asks for one shot at a time and shows you what it wants.</li>
+    <li>Line up the device, check it looks sharp on screen, then capture.</li>
+    <li>If a shot looks blurry or dark, retake it. There is no prize for speed.</li>
+    <li>When the app says the device is done, move to the next one.</li>
+  </ol>
+  <p>Aim for clear over fast. A clean set of photos saves the audiology team time later; a rushed, blurry set just has to be redone.</p>
+
+  <h2>More detail (open only what you need)</h2>
+
+  <details>
+    <summary>Where is the brand name? (the medial face)</summary>
+    <p>
+      A behind-the-ear hearing aid is a small curved "banana" shape. It has two larger flat sides and several thin edges.
+      The brand and model are almost always printed on the <strong>inner side</strong>, the face that sits against the head when the aid is worn.
+      Audiologists call this the <strong>medial face</strong>.
+    </p>
+    <p>
+      Two things trip people up:
+    </p>
+    <ul>
+      <li><strong>It's the inner side, not the outer side.</strong> If you photograph the outer (public) side, you often get no text at all. Turn the device over to the side that would touch the head.</li>
+      <li><strong>The text usually runs sideways.</strong> It's printed along the length of the device, so it reads vertically when you hold the aid upright. That's fine. The scanner doesn't care which way up the text is, as long as it's sharp. Just rotate the device or your phone so you can read it clearly, then capture.</li>
+    </ul>
+    <div class="examples">
+      <div class="example good">
+        <div class="tag">THIS SIDE &#10003;</div>
+        <div class="photo">[reference photo: medial (inner) face of a BTE aid, brand text running sideways along the shell, clearly lit]</div>
+        <div class="why">Inner / medial face. Brand text visible (sideways is fine).</div>
+      </div>
+      <div class="example bad">
+        <div class="tag">NOT THIS &#10007;</div>
+        <div class="photo">[reference photo: lateral (outer) face of the same aid, smooth shell, no text]</div>
+        <div class="why">Outer / lateral face. Smooth, often no text. The scanner has nothing to read here.</div>
+      </div>
+    </div>
+    <p class="print-note">For the audiology students: the six faces are lateral, medial, anterior, posterior, superior, inferior. Brand label lives on the medial face, perpendicular to the long axis.</p>
+  </details>
+
+  <details>
+    <summary>The credit-card shot - why it matters</summary>
+    <p>
+      For one shot the app asks you to lay a standard bank or credit card flat next to the hearing aid, both in the same photo.
+      A photo on its own doesn't tell the scanner how <em>big</em> the device is. A hearing aid photographed close up can look the same size as one photographed far away.
+    </p>
+    <p>
+      Every bank card in the world is the same size (85.6 mm wide). By putting one in the frame, you give the scanner a ruler it already knows.
+      It measures the card, then works out the true size of the hearing aid next to it. Size helps it tell similar models apart.
+    </p>
+    <div class="callout">
+      Lay the card <strong>flat on the same surface</strong> as the device, close to it but not covering it, with the whole card edge-to-edge in the frame. Any card the size of a bank card works (membership, transit, gift card). It doesn't need to be a real bank card and we don't read anything off it.
+    </div>
+    <div class="examples">
+      <div class="example good">
+        <div class="tag">GOOD &#10003;</div>
+        <div class="photo">[reference photo: hearing aid beside a full bank-card-sized card, both flat on a plain surface, whole card visible]</div>
+        <div class="why">Card flat, fully in frame, beside the device. Clear size reference.</div>
+      </div>
+      <div class="example bad">
+        <div class="tag">BAD &#10007;</div>
+        <div class="photo">[reference photo: card half out of frame and tilted, partly under the hearing aid]</div>
+        <div class="why">Card cut off and tilted. The scanner can't measure it, so it's useless as a ruler.</div>
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Lighting - getting clean, glare-free photos</summary>
+    <ul>
+      <li><strong>Bright and even is the goal.</strong> Set up near a window or under good overhead light. Dim rooms give grainy, blurry photos.</li>
+      <li><strong>Flash off.</strong> The shell is glossy. Flash creates a bright white blob that hides exactly the text you're trying to capture.</li>
+      <li><strong>Beat the glare with angle.</strong> If a shiny spot sits over the text, tilt the device or your phone a few degrees until the glare slides off. You'll see it move on screen.</li>
+      <li><strong>Avoid direct sunlight</strong> on the device, it's harsh and creates hard shadows. Soft daylight from a window is ideal.</li>
+      <li><strong>Plain background.</strong> A desk, a sheet of paper, or a plain tabletop. Avoid patterned cloth, which confuses the scanner.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>Handling the devices safely and cleanly</summary>
+    <ul>
+      <li><strong>Clean hands.</strong> Fingerprints and smudges on the shell show up in photos. Wipe the device gently with a dry cloth if it's grubby.</li>
+      <li><strong>Handle over the table.</strong> These are small and easy to drop. Work over a surface, not over the floor.</li>
+      <li><strong>Keep devices with their box / number.</strong> Each device is tracked by its box or label. Don't mix them up. Photograph one device at a time and return it to its own box before starting the next.</li>
+      <li><strong>If a device is dirty or has visible wax,</strong> don't try to clean inside it. Just note it and let an audiology student or Seray handle it.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>What to do when something's unclear</summary>
+    <ul>
+      <li><strong>Can't find any brand text?</strong> You may be on the outer side. Turn the device over to the inner (head-facing) side. Still nothing? Capture your best clear shots anyway and flag it for the audiology team. Some older devices have very faint or worn text.</li>
+      <li><strong>App won't capture or seems stuck?</strong> Back out and restart the guided capture for that device. If it keeps happening, grab Nick or whoever's running the tech.</li>
+      <li><strong>Not sure if a photo is good enough?</strong> If you can read the text on screen and it's not blurry, it's good. When in doubt, take it again.</li>
+      <li><strong>Unsure which side is which?</strong> Ask one of the audiology students. They know the device anatomy and are there to help.</li>
+    </ul>
+  </details>
+
+  <h2>Quick checklist (per device)</h2>
+  <p>Tick these off and you've done a great job:</p>
+  <div class="checklist">
+    <label><input type="checkbox"> Brand / model text shot is <strong>sharp and readable</strong></label>
+    <label><input type="checkbox"> Photographed the <strong>inner side</strong> (the side that faces the head) for the text</label>
+    <label><input type="checkbox"> Good light, <strong>no flash</strong>, no glare spot over the text</label>
+    <label><input type="checkbox"> Credit-card shot done, with the <strong>whole card flat in frame</strong></label>
+    <label><input type="checkbox"> All app-prompted shots captured and not blurry</label>
+    <label><input type="checkbox"> Device returned to its correct <strong>box / number</strong></label>
+  </div>
+
+  <div class="callout warn">
+    <strong>The one thing to remember if you forget everything else:</strong> a sharp, well-lit close-up of the brand name is worth more than a dozen rushed photos. Slow down for that shot.
+  </div>
+
+</main>
+
+<footer>
+  Recycled Sound - Rotary Club of Springvale City &amp; Arches Audiology. Thank you for volunteering.
+</footer>
+
+</body>
+</html>

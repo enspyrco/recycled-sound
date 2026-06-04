@@ -23,12 +23,17 @@ void main() {
   // [incomingDevicesStreamProvider] sees the same canned list each test.
   Widget testApp() => ProviderScope(
         overrides: [
+          // The volunteer's own captures (watchMyIncoming) — surface in the
+          // "Pending intake" section of the Devices tab.
           incomingDevicesStreamProvider.overrideWith(
             (_) => Stream.value(const [
               Device(id: '1', brand: 'Phonak', model: 'Audéo P90'),
               Device(id: '2', brand: 'Oticon', model: 'More 1'),
             ]),
           ),
+          // The curated register — empty here so the section renders its
+          // empty-state guidance instead of reaching for a real Firebase stream.
+          allDevicesProvider.overrideWith((_) => Stream.value(const [])),
           // Device Info reads telemetry through the shared service provider.
           // In the test harness the real service's native plugins (battery,
           // connectivity, device_info) don't settle, so inject a fake that
@@ -69,16 +74,23 @@ void main() {
     expect(find.text('Devices'), findsOneWidget);
   });
 
-  testWidgets('Navigating to Devices tab shows register', (tester) async {
+  testWidgets('Navigating to Devices tab shows the volunteer\'s captures '
+      'under Pending intake', (tester) async {
     await tester.pumpWidget(testApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Devices'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Device Register'), findsOneWidget);
+    // Both registers are labelled so a volunteer can find their scan.
+    expect(find.text('Pending intake'), findsOneWidget);
+    expect(find.text('Device register'), findsOneWidget);
+
+    // Their just-captured devices land in the pending section, flagged for
+    // review — not silently filed into the curated register.
     expect(find.text('Phonak Audéo P90'), findsOneWidget);
     expect(find.text('Oticon More 1'), findsOneWidget);
+    expect(find.text('PENDING REVIEW'), findsNWidgets(2));
   });
 
   testWidgets('Settings keeps the bottom nav shell (gear → Settings → Device Info)',

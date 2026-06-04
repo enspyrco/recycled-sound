@@ -257,6 +257,32 @@ describe('Storage: incoming/{id}/photos', () => {
   });
 });
 
+describe('Storage: scans/{uid}/ read isolation', () => {
+  // In-app capture photos live at scans/{uid}/incoming/{id}/{slot}.jpg. Read
+  // must be owner-or-elevated, NOT any-authenticated (that was a cross-user
+  // leak of intake photos).
+  const scanPath = 'scans/alice/incoming/inc1/medial.jpg';
+
+  it('POSITIVE: owner can read their own scans object', async () => {
+    await assertSucceeds(uploadBytes(ref(asAlice().storage(), scanPath), PNG_1x1, IMG_META));
+    await assertSucceeds(getBytes(ref(asAlice().storage(), scanPath)));
+  });
+
+  it('NEGATIVE: another user cannot read someone else\'s scans object', async () => {
+    await assertSucceeds(uploadBytes(ref(asAlice().storage(), scanPath), PNG_1x1, IMG_META));
+    await assertFails(getBytes(ref(asBob().storage(), scanPath)));
+  });
+
+  it('POSITIVE: audiologist can read any user\'s scans object', async () => {
+    await assertSucceeds(uploadBytes(ref(asAlice().storage(), scanPath), PNG_1x1, IMG_META));
+    await assertSucceeds(getBytes(ref(asAudiologist().storage(), scanPath)));
+  });
+
+  it('NEGATIVE: a different user cannot write into someone else\'s scans prefix', async () => {
+    await assertFails(uploadBytes(ref(asBob().storage(), scanPath), PNG_1x1, IMG_META));
+  });
+});
+
 describe('Storage: devices/{id}/photos', () => {
   it('NEGATIVE: non-audiologist cannot upload device photos', async () => {
     const aliceRef = ref(asAlice().storage(), 'devices/dev1/photos/front.png');

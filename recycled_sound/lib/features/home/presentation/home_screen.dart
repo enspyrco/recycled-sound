@@ -52,6 +52,13 @@ class HomeScreen extends StatelessWidget {
                       icon: Icons.camera_alt_outlined,
                       onPressed: () => context.push('/scan'),
                     ),
+                    const SizedBox(height: 12),
+                    RsButton(
+                      label: 'Capture Photos',
+                      icon: Icons.photo_camera_outlined,
+                      variant: RsButtonVariant.outline,
+                      onPressed: () => context.push('/capture'),
+                    ),
                   ],
                 ),
               ),

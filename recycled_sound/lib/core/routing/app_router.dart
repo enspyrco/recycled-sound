@@ -7,8 +7,10 @@ import '../../features/scanner/presentation/analysing_screen.dart';
 import '../../features/scanner/presentation/confirmation_screen.dart';
 import '../../features/scanner/presentation/capture_3d_screen.dart';
 import '../../features/scanner/presentation/results_screen.dart';
+import '../../features/capture/presentation/capture_screen.dart';
 import '../../features/devices/presentation/device_list_screen.dart';
 import '../../features/devices/presentation/device_detail_screen.dart';
+import '../../features/devices/presentation/photo_detail_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
 import '../../features/boot/presentation/boot_screen.dart';
@@ -86,11 +88,25 @@ GoRouter createAppRouter({String initialLocation = '/boot'}) => GoRouter(
       builder: (context, state) => const ConfirmationScreen(),
     ),
     GoRoute(
+      path: '/capture',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (context, state) => const CaptureScreen(),
+    ),
+    GoRoute(
       path: '/devices/:id',
       parentNavigatorKey: _rootNavigatorKey,
       builder: (context, state) {
         final id = state.pathParameters['id']!;
         return DeviceDetailScreen(deviceId: id);
+      },
+    ),
+    GoRoute(
+      path: '/devices/:id/photo',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (context, state) {
+        final id = state.pathParameters['id']!;
+        final photoRef = state.extra as String? ?? '';
+        return PhotoDetailScreen(deviceId: id, photoRef: photoRef);
       },
     ),
     GoRoute(

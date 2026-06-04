@@ -2,12 +2,34 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Scan images: user can upload to their own folder
+    // Scan + capture images: user owns their own prefix. Also the home for
+    // in-app capture photos (scans/{uid}/incoming/{id}/…) — the incoming/
+    // photos rule below relies on a cross-service firestore.get that does not
+    // resolve in production, so capture writes here instead (pure-uid, and
+    // stricter isolation than the doc-gated path).
     match /scans/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId
+      // Owner-or-elevated read. A user reads their own prefix; audiologists
+      // and admins may read any (the web triage shell renders capture photos
+      // off another user's scans/{uid}/incoming path). Role comes from the
+      // synced `role` custom claim — no cross-service firestore.get, which
+      // does not resolve here. Plain authenticated read was a cross-user leak.
+      allow read: if request.auth != null
+        && (request.auth.uid == userId
+          || request.auth.token.role in ['audiologist', 'admin']);
+      // create/update carry a resource to validate (size + image type).
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
+      // delete has NO request.resource — gate on ownership or elevated role.
+      // Without this separate grant, deletes are rejected (the size/contentType
+      // predicates are null on a delete), orphaning objects. Elevated roles
+      // are included so audiologists/admins can clean up a volunteer's
+      // mis-captured device end-to-end (the Firestore incoming/ delete grants
+      // them the doc; the Storage delete grants them the photo blobs).
+      allow delete: if request.auth != null
+        && (request.auth.uid == userId
+          || request.auth.token.role in ['audiologist', 'admin']);
     }
 
     // Incoming device photos: scanner writes here after Confirm.

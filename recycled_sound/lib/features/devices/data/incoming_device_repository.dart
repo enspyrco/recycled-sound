@@ -88,10 +88,9 @@ class IncomingDeviceRepository {
 
   /// Create a new incoming device record from an unpersisted [DraftDevice].
   ///
-  /// Allocates a fresh doc id, uploads each local photo to Storage under
-  /// `incoming/{id}/photos/`, then writes the Firestore document with the
-  /// resulting gs:// URIs merged into the draft's `photos` field. Returns the
-  /// new document id.
+  /// Allocates a fresh doc id, uploads each local photo to Storage, then
+  /// writes the Firestore document with the resulting gs:// URIs merged into
+  /// the draft's `photos` field. Returns the new document id.
   ///
   /// Takes a [DraftDevice], not a [Device]: the caller has no id to give
   /// (Firestore allocates it here), and the DraftDevice→Device promotion via
@@ -99,15 +98,35 @@ class IncomingDeviceRepository {
   /// rules layer. Modelling the pre-persist state with a sentinel `id: ''`
   /// would let a never-persisted record masquerade as a real one.
   ///
-  /// **Atomicity.** Photo uploads run in parallel (one slow network round-trip
-  /// instead of N serial ones). If *any* upload fails, or the Firestore write
-  /// that follows fails, every object that *did* upload is deleted before the
-  /// error propagates — so a partial failure leaves no orphaned Storage
-  /// objects and no half-written record. The happy path is unchanged: upload
-  /// all photos, then one `set`.
+  /// **Photo path: `scans/{uid}/…`, NOT `incoming/{id}/photos/…`.** The
+  /// `incoming/{id}/photos` Storage rule gates writes via a cross-service
+  /// `firestore.get` of the doc's `createdBy`. That cross-service lookup does
+  /// not resolve in production (verified 2026-05-21: an anonymous user with
+  /// the doc present and `createdBy == uid` still gets `storage/unauthorized`),
+  /// so every non-elevated upload there is denied. The `scans/{uid}/**` rule
+  /// is pure-uid (no Firestore lookup) and works, and gives STRICTER isolation
+  /// (each user owns their own prefix). So capture photos live under
+  /// `scans/{uid}/incoming/{id}/…`; the device doc just references their URIs.
+  /// `contentType` is set explicitly so the rule's `image/.*` predicate holds
+  /// regardless of how the platform infers it from the file.
+  ///
+  /// **Atomicity.** Uploads run in parallel (one slow round-trip instead of N
+  /// serial). If *any* upload fails, or the Firestore write that follows
+  /// fails, every object that *did* upload is deleted before the error
+  /// propagates — and since these objects live under the caller's own
+  /// `scans/{uid}/` prefix, the creator can actually delete them, so a partial
+  /// failure leaves no orphaned objects AND no record (the doc isn't written
+  /// until all uploads succeed). The happy path: upload all, then one `set`.
+  /// [localPhotoPaths] are uploaded under positional filenames (`0.jpg`,
+  /// `1.jpg`, …) — used by the scanner, which has no slot semantics.
+  /// [namedPhotoPaths] maps a stable key (the [CaptureSlot] name) to a local
+  /// path and uploads under `{key}.jpg`. Prefer the named form when the
+  /// filename must encode *which* photo it is: a positional scheme silently
+  /// mislabels photos when an earlier slot is skipped and the list compacts.
   Future<String> createIncoming(
     DraftDevice draft, {
     List<String> localPhotoPaths = const [],
+    Map<String, String> namedPhotoPaths = const {},
   }) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) {
@@ -124,8 +143,15 @@ class IncomingDeviceRepository {
       // Parallel uploads: ~max(upload latency) instead of sum of all.
       final uploads = <Future<String>>[];
       for (var i = 0; i < localPhotoPaths.length; i++) {
-        final storageRef = _storage.ref('incoming/$id/photos/$i.jpg');
+        final storageRef = _storage.ref('scans/$uid/incoming/$id/$i.jpg');
         uploads.add(_uploadPhoto(storageRef, localPhotoPaths[i], uploaded));
+      }
+      // Slot-keyed uploads: the filename IS the slot identity, so a skipped
+      // slot never shifts another photo's label.
+      for (final entry in namedPhotoPaths.entries) {
+        final storageRef =
+            _storage.ref('scans/$uid/incoming/$id/${entry.key}.jpg');
+        uploads.add(_uploadPhoto(storageRef, entry.value, uploaded));
       }
       final photoUris = await Future.wait(uploads);
 
@@ -147,16 +173,93 @@ class IncomingDeviceRepository {
     }
   }
 
-  /// Upload one local file and record its [Reference] in [uploaded] (so a
-  /// later failure can compensate by deleting it). Returns the gs:// URI.
+  /// Upload one local file (as image/jpeg) and record its [Reference] in
+  /// [uploaded] (so a later failure can compensate by deleting it). Returns
+  /// the gs:// URI. The explicit `contentType` keeps the Storage rule's
+  /// `image/.*` predicate satisfied independent of file-extension inference.
   Future<String> _uploadPhoto(
     Reference storageRef,
     String localPath,
     List<Reference> uploaded,
   ) async {
-    await storageRef.putFile(File(localPath));
+    await storageRef.putFile(
+      File(localPath),
+      SettableMetadata(contentType: 'image/jpeg'),
+    );
     uploaded.add(storageRef);
     return 'gs://${storageRef.bucket}/${storageRef.fullPath}';
+  }
+
+  /// Remove one photo from an incoming device — drops the gs:// URI from the
+  /// doc's `photos` array, then best-effort deletes the Storage object.
+  ///
+  /// **Doc-first, by design.** The Firestore `photos` array is the authoritative
+  /// list of "which photos exist" (the boundary-between-two-truths rule: pick
+  /// the authoritative surface and derive the other). Removing the URI first
+  /// means the UI — which streams the doc — updates immediately and can never
+  /// render a thumbnail whose object has already been deleted (a 404). The
+  /// Storage delete that follows is best-effort: if it fails, the object is
+  /// orphaned (a cheap, sweepable cost) rather than leaving a dangling
+  /// reference (a user-visible broken image). An already-missing object
+  /// (`object-not-found`) is fine — a re-delete then just cleans the array.
+  ///
+  /// [photoRef] is whatever is stored in `photos` — a `gs://` URI or an https
+  /// download URL; [FirebaseStorage.refFromURL] accepts both.
+  Future<void> deletePhoto(String deviceId, String photoRef) async {
+    await _col.doc(deviceId).update({
+      'photos': FieldValue.arrayRemove([photoRef]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    // Best-effort: the doc is already consistent. A failed object delete
+    // (including an already-missing object) leaves at worst a sweepable
+    // orphan, never a dangling reference, so it must not fail the call. The
+    // refFromURL parse is inside the guard too — a malformed photoRef must not
+    // escape after the array is already cleaned (the doc-first invariant).
+    try {
+      await _storage.refFromURL(photoRef).delete();
+    } catch (_) {
+      // Swallow — orphan cleanup is a separate concern.
+    }
+  }
+
+  /// Delete an entire incoming device — the Firestore doc and every photo
+  /// blob beneath the caller's `scans/{uid}/incoming/{id}/` prefix.
+  ///
+  /// **Photos first, then doc — best-effort on Storage.** Mirrors the
+  /// rollback intent of [createIncoming] from the opposite direction: the
+  /// recoverable side of the boundary (Storage objects, sweepable orphans)
+  /// runs first; the authoritative side (the Firestore doc, the only thing
+  /// the UI streams) flips last. If a blob delete fails mid-loop, we log the
+  /// failure and still delete the doc — the volunteer cannot realistically
+  /// retry a half-deleted device, and a leftover blob is a separate
+  /// sweep-job concern (cf. [deletePhoto]'s "object 404 is fine" stance).
+  /// If the Firestore delete itself fails (rules rejection, offline) we
+  /// rethrow — the user-visible record is still there and the action did
+  /// nothing the user can see.
+  ///
+  /// Storage path is the per-uid `scans/{uid}/incoming/{id}/` prefix used by
+  /// the in-app capture flow (see [createIncoming]'s doc-comment for why the
+  /// cross-service-gated `incoming/{id}/photos/` path was abandoned).
+  /// [listAll] is bounded by the small per-device photo count (≤ a handful of
+  /// slot photos) — no pagination needed at this scale.
+  Future<void> deleteIncoming(String id) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      throw StateError('Must be signed in to delete an incoming device');
+    }
+    // Best-effort photo sweep. Listing the prefix can itself fail (e.g.
+    // offline) — that's still an acceptable degenerate, the doc-delete
+    // below is the authoritative half.
+    try {
+      final listing = await _storage.ref('scans/$uid/incoming/$id').listAll();
+      await Future.wait(
+        listing.items.map((r) => r.delete().catchError((_) {})),
+      );
+    } catch (_) {
+      // Swallow — orphan cleanup is a separate concern, identical reasoning
+      // to [deletePhoto].
+    }
+    await _col.doc(id).delete();
   }
 
   /// Stream of incoming records created by the current user, newest first.

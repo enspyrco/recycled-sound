@@ -249,9 +249,12 @@ void main() {
 
       // Each upload contributes one URI in order, indexed by position.
       expect(photos, hasLength(4));
-      expect(photos[1], 'gs://some-bucket/gs://some-bucketincoming/$id/photos/0.jpg');
-      expect(photos[2], 'gs://some-bucket/gs://some-bucketincoming/$id/photos/1.jpg');
-      expect(photos[3], 'gs://some-bucket/gs://some-bucketincoming/$id/photos/2.jpg');
+      expect(photos[1],
+          'gs://some-bucket/gs://some-bucketscans/user-abc/incoming/$id/0.jpg');
+      expect(photos[2],
+          'gs://some-bucket/gs://some-bucketscans/user-abc/incoming/$id/1.jpg');
+      expect(photos[3],
+          'gs://some-bucket/gs://some-bucketscans/user-abc/incoming/$id/2.jpg');
 
       // And the files actually landed in the mock store — proves we're
       // testing real putFile traffic, not a no-op codepath.
@@ -259,9 +262,9 @@ void main() {
       expect(
         storage.storedFilesMap.keys,
         containsAll([
-          'incoming/$id/photos/0.jpg',
-          'incoming/$id/photos/1.jpg',
-          'incoming/$id/photos/2.jpg',
+          'scans/user-abc/incoming/$id/0.jpg',
+          'scans/user-abc/incoming/$id/1.jpg',
+          'scans/user-abc/incoming/$id/2.jpg',
         ]),
       );
     });
@@ -341,6 +344,36 @@ void main() {
       // And nothing got written to Firestore.
       final docs = await firestore.collection('incoming').get();
       expect(docs.docs, isEmpty);
+    });
+
+    test('named photos upload under slot-identity filenames, not positions',
+        () async {
+      // Sparse capture: 'scale' and 'lateral' shot, 'medial' (which sits
+      // between them in slot order) skipped. The storage filename must be the
+      // slot NAME — if it were a compacted position, 'lateral' would land at
+      // index 1 and be mislabelled 'medial'. This is the regression guard.
+      final tmp = await Directory.systemTemp.createTemp('slot_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      final scale = File('${tmp.path}/scale.jpg')..writeAsBytesSync([1]);
+      final lateral = File('${tmp.path}/lateral.jpg')..writeAsBytesSync([2]);
+
+      final id = await repo.createIncoming(
+        const DraftDevice(brand: 'Phonak', model: 'P90'),
+        namedPhotoPaths: {'scale': scale.path, 'lateral': lateral.path},
+      );
+
+      final paths = storage.storedFilesMap.keys.toList();
+      expect(paths.any((p) => p.endsWith('incoming/$id/scale.jpg')), isTrue,
+          reason: 'scale photo keyed by slot name');
+      expect(paths.any((p) => p.endsWith('incoming/$id/lateral.jpg')), isTrue,
+          reason: 'lateral photo keyed by slot name, not compacted index');
+      // The compacted positional name the old scheme produced must NOT appear.
+      expect(paths.any((p) => p.endsWith('incoming/$id/1.jpg')), isFalse,
+          reason: 'no positional filenames — that was the mislabelling bug');
+
+      final data =
+          (await firestore.collection('incoming').doc(id).get()).data()!;
+      expect((data['photos'] as List).length, 2);
     });
   });
 
@@ -523,6 +556,50 @@ void main() {
     test('emits null when missing', () async {
       final d = await repo.watchDeviceById('nope').first;
       expect(d, isNull);
+    });
+  });
+
+  group('deleteIncoming', () {
+    test('deletes the Firestore doc (authoritative half) and attempts the '
+        'per-uid scans/ sweep', () async {
+      // `firebase_storage_mocks` 0.7.0 quirk (mirrors the gs:// URI quirk
+      // captured in PR #46): MockReference.delete() doesn't remove items
+      // from MockFirebaseStorage's in-memory store, so we can't directly
+      // assert the blob sweep happened. What we CAN assert is the
+      // authoritative half — the Firestore doc is gone — and that the
+      // sweep code path ran without throwing. The Storage half is verified
+      // in integration / on-device testing; cf. [[feedback_silent_skip_is_worse_than_loud_fail]]
+      // for the broader principle (the gate must catch what it claims to,
+      // even when the mock can't simulate the second half).
+      const draft = DraftDevice(brand: 'Phonak', model: 'P90');
+      final id = await repo.createIncoming(draft);
+      const uid = 'user-abc';
+      // Seed photo blobs at the per-uid sweep path so listAll() returns
+      // items the delete loop can iterate over — exercises the code path
+      // even though the mock's delete is a no-op.
+      await storage.ref('scans/$uid/incoming/$id/lateral.jpg').putString('x');
+      await storage.ref('scans/$uid/incoming/$id/medial.jpg').putString('y');
+
+      expect((await firestore.collection('incoming').doc(id).get()).exists,
+          isTrue);
+
+      await repo.deleteIncoming(id);
+
+      // Authoritative half: the doc the UI streams is gone.
+      expect((await firestore.collection('incoming').doc(id).get()).exists,
+          isFalse);
+    });
+
+    test('throws StateError when no signed-in user', () async {
+      final unauth = IncomingDeviceRepository(
+        firestore: firestore,
+        storage: storage,
+        auth: MockFirebaseAuth(signedIn: false),
+      );
+      expect(
+        () => unauth.deleteIncoming('any-id'),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

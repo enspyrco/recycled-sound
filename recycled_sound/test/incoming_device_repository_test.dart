@@ -252,6 +252,11 @@ void main() {
       // Canonical intake path: captures/{uid}/{deviceId}/{slot}.jpg. uid is
       // `user-abc` (the mock signed-in user). The doubled `gs://some-bucket`
       // prefix is a firebase_storage_mocks artifact, not the path under test.
+      //
+      // Upstream fix: https://github.com/atn832/firebase_storage_mocks/pull/46
+      // makes Reference.fullPath return the real slash-path. Once that lands in
+      // a release and we bump the pinned 0.7.0 dep, swap these expectations to
+      // the real slash-path shape: 'gs://some-bucket/captures/user-abc/$id/N.jpg'.
       expect(photos[1], 'gs://some-bucket/gs://some-bucketcaptures/user-abc/$id/0.jpg');
       expect(photos[2], 'gs://some-bucket/gs://some-bucketcaptures/user-abc/$id/1.jpg');
       expect(photos[3], 'gs://some-bucket/gs://some-bucketcaptures/user-abc/$id/2.jpg');

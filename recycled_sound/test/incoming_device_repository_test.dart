@@ -363,12 +363,15 @@ void main() {
       );
 
       final paths = storage.storedFilesMap.keys.toList();
-      expect(paths.any((p) => p.endsWith('incoming/$id/scale.jpg')), isTrue,
+      expect(paths.any((p) => p.endsWith('captures/user-abc/$id/scale.jpg')),
+          isTrue,
           reason: 'scale photo keyed by slot name');
-      expect(paths.any((p) => p.endsWith('incoming/$id/lateral.jpg')), isTrue,
+      expect(paths.any((p) => p.endsWith('captures/user-abc/$id/lateral.jpg')),
+          isTrue,
           reason: 'lateral photo keyed by slot name, not compacted index');
       // The compacted positional name the old scheme produced must NOT appear.
-      expect(paths.any((p) => p.endsWith('incoming/$id/1.jpg')), isFalse,
+      expect(paths.any((p) => p.endsWith('captures/user-abc/$id/1.jpg')),
+          isFalse,
           reason: 'no positional filenames — that was the mislabelling bug');
 
       final data =

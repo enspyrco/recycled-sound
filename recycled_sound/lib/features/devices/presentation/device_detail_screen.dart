@@ -87,9 +87,13 @@ class _DetailView extends ConsumerStatefulWidget {
 }
 
 class _DetailViewState extends ConsumerState<_DetailView> {
-  /// Latched while a delete is in flight — disables the delete button to
-  /// prevent the volunteer from double-tapping and racing two cascade
-  /// deletes against the same doc.
+  /// Latched the *moment* the delete button is tapped — before the confirm
+  /// dialog even opens — and held through the async delete. Disables the
+  /// delete button so a fast double-tap can't open two confirm dialogs or
+  /// fire two cascade deletes against the same doc (the rapid-tap race Kelvin
+  /// flagged on #51). Reset only if the user cancels the dialog, so they can
+  /// retry; kept latched through a confirmed delete (the screen navigates
+  /// away on success).
   bool _deleting = false;
 
   RsChipVariant _qaVariant(QaStatus status) => switch (status) {
@@ -102,8 +106,15 @@ class _DetailViewState extends ConsumerState<_DetailView> {
   /// then [IncomingDeviceRepository.deleteIncoming]. On success, navigate
   /// back to the gallery — `canPop` fallback to `/` matches the home-or-pop
   /// idiom used elsewhere when this screen is the deep-link entry point.
+  ///
+  /// The `_deleting` latch is set SYNCHRONOUSLY here, at tap time, before the
+  /// first `await`. That closes the rapid-tap window: between this call and
+  /// the dialog resolving, a second tap finds `onPressed == null` (the button
+  /// is already disabled) and is a no-op, so we can never stack two confirm
+  /// dialogs or fire `deleteIncoming` twice.
   Future<void> _confirmDelete() async {
     final device = widget.device;
+    setState(() => _deleting = true);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -127,12 +138,17 @@ class _DetailViewState extends ConsumerState<_DetailView> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true) {
+      // Cancelled (or dismissed) — unlatch so the volunteer can retry.
+      if (mounted) setState(() => _deleting = false);
+      return;
+    }
     await _delete();
   }
 
   Future<void> _delete() async {
-    setState(() => _deleting = true);
+    // _deleting is already latched by _confirmDelete at tap time; no need to
+    // set it again here.
     // Capture pre-await handles — context becomes invalid the moment we
     // navigate (the doc stream emits null and the parent rebuilds).
     final messenger = ScaffoldMessenger.of(context);

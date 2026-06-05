@@ -63,3 +63,4 @@ flutter:
     - assets/brand_classifier.tflite
     - assets/brand_classifier_labels.json
     - assets/custom_words.json
+    - assets/capture_guide/

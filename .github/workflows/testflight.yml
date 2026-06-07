@@ -90,13 +90,25 @@ jobs:
 
       - name: Build IPA
         run: |
+          set -euo pipefail
+          # Archive WITHOUT signing: automatic signing needs an Xcode-GUI account
+          # that no CI runner has ("No Accounts" error). Sign manually at EXPORT
+          # time via ios/ExportOptions.plist, against the distribution cert +
+          # profile the earlier steps installed into the temp keychain / profiles
+          # dir. No fallback — a missing ExportOptions.plist must fail loudly, not
+          # silently degrade into a broken automatic-signing build.
           flutter build ipa \
             --release \
             --build-number=${{ steps.build-number.outputs.build_number }} \
-            --export-options-plist=ios/ExportOptions.plist || \
-          flutter build ipa \
-            --release \
-            --build-number=${{ steps.build-number.outputs.build_number }}
+            --no-codesign
+          ARCHIVE=$(find build/ios/archive -maxdepth 1 -name '*.xcarchive' | head -n1)
+          if [ -z "$ARCHIVE" ]; then echo "No .xcarchive produced by flutter build" >&2; exit 1; fi
+          echo "Exporting signed IPA from $ARCHIVE"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist ios/ExportOptions.plist
+          ls -la build/ios/ipa
 
       - name: Write App Store Connect API key
         env:

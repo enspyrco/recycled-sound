@@ -214,10 +214,11 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
 
   /// Persist the confirmed scan to `incoming/`, then route to the register.
   ///
-  /// The scanner already uploaded the source image to `scans/{uid}/…`, so we
-  /// reference that download URL in `photos[]` rather than re-uploading.
-  /// A future PR (audiologist triage) copies the image into the curated
-  /// `incoming/{id}/photos/` path on promotion.
+  /// The scanner already uploaded the source image to `scans/{uid}/…` (the
+  /// transient scan-mode bucket), so we reference that download URL in
+  /// `photos[]` rather than re-uploading. Intake photos captured via the
+  /// device-intake flow land in the durable `captures/{uid}/{deviceId}/` bucket
+  /// (see [IncomingDeviceRepository.createIncoming]).
   Future<void> _confirmAndPersist(ScanResult result) async {
     HapticFeedback.mediumImpact();
     final messenger = ScaffoldMessenger.of(context);

@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:recycled_sound/app.dart';
+import 'package:recycled_sound/core/providers/device_telemetry_provider.dart';
 import 'package:recycled_sound/core/routing/app_router.dart';
+import 'package:recycled_sound/core/services/device_telemetry.dart';
 import 'package:recycled_sound/core/widgets/rs_button.dart';
 import 'package:recycled_sound/core/widgets/rs_card.dart';
 import 'package:recycled_sound/core/widgets/rs_chip.dart';
@@ -21,12 +23,23 @@ void main() {
   // [incomingDevicesStreamProvider] sees the same canned list each test.
   Widget testApp() => ProviderScope(
         overrides: [
+          // The volunteer's own captures (watchMyIncoming) — surface in the
+          // "Pending intake" section of the Devices tab.
           incomingDevicesStreamProvider.overrideWith(
             (_) => Stream.value(const [
               Device(id: '1', brand: 'Phonak', model: 'Audéo P90'),
               Device(id: '2', brand: 'Oticon', model: 'More 1'),
             ]),
           ),
+          // The curated register — empty here so the section renders its
+          // empty-state guidance instead of reaching for a real Firebase stream.
+          allDevicesProvider.overrideWith((_) => Stream.value(const [])),
+          // Device Info reads telemetry through the shared service provider.
+          // In the test harness the real service's native plugins (battery,
+          // connectivity, device_info) don't settle, so inject a fake that
+          // returns instantly — keeps pumpAndSettle from timing out.
+          deviceTelemetryServiceProvider
+              .overrideWithValue(_FakeTelemetryService()),
         ],
         child: RecycledSoundApp(router: createAppRouter(initialLocation: '/')),
       );
@@ -36,8 +49,9 @@ void main() {
     await tester.pumpWidget(testApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Scan a Hearing Aid'), findsOneWidget);
-    expect(find.text('Open Scanner'), findsOneWidget);
+    expect(find.text('Add a Hearing Aid'), findsOneWidget);
+    expect(find.text('Scan to identify'), findsOneWidget);
+    expect(find.text('Capture photos for later'), findsOneWidget);
     expect(find.text('Impact'), findsOneWidget);
     expect(find.text('Quick Actions'), findsOneWidget);
   });
@@ -60,16 +74,45 @@ void main() {
     expect(find.text('Devices'), findsOneWidget);
   });
 
-  testWidgets('Navigating to Devices tab shows register', (tester) async {
+  testWidgets('Navigating to Devices tab shows the volunteer\'s captures '
+      'under Pending intake', (tester) async {
     await tester.pumpWidget(testApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Devices'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Device Register'), findsOneWidget);
+    // Both registers are labelled so a volunteer can find their scan.
+    expect(find.text('Pending intake'), findsOneWidget);
+    expect(find.text('Device register'), findsOneWidget);
+
+    // Their just-captured devices land in the pending section, flagged for
+    // review — not silently filed into the curated register.
     expect(find.text('Phonak Audéo P90'), findsOneWidget);
     expect(find.text('Oticon More 1'), findsOneWidget);
+    expect(find.text('PENDING REVIEW'), findsNWidgets(2));
+  });
+
+  testWidgets('Settings keeps the bottom nav shell (gear → Settings → Device Info)',
+      (tester) async {
+    await tester.pumpWidget(testApp());
+    await tester.pumpAndSettle();
+
+    // Tap the gear in the Home AppBar.
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+
+    // Settings renders AND the bottom NavigationBar is still on screen —
+    // proving the route resolves inside the ShellRoute, not full-screen.
+    expect(find.text('Settings'), findsWidgets);
+    expect(find.text('Device Info'), findsOneWidget);
+    expect(find.byType(BottomNavigationBar), findsOneWidget);
+
+    // Drill into Device Info — the bar must persist here too.
+    await tester.tap(find.text('Device Info'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BottomNavigationBar), findsOneWidget);
   });
 
   // ── RsButton ───────────────────────────────────────────────────────────
@@ -211,4 +254,32 @@ void main() {
       expect(find.text('Phonak'), findsOneWidget);
     });
   });
+}
+
+/// Returns a canned telemetry snapshot instantly so router-level tests that
+/// land on Device Info settle without touching native plugins.
+class _FakeTelemetryService implements DeviceTelemetryService {
+  @override
+  Future<DeviceTelemetry> snapshot() async => const DeviceTelemetry(
+        make: 'Apple',
+        modelId: 'iPhone15,2',
+        modelName: 'iPhone 14 Pro',
+        osName: 'iOS',
+        osVersion: '17.4',
+        appVersion: '0.5.0',
+        buildNumber: '9',
+        locale: 'en_AU',
+        processorCount: 6,
+        physicalMemoryGb: 6.0,
+        batteryPercent: 82,
+        charging: false,
+        lowPowerMode: false,
+        networkType: NetworkType.wifi,
+        thermalState: ThermalState.nominal,
+        thermalLoad: 0.2,
+        thermalHeadroom: null,
+        hasLidar: true,
+        hasNeuralEngine: true,
+        socModel: 'A16 Bionic',
+      );
 }

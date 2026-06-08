@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Manual App Store signing options for CI (TestFlight).
+  Used by .github/workflows/testflight.yml at the -exportArchive step.
+
+  The CI build archives UNSIGNED (`flutter build ipa --no-codesign`) so that
+  automatic signing — which needs an Xcode-GUI account no runner has — never
+  runs. Signing happens here, at export, against the distribution cert + profile
+  the workflow installs into the temporary keychain / Provisioning Profiles dir.
+
+  Values verified against App Store Connect (2026-06-08):
+    teamID                : SPL85G447K            (Enspyr Pty Ltd)
+    bundle id             : co.enspyr.recycledsound
+    provisioning profile  : "recycled-sound CI AppStore"  (IOS_APP_STORE, active)
+    signing certificate   : "Apple Distribution: Enspyr Pty Ltd" (exp 2026-12-13)
+  If the profile is re-created in ASC, its NAME must still match the key below.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store</string>
+	<key>teamID</key>
+	<string>SPL85G447K</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>co.enspyr.recycledsound</key>
+		<string>recycled-sound CI AppStore</string>
+	</dict>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>uploadBitcode</key>
+	<false/>
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>

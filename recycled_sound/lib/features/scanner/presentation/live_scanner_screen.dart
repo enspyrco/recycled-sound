@@ -420,7 +420,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         _camera!,
         ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: Platform.isIOS
+        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
             ? ImageFormatGroup.bgra8888
             : ImageFormatGroup.yuv420,
       );

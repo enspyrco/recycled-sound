@@ -11,7 +11,12 @@ const {
   setDoc,
   updateDoc,
 } = require('firebase/firestore');
-const { ref, uploadBytes, getBytes } = require('firebase/storage');
+const {
+  ref,
+  uploadBytes,
+  getBytes,
+  deleteObject,
+} = require('firebase/storage');
 
 const PROJECT_ID = 'recycled-sound-app';
 
@@ -63,6 +68,14 @@ const asAdmin = () => testEnv.authenticatedContext('admin1', { role: 'admin' });
 // Seed a doc bypassing rules (the analogue of an admin SDK write).
 function seed(fn) {
   return testEnv.withSecurityRulesDisabled((ctx) => fn(ctx.firestore()));
+}
+
+// Seed a Storage object bypassing rules, so read/delete tests have something
+// to act on (the analogue of an Admin SDK upload).
+function seedStorage(path) {
+  return testEnv.withSecurityRulesDisabled((ctx) =>
+    uploadBytes(ref(ctx.storage(), path), PNG_1x1, IMG_META)
+  );
 }
 
 describe('Firestore: incoming/', () => {
@@ -257,6 +270,32 @@ describe('Storage: incoming/{id}/photos', () => {
   });
 });
 
+describe('Storage: scans/{uid}/ read isolation', () => {
+  // In-app capture photos live at scans/{uid}/incoming/{id}/{slot}.jpg. Read
+  // must be owner-or-elevated, NOT any-authenticated (that was a cross-user
+  // leak of intake photos).
+  const scanPath = 'scans/alice/incoming/inc1/medial.jpg';
+
+  it('POSITIVE: owner can read their own scans object', async () => {
+    await assertSucceeds(uploadBytes(ref(asAlice().storage(), scanPath), PNG_1x1, IMG_META));
+    await assertSucceeds(getBytes(ref(asAlice().storage(), scanPath)));
+  });
+
+  it('NEGATIVE: another user cannot read someone else\'s scans object', async () => {
+    await assertSucceeds(uploadBytes(ref(asAlice().storage(), scanPath), PNG_1x1, IMG_META));
+    await assertFails(getBytes(ref(asBob().storage(), scanPath)));
+  });
+
+  it('POSITIVE: audiologist can read any user\'s scans object', async () => {
+    await assertSucceeds(uploadBytes(ref(asAlice().storage(), scanPath), PNG_1x1, IMG_META));
+    await assertSucceeds(getBytes(ref(asAudiologist().storage(), scanPath)));
+  });
+
+  it('NEGATIVE: a different user cannot write into someone else\'s scans prefix', async () => {
+    await assertFails(uploadBytes(ref(asBob().storage(), scanPath), PNG_1x1, IMG_META));
+  });
+});
+
 describe('Storage: devices/{id}/photos', () => {
   it('NEGATIVE: non-audiologist cannot upload device photos', async () => {
     const aliceRef = ref(asAlice().storage(), 'devices/dev1/photos/front.png');
@@ -269,5 +308,70 @@ describe('Storage: devices/{id}/photos', () => {
       'devices/dev1/photos/front.png'
     );
     await assertSucceeds(uploadBytes(audRef, PNG_1x1, IMG_META));
+  });
+});
+
+// Canonical intake bucket: captures/{uid}/{deviceId}/{slot}.jpg. The whole
+// point of the uid-outer shape is owner-only access (+ elevated cross-user
+// read for triage). These assert the cross-user denial that closes the leak.
+describe('Storage: captures/{uid}/**', () => {
+  const aliceCapture = 'captures/alice/dev1/0.jpg';
+
+  it('POSITIVE: owner can upload to their own captures path', async () => {
+    const aliceRef = ref(asAlice().storage(), aliceCapture);
+    await assertSucceeds(uploadBytes(aliceRef, PNG_1x1, IMG_META));
+  });
+
+  it('POSITIVE: owner can read their own capture', async () => {
+    await seedStorage(aliceCapture);
+    await assertSucceeds(getBytes(ref(asAlice().storage(), aliceCapture)));
+  });
+
+  it('POSITIVE: owner can delete their own capture', async () => {
+    await seedStorage(aliceCapture);
+    await assertSucceeds(deleteObject(ref(asAlice().storage(), aliceCapture)));
+  });
+
+  it('NEGATIVE: a different uid cannot read another user\'s capture', async () => {
+    await seedStorage(aliceCapture);
+    // The leak this PR closes: previously `read: if request.auth != null`
+    // let any signed-in user read any other user's photos.
+    await assertFails(getBytes(ref(asBob().storage(), aliceCapture)));
+  });
+
+  it('NEGATIVE: a different uid cannot upload into another user\'s captures path', async () => {
+    const bobRef = ref(asBob().storage(), aliceCapture);
+    await assertFails(uploadBytes(bobRef, PNG_1x1, IMG_META));
+  });
+
+  it('POSITIVE: an audiologist can read another user\'s capture (triage)', async () => {
+    await seedStorage(aliceCapture);
+    await assertSucceeds(getBytes(ref(asAudiologist().storage(), aliceCapture)));
+  });
+});
+
+// Hardened transient scan-mode bucket: scans/{uid}/**. Same owner-or-elevated
+// read model — assert the cross-user denial that used to be open here too.
+describe('Storage: scans/{uid}/** (hardened)', () => {
+  const aliceScan = 'scans/alice/123.jpg';
+
+  it('POSITIVE: owner can read their own scan', async () => {
+    await seedStorage(aliceScan);
+    await assertSucceeds(getBytes(ref(asAlice().storage(), aliceScan)));
+  });
+
+  it('NEGATIVE: a different uid cannot read another user\'s scan', async () => {
+    await seedStorage(aliceScan);
+    await assertFails(getBytes(ref(asBob().storage(), aliceScan)));
+  });
+
+  it('POSITIVE: an audiologist can read another user\'s scan (triage)', async () => {
+    await seedStorage(aliceScan);
+    await assertSucceeds(getBytes(ref(asAudiologist().storage(), aliceScan)));
+  });
+
+  it('POSITIVE: owner can delete their own scan', async () => {
+    await seedStorage(aliceScan);
+    await assertSucceeds(deleteObject(ref(asAlice().storage(), aliceScan)));
   });
 });

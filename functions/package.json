@@ -11,7 +11,9 @@
     "logs": "firebase functions:log",
     "seed": "ts-node src/seedCatalog.ts",
     "test": "mocha --timeout 60000 test/**/*.test.js",
-    "test:emu": "npm run build && firebase emulators:exec --only auth,firestore,functions:vision --project recycled-sound-app 'npm test'"
+    "test:emu": "npm run build && firebase emulators:exec --only auth,firestore,functions:vision --project recycled-sound-app 'npm test'",
+    "test:e2e": "mocha --timeout 60000 test/cascadeIncomingDelete.e2e.test.js",
+    "test:emu:storage": "npm run build && firebase emulators:exec --only firestore,storage --project recycled-sound-app 'npm run test:e2e'"
   },
   "engines": {
     "node": "20"

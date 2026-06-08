@@ -13,7 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # HEAD and HEAD~1 — enough for git diff
+          # Full history: diff-cover computes a three-dot diff
+          # (origin/base...HEAD), which needs the merge-base. A shallow
+          # checkout (e.g. fetch-depth: 2) lacks it, so the base ref / merge
+          # base is missing and the coverage diff is wrong or empty.
+          fetch-depth: 0
 
       # Skip Flutter+Functions CI for infra-only changes — paths that
       # CANNOT affect Dart coverage or Cloud Functions build. Lets PRs
@@ -91,12 +95,22 @@ jobs:
 
       - name: Check differential coverage
         if: steps.docs-check.outputs.skip != 'true'
-        working-directory: recycled_sound
         run: |
           pipx install 'diff-cover==9.6.0'
-          diff-cover coverage/lcov.info \
+          # Path-namespace fix (run from the REPO ROOT, not recycled_sound/):
+          # Flutter writes lcov SF: paths relative to the package
+          # (SF:lib/...), but `git diff` reports paths relative to the repo
+          # root (recycled_sound/lib/...). diff-cover matches the two sets by
+          # path; if they don't share a namespace the intersection is EMPTY and
+          # diff-cover prints "No lines with coverage information in this diff"
+          # and exits 0 — a vacuous pass that lets untested code through.
+          # (--src-roots does NOT fix this; it only locates sources for display.)
+          # Prefix the SF: paths so they match git's repo-root-relative paths.
+          # Verified 2026-06-09: with this rewrite an uncovered changed line
+          # fails the gate (exit 1); without it the same change passes (exit 0).
+          sed -i 's#^SF:#SF:recycled_sound/#' recycled_sound/coverage/lcov.info
+          diff-cover recycled_sound/coverage/lcov.info \
             --compare-branch ${{ steps.compare.outputs.compare_branch }} \
-            --src-roots . \
             --fail-under 80 \
             --show-uncovered
 

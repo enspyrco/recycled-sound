@@ -108,7 +108,18 @@ jobs:
           # Prefix the SF: paths so they match git's repo-root-relative paths.
           # Verified 2026-06-09: with this rewrite an uncovered changed line
           # fails the gate (exit 1); without it the same change passes (exit 0).
-          sed -i 's#^SF:#SF:recycled_sound/#' recycled_sound/coverage/lcov.info
+          # Match only the known `SF:lib/` prefix (not a blanket `^SF:`) so an
+          # absolute or already-rooted path can't be mangled into a
+          # non-matching one — that would silently re-open the false-green.
+          sed -i 's#^SF:lib/#SF:recycled_sound/lib/#' recycled_sound/coverage/lcov.info
+          # Fail CLOSED: the rewrite must have produced repo-root-relative
+          # paths. If it matched nothing (lcov format changed upstream), the
+          # path intersection would be empty and diff-cover would exit 0 on an
+          # unmeasured diff — the exact vacuous pass this step exists to kill.
+          if ! grep -q '^SF:recycled_sound/lib/' recycled_sound/coverage/lcov.info; then
+            echo "::error::lcov SF: rewrite matched no entries; diff-cover would false-green. Failing closed."
+            exit 1
+          fi
           diff-cover recycled_sound/coverage/lcov.info \
             --compare-branch ${{ steps.compare.outputs.compare_branch }} \
             --fail-under 80 \

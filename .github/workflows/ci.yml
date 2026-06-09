@@ -12,6 +12,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: diff-cover computes a three-dot diff
+          # (origin/base...HEAD), which needs the merge-base. A shallow
+          # checkout (e.g. fetch-depth: 2) lacks it, so the base ref / merge
+          # base is missing and the coverage diff is wrong or empty.
+          fetch-depth: 0
 
       # Skip Flutter+Functions CI for infra-only changes — paths that
       # CANNOT affect Dart coverage or Cloud Functions build. Lets PRs
@@ -70,36 +76,54 @@ jobs:
         if: steps.docs-check.outputs.skip != 'true'
         working-directory: recycled_sound
         run: flutter test --coverage
-
-      - name: Check coverage threshold
+        
+      - name: Set compare branch
         if: steps.docs-check.outputs.skip != 'true'
-        working-directory: recycled_sound
+        id: compare
         run: |
-          if [ ! -f coverage/lcov.info ]; then
-            echo "No coverage file found"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "compare_branch=origin/${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "compare_branch=HEAD~1" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.docs-check.outputs.skip != 'true'
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Check differential coverage
+        if: steps.docs-check.outputs.skip != 'true'
+        run: |
+          pipx install 'diff-cover==9.6.0'
+          # Path-namespace fix (run from the REPO ROOT, not recycled_sound/):
+          # Flutter writes lcov SF: paths relative to the package
+          # (SF:lib/...), but `git diff` reports paths relative to the repo
+          # root (recycled_sound/lib/...). diff-cover matches the two sets by
+          # path; if they don't share a namespace the intersection is EMPTY and
+          # diff-cover prints "No lines with coverage information in this diff"
+          # and exits 0 — a vacuous pass that lets untested code through.
+          # (--src-roots does NOT fix this; it only locates sources for display.)
+          # Prefix the SF: paths so they match git's repo-root-relative paths.
+          # Verified 2026-06-09: with this rewrite an uncovered changed line
+          # fails the gate (exit 1); without it the same change passes (exit 0).
+          # Match only the known `SF:lib/` prefix (not a blanket `^SF:`) so an
+          # absolute or already-rooted path can't be mangled into a
+          # non-matching one — that would silently re-open the false-green.
+          sed -i 's#^SF:lib/#SF:recycled_sound/lib/#' recycled_sound/coverage/lcov.info
+          # Fail CLOSED: the rewrite must have produced repo-root-relative
+          # paths. If it matched nothing (lcov format changed upstream), the
+          # path intersection would be empty and diff-cover would exit 0 on an
+          # unmeasured diff — the exact vacuous pass this step exists to kill.
+          if ! grep -q '^SF:recycled_sound/lib/' recycled_sound/coverage/lcov.info; then
+            echo "::error::lcov SF: rewrite matched no entries; diff-cover would false-green. Failing closed."
             exit 1
           fi
-          # Parse lcov.info for line coverage
-          LINES_HIT=$(grep -c 'DA:' coverage/lcov.info || echo 0)
-          LINES_FOUND=$(grep 'DA:' coverage/lcov.info | wc -l || echo 0)
-          LINES_COVERED=$(grep 'DA:' coverage/lcov.info | grep -v ',0$' | wc -l || echo 0)
-          if [ "$LINES_FOUND" -eq 0 ]; then
-            echo "No lines found in coverage report"
-            exit 0
-          fi
-          COVERAGE=$((LINES_COVERED * 100 / LINES_FOUND))
-          echo "Coverage: ${COVERAGE}% (${LINES_COVERED}/${LINES_FOUND} lines)"
-          # Floor temporarily lowered 80 -> 70 by the release/v0.5.0 -> main
-          # reconcile: merging the shipped capture feature (its UI was shipped to
-          # TestFlight without full test coverage) drops whole-repo coverage into
-          # the low-70s. Recovery is already in flight — Agent D's +10 capture
-          # tests, PR #58's function tests, and #57's settings tests raise it back
-          # — and PR #42 (diff-cover, task #221) replaces this whole-repo gate with
-          # a diff-only one. Restore to 80 once capture coverage lands. See task #33.
-          if [ "$COVERAGE" -lt 70 ]; then
-            echo "Coverage ${COVERAGE}% is below threshold of 70%"
-            exit 1
-          fi
+          diff-cover recycled_sound/coverage/lcov.info \
+            --compare-branch ${{ steps.compare.outputs.compare_branch }} \
+            --fail-under 80 \
+            --show-uncovered
 
       # Cloud Functions build check
       - uses: actions/setup-node@v4

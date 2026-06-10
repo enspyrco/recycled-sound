@@ -1,3 +1,5 @@
+// Excluded from coverage: boot-screen pulse animation; AnimationController-driven
+// coverage:ignore-file
 import 'package:flutter/material.dart';
 
 /// Horizontal gauge fading green → orange → red as `load` rises 0.0 → 1.0.

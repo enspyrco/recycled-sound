@@ -19,3 +19,6 @@ data/yolo_runs/
 yolo11n.pt
 yolov*.pt
 runs/
+
+# Firebase deploy cache (local-only)
+.firebase/

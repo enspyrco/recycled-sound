@@ -18,6 +18,21 @@
   "storage": {
     "rules": "storage.rules"
   },
+  "hosting": {
+    "public": "recycled_sound/build/web",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {"source": "**", "destination": "/index.html"}
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(js|css|woff2|png|svg|ico)",
+        "headers": [
+          {"key": "Cache-Control", "value": "public, max-age=31536000, immutable"}
+        ]
+      }
+    ]
+  },
   "emulators": {
     "auth": {"port": 9099},
     "functions": {"port": 5001},

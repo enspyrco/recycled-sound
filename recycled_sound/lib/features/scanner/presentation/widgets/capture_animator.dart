@@ -1,3 +1,5 @@
+// Excluded from coverage: CustomPainter animation tied to camera frame stream
+// coverage:ignore-file
 import 'dart:io';
 import 'dart:math' as math;
 

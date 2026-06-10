@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BTE (Behind-The-Ear) hearing aid, left-side view.
+  Style probe — Simpsons-style cartoon: flat fills, 4px black stroke,
+  no gradients, no shading.
+
+  Orientation: dome pointing right, receiver wire coiled neatly below.
+  Six simple shapes total (counting the coiled wire as one path):
+    1. Body shell (curved kidney bean)
+    2. Battery door (small rectangle)
+    3. Microphone port (small circle)
+    4. Earhook (curved tube exiting top-right)
+    5. Receiver dome (mushroom shape at the right end)
+    6. Receiver wire (S-curve connecting earhook to dome)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <!-- Background: pure white, no fill so it composites cleanly -->
+  <rect width="800" height="500" fill="#FFFFFF"/>
+
+  <!-- 1. Body shell — beige/skin-tone, the classic BTE color -->
+  <path d="M 200 120
+           C 180 120, 160 160, 160 220
+           C 160 290, 190 340, 240 340
+           C 290 340, 320 300, 320 240
+           C 320 180, 290 120, 240 120 Z"
+        fill="#F5C99B" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 2. Battery door — slightly darker beige rectangle near the bottom -->
+  <rect x="210" y="280" width="80" height="40" rx="6"
+        fill="#E8A86F" stroke="#000000" stroke-width="4"/>
+  <!-- battery door notch -->
+  <line x1="250" y1="285" x2="250" y2="315" stroke="#000000" stroke-width="3"/>
+
+  <!-- 3. Microphone port — small black-rimmed circle near the top -->
+  <circle cx="240" cy="160" r="10"
+          fill="#3A2A1A" stroke="#000000" stroke-width="4"/>
+
+  <!-- 4. Earhook — curved tube exiting top-right, clear/light gray -->
+  <path d="M 290 140
+           C 360 110, 440 110, 480 170
+           C 500 200, 500 220, 490 240"
+        fill="none" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 290 152
+           C 360 124, 432 124, 470 175
+           C 488 202, 488 218, 480 235"
+        fill="none" stroke="#000000" stroke-width="2"/>
+
+  <!-- 5. Receiver wire — S-curve, thin tube coiling below -->
+  <path d="M 490 240
+           C 510 280, 560 290, 580 320
+           C 600 350, 560 380, 520 380
+           C 480 380, 460 360, 480 340
+           C 500 320, 560 330, 600 360"
+        fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- 6. Receiver dome — soft silicone mushroom at the right end -->
+  <path d="M 600 360
+           C 640 355, 680 370, 690 395
+           C 700 420, 670 440, 640 440
+           C 610 440, 580 425, 590 400
+           C 595 388, 600 372, 600 360 Z"
+        fill="#F0E6D2" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+  <!-- dome ridge highlights -->
+  <path d="M 615 400 Q 645 395 675 410"
+        fill="none" stroke="#000000" stroke-width="3"/>
+
+  <!-- Label, comic-book caps -->
+  <text x="400" y="475"
+        font-family="Impact, 'Arial Black', sans-serif"
+        font-size="32"
+        text-anchor="middle"
+        fill="#000000">BTE — LEFT SIDE</text>
+</svg>

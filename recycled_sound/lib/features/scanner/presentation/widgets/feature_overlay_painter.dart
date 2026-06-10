@@ -1,3 +1,5 @@
+// Excluded from coverage: CustomPainter over live frames; bounding-box render path
+// coverage:ignore-file
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';

@@ -1,3 +1,5 @@
+// Excluded from coverage: ARKit native plugin; tabletop ObjectCapture, on-device only
+// coverage:ignore-file
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';

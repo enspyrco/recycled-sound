@@ -17,10 +17,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -64,6 +61,15 @@ class DefaultFirebaseOptions {
     projectId: 'recycled-sound-app',
     storageBucket: 'recycled-sound-app.firebasestorage.app',
     iosBundleId: 'co.enspyr.recycledsound',
+  );
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyD3Zb6Ba4VLPx3uY3s3CA1KIuti6DjDcs0',
+    appId: '1:666059041296:web:4d1e2fdb281f80e750f895',
+    messagingSenderId: '666059041296',
+    projectId: 'recycled-sound-app',
+    authDomain: 'recycled-sound-app.firebaseapp.com',
+    storageBucket: 'recycled-sound-app.firebasestorage.app',
   );
 
 }

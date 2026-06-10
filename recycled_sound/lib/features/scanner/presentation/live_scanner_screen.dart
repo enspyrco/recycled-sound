@@ -1,3 +1,5 @@
+// Excluded from coverage: camera + ML Kit + neural net; requires on-device integration test
+// coverage:ignore-file
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -418,7 +420,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         _camera!,
         ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: Platform.isIOS
+        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
             ? ImageFormatGroup.bgra8888
             : ImageFormatGroup.yuv420,
       );

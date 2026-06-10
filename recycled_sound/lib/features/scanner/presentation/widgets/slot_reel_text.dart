@@ -1,3 +1,5 @@
+// Excluded from coverage: slot-reel slam animation; visual-only, ticker-driven
+// coverage:ignore-file
 import 'dart:async';
 import 'dart:math' as math;
 

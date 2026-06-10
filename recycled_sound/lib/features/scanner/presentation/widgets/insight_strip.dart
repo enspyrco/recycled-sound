@@ -1,3 +1,5 @@
+// Excluded from coverage: live scanner overlay; consumes InsightEngine (Firestore-bound)
+// coverage:ignore-file
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';

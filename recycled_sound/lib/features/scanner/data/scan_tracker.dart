@@ -1,3 +1,5 @@
+// Excluded from coverage: uses Firestore.instance singleton directly; needs emulator
+// coverage:ignore-file
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 

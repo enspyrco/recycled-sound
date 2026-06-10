@@ -1,3 +1,5 @@
+// Excluded from coverage: TFLite Interpreter + native GPU/CoreML delegates; needs device
+// coverage:ignore-file
 import 'dart:convert';
 import 'dart:io';
 

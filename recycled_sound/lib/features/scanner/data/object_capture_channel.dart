@@ -1,3 +1,5 @@
+// Excluded from coverage: native MethodChannel into iOS ObjectCaptureView
+// coverage:ignore-file
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 

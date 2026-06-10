@@ -1,3 +1,5 @@
+// Excluded from coverage: Firebase Storage + Cloud Functions orchestration; needs emulator
+// coverage:ignore-file
 import 'dart:io';
 import 'dart:typed_data';
 

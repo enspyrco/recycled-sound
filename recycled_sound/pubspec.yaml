@@ -1,7 +1,7 @@
 name: recycled_sound
 description: Community app for collecting, servicing, and redistributing donated hearing aids.
 publish_to: 'none'
-version: 0.4.0+7
+version: 0.5.0+8
 
 environment:
   sdk: ^3.11.1
@@ -41,6 +41,13 @@ dev_dependencies:
   freezed: ^2.5.8
   json_serializable: ^6.9.4
   riverpod_generator: ^2.6.3
+  fake_cloud_firestore: ^3.0.0
+  firebase_storage_mocks: ^0.7.0
+  firebase_auth_mocks: ^0.14.0
+  # Used only by capture camera-lifecycle tests to install a fake
+  # CameraPlatform (the seam the production code drives through).
+  camera_platform_interface: ^2.12.0
+  plugin_platform_interface: ^2.1.8
 
 flutter:
   uses-material-design: true
@@ -56,3 +63,4 @@ flutter:
     - assets/brand_classifier.tflite
     - assets/brand_classifier_labels.json
     - assets/custom_words.json
+    - assets/capture_guide/

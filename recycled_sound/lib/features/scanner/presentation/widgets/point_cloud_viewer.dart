@@ -1,3 +1,5 @@
+// Excluded from coverage: 3D point-cloud rendering; LiDAR-fed CustomPainter
+// coverage:ignore-file
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';

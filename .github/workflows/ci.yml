@@ -12,6 +12,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: diff-cover computes a three-dot diff
+          # (origin/base...HEAD), which needs the merge-base. A shallow
+          # checkout (e.g. fetch-depth: 2) lacks it, so the base ref / merge
+          # base is missing and the coverage diff is wrong or empty.
+          fetch-depth: 0
 
       # Skip Flutter+Functions CI for infra-only changes — paths that
       # CANNOT affect Dart coverage or Cloud Functions build. Lets PRs
@@ -25,9 +31,14 @@ jobs:
       #   .github/**              — workflow + repo config
       #   data/**                 — Python data pipeline + training
       #   docs/**                 — design docs + capture guides
+      #   <root>/*.html           — top-level HTML guides (capture-protocols,
+      #                             privacy, index). Anchored to root so
+      #                             recycled_sound/web/index.html (the Flutter
+      #                             build input) still triggers CI.
       #
       # NOT skipped (intentionally): pubspec.yaml (affects build),
-      # any *.dart, *.swift, *.ts, *.kt, assets/**, ios/**, android/**
+      # any *.dart, *.swift, *.ts, *.kt, assets/**, ios/**, android/**,
+      # recycled_sound/web/index.html
       - name: Check for infra-only changes
         id: docs-check
         run: |
@@ -36,7 +47,7 @@ jobs:
           else
             FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
           fi
-          NON_DOCS=$(echo "$FILES" | grep -vE '\.(md|txt|LICENSE)$|^\.github/|^data/|^docs/' || true)
+          NON_DOCS=$(echo "$FILES" | grep -vE '\.(md|txt|LICENSE)$|^\.github/|^data/|^docs/|^[^/]+\.html$' || true)
           if [ -z "$NON_DOCS" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
@@ -65,29 +76,54 @@ jobs:
         if: steps.docs-check.outputs.skip != 'true'
         working-directory: recycled_sound
         run: flutter test --coverage
-
-      - name: Check coverage threshold
+        
+      - name: Set compare branch
         if: steps.docs-check.outputs.skip != 'true'
-        working-directory: recycled_sound
+        id: compare
         run: |
-          if [ ! -f coverage/lcov.info ]; then
-            echo "No coverage file found"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "compare_branch=origin/${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "compare_branch=HEAD~1" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.docs-check.outputs.skip != 'true'
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Check differential coverage
+        if: steps.docs-check.outputs.skip != 'true'
+        run: |
+          pipx install 'diff-cover==9.6.0'
+          # Path-namespace fix (run from the REPO ROOT, not recycled_sound/):
+          # Flutter writes lcov SF: paths relative to the package
+          # (SF:lib/...), but `git diff` reports paths relative to the repo
+          # root (recycled_sound/lib/...). diff-cover matches the two sets by
+          # path; if they don't share a namespace the intersection is EMPTY and
+          # diff-cover prints "No lines with coverage information in this diff"
+          # and exits 0 — a vacuous pass that lets untested code through.
+          # (--src-roots does NOT fix this; it only locates sources for display.)
+          # Prefix the SF: paths so they match git's repo-root-relative paths.
+          # Verified 2026-06-09: with this rewrite an uncovered changed line
+          # fails the gate (exit 1); without it the same change passes (exit 0).
+          # Match only the known `SF:lib/` prefix (not a blanket `^SF:`) so an
+          # absolute or already-rooted path can't be mangled into a
+          # non-matching one — that would silently re-open the false-green.
+          sed -i 's#^SF:lib/#SF:recycled_sound/lib/#' recycled_sound/coverage/lcov.info
+          # Fail CLOSED: the rewrite must have produced repo-root-relative
+          # paths. If it matched nothing (lcov format changed upstream), the
+          # path intersection would be empty and diff-cover would exit 0 on an
+          # unmeasured diff — the exact vacuous pass this step exists to kill.
+          if ! grep -q '^SF:recycled_sound/lib/' recycled_sound/coverage/lcov.info; then
+            echo "::error::lcov SF: rewrite matched no entries; diff-cover would false-green. Failing closed."
             exit 1
           fi
-          # Parse lcov.info for line coverage
-          LINES_HIT=$(grep -c 'DA:' coverage/lcov.info || echo 0)
-          LINES_FOUND=$(grep 'DA:' coverage/lcov.info | wc -l || echo 0)
-          LINES_COVERED=$(grep 'DA:' coverage/lcov.info | grep -v ',0$' | wc -l || echo 0)
-          if [ "$LINES_FOUND" -eq 0 ]; then
-            echo "No lines found in coverage report"
-            exit 0
-          fi
-          COVERAGE=$((LINES_COVERED * 100 / LINES_FOUND))
-          echo "Coverage: ${COVERAGE}% (${LINES_COVERED}/${LINES_FOUND} lines)"
-          if [ "$COVERAGE" -lt 80 ]; then
-            echo "Coverage ${COVERAGE}% is below threshold of 80%"
-            exit 1
-          fi
+          diff-cover recycled_sound/coverage/lcov.info \
+            --compare-branch ${{ steps.compare.outputs.compare_branch }} \
+            --fail-under 80 \
+            --show-uncovered
 
       # Cloud Functions build check
       - uses: actions/setup-node@v4
@@ -99,3 +135,105 @@ jobs:
         if: steps.docs-check.outputs.skip != 'true'
         working-directory: functions
         run: npm ci && npm run build
+
+  # Security-rules unit tests run unconditionally — the authorization spine
+  # (firestore.rules + storage.rules) is too load-bearing to gate behind a
+  # path filter that could silently desync from the rules it guards. Boots
+  # the firestore + storage emulators and asserts each predicate refuses the
+  # wrong identity. ~1 min including emulator startup.
+  rules-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Install rules-tests deps
+        working-directory: rules-tests
+        run: npm install
+
+      - name: Run rules tests against emulator
+        working-directory: rules-tests
+        run: npm run test:emu
+
+  # Auto-deploy the authorization config (Firestore rules + indexes, Storage
+  # rules) on every merge to main. Closes the merged-but-undeployed drift that
+  # caused permission-denied on every incoming/ query for 5 days: git rules
+  # said one thing, live Firebase ran the pre-PR rules.
+  #
+  # Gated on BOTH test and rules-tests passing — auto-deploying unverified
+  # rules just speeds up the boundary-crossing failure. The rules unit tests
+  # (PR #31) are the precondition that makes this deploy step safe.
+  #
+  # Only fires on push to main: PRs can't (and must not) deploy — repo secrets
+  # are unavailable to PR triggers and the rules haven't been reviewed yet.
+  deploy-rules:
+    needs: [test, rules-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Deploy Firestore rules + indexes + Storage rules
+        run: |
+          firebase deploy \
+            --only firestore:rules,firestore:indexes,storage \
+            --project recycled-sound-app \
+            --non-interactive \
+            --token "$FIREBASE_TOKEN"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+  # Auto-deploy the TypeScript Cloud Functions (the "vision" codebase) on
+  # every merge to main. Same merged-but-undeployed gap as deploy-rules, one
+  # tier over: syncRoleClaim (PR #35) and other functions live in git but
+  # don't fire in production until deployed. Scoped to functions:vision so it
+  # never touches the Python CLIP codebase (functions-clip), which needs torch
+  # and a separate runtime. firebase's predeploy hook runs the TS build.
+  #
+  # Gated on test passing (which includes the Cloud Functions build check).
+  # Only fires on push to main.
+  deploy-functions:
+    needs: [test, rules-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Deploy Cloud Functions (vision codebase)
+        run: |
+          firebase deploy \
+            --only functions:vision \
+            --project recycled-sound-app \
+            --non-interactive \
+            --token "$FIREBASE_TOKEN"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

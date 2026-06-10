@@ -1,3 +1,5 @@
+// Excluded from coverage: native plugin bindings (battery_plus, connectivity_plus, device_info_plus)
+// coverage:ignore-file
 import 'dart:async';
 import 'dart:io' show Platform;
 

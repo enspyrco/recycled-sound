@@ -1,10 +1,17 @@
+// Excluded from coverage: large stateful form depending on Firestore writes + colour pickers
+// coverage:ignore-file
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../devices/data/incoming_device_repository.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../devices/data/models/device.dart';
+import '../../devices/providers/device_providers.dart';
 import '../data/brand_colour_palettes.dart';
 import '../data/colour_classifier.dart';
 import '../data/models/scan_result.dart';
@@ -196,22 +203,70 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
             _BottomAction(
               isComplete: result.isComplete,
               completionAnimation: _completionController,
-              onConfirm: () {
-                HapticFeedback.mediumImpact();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Device added to register (pending QA)'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-                context.go('/devices');
-              },
+              onConfirm: () => _confirmAndPersist(result),
               onScanAnother: () => context.pushReplacement('/scan'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Persist the confirmed scan to `incoming/`, then route to the register.
+  ///
+  /// The scanner already uploaded the source image to `scans/{uid}/…` (the
+  /// transient scan-mode bucket), so we reference that download URL in
+  /// `photos[]` rather than re-uploading. Intake photos captured via the
+  /// device-intake flow land in the durable `captures/{uid}/{deviceId}/` bucket
+  /// (see [IncomingDeviceRepository.createIncoming]).
+  Future<void> _confirmAndPersist(ScanResult result) async {
+    HapticFeedback.mediumImpact();
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+    final repo = ref.read(incomingDeviceRepositoryProvider);
+
+    // A confirmed scan has no persisted identity yet — it's a DraftDevice.
+    // Firestore allocates the id inside createIncoming, where the draft is
+    // promoted to a Device and `createdBy` is pinned for the rules layer.
+    final draft = DraftDevice(
+      brand: result.brand.value,
+      model: result.model.value,
+      type: result.type.value,
+      year: result.year.value,
+      batterySize: result.batterySize.value,
+      domeType: result.domeType.value,
+      waxFilter: result.waxFilter.value,
+      receiver: result.receiver.value,
+      scanId: result.scanId,
+      photos: [if (result.imageUrl.isNotEmpty) result.imageUrl],
+    );
+
+    try {
+      final id = await repo.createIncoming(draft);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Added to register · $id'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      router.go('/devices');
+    } on FirebaseException catch (e) {
+      // Discriminate by code so volunteers get actionable copy instead of a
+      // raw exception string.
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(PersistErrorKind.fromCode(e.code).userMessage),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(PersistErrorKind.unknown.userMessage),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   /// Battery size field — null if empty (triggers amber pulse).

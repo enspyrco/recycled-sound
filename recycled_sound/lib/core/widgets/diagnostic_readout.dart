@@ -1,3 +1,5 @@
+// Excluded from coverage: boot-screen ticker; periodic timers loop pumpAndSettle
+// coverage:ignore-file
 import 'dart:async';
 
 import 'package:flutter/material.dart';

@@ -1,3 +1,5 @@
+// Excluded from coverage: live scanner progress overlay; bound to capture stream
+// coverage:ignore-file
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';

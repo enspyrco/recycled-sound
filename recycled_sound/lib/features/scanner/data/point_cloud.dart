@@ -1,3 +1,5 @@
+// Excluded from coverage: 3D point-cloud builder; consumes ARKit LiDAR depth frames
+// coverage:ignore-file
 import 'dart:math' as math;
 import 'dart:typed_data';
 

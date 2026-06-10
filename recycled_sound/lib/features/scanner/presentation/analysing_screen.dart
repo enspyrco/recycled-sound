@@ -1,3 +1,5 @@
+// Excluded from coverage: post-capture screen depending on live scanner flow + cloud upload
+// coverage:ignore-file
 import 'dart:async';
 
 import 'package:flutter/material.dart';

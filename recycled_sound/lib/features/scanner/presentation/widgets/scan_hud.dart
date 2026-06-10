@@ -1,3 +1,5 @@
+// Excluded from coverage: HUD overlay on live camera; renders DetectionState animations
+// coverage:ignore-file
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';

@@ -250,16 +250,25 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
           backgroundColor: AppColors.success,
         ),
       );
-      final corrections = ref.read(scanResultProvider.notifier).corrections;
-      final scanner = ref.read(scannerRepositoryProvider);
-      final profile = ref.read(currentUserProfileProvider).value;
-      final userRole = profile?.role.wire ?? 'volunteer';
-      await scanner.submitCorrections(
-        scanId: result.scanId,
-        corrections: corrections,
-        userId: ref.read(firebaseAuthProvider).currentUser?.uid ?? '',
-        userRole: userRole,
-      );
+      // Corrections are training telemetry — guarded separately so a failed
+      // corrections write can never strand the volunteer on this screen
+      // after the device was already created (re-tapping Add to Register
+      // would duplicate it).
+      try {
+        final corrections = ref.read(scanResultProvider.notifier).corrections;
+        final scanner = ref.read(scannerRepositoryProvider);
+        final profile = ref.read(currentUserProfileProvider).value;
+        final userRole = profile?.role.wire ?? 'volunteer';
+        await scanner.submitCorrections(
+          scanId: result.scanId,
+          corrections: corrections,
+          userId: ref.read(firebaseAuthProvider).currentUser?.uid ?? '',
+          userRole: userRole,
+        );
+      } catch (_) {
+        // Lost corrections are recoverable from the scan doc later; the
+        // volunteer's flow is not.
+      }
 
       router.go('/devices');
     } on FirebaseException catch (e) {

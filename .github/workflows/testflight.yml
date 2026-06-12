@@ -1,7 +1,11 @@
 name: TestFlight
 
-# Builds the iOS IPA and uploads to App Store Connect / TestFlight on every
-# merge to main. Manually triggerable via workflow_dispatch.
+# Builds the iOS IPA and uploads to App Store Connect / TestFlight.
+# MANUAL TRIGGER ONLY (workflow_dispatch): uploads are deliberate releases,
+# not merge side effects — every upload burns a build number and notifies
+# testers, so Nick decides when one goes out (2026-06-12 decision; three
+# auto-uploads in one morning prompted it). Run from the Actions tab or:
+#   gh workflow run testflight.yml --ref main
 #
 # Required repository secrets (see docs/testflight-ci.md):
 #   APP_STORE_CONNECT_API_KEY_ID       — App Store Connect API key ID (e.g. AZ4F82S7XD)
@@ -13,8 +17,6 @@ name: TestFlight
 #   IOS_PROVISIONING_PROFILE_BASE64    — base64-encoded App Store provisioning profile (.mobileprovision)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # Avoid concurrent uploads racing for the same build number.

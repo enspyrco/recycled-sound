@@ -258,7 +258,10 @@ class _AnalysingScreenState extends ConsumerState<AnalysingScreen>
         ),
         const SizedBox(height: 12),
         TextButton(
-          onPressed: () => context.pop(),
+          // go() not pop(): the scanner now go()es here (issue #70), so this
+          // screen is the only entry on the stack — pop() would throw.
+          // go('/scan') matches the label: a fresh camera session.
+          onPressed: () => context.go('/scan'),
           child: const Text('Back to Camera'),
         ),
       ],

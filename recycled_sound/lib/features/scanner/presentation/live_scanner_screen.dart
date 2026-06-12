@@ -1594,7 +1594,10 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       await _cameraController!.stopImageStream();
       final xFile = await _cameraController!.takePicture();
       if (mounted) {
-        context.push('/scan/analysing', extra: xFile.path);
+        // go() (not push()) so this screen leaves the stack and the camera
+        // disposes — a push()ed scanner keeps _processFrame alive underneath
+        // the confirmation screen and starves its UI thread (issue #70).
+        context.go('/scan/analysing', extra: xFile.path);
       }
     } catch (e) {
       if (mounted && _cameraController != null) {
@@ -1611,7 +1614,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       imageQuality: 80,
     );
     if (image != null && mounted) {
-      context.push('/scan/analysing', extra: image.path);
+      // go() for the same camera-disposal reason as _takePhoto (issue #70).
+      context.go('/scan/analysing', extra: image.path);
     }
   }
 

@@ -111,7 +111,10 @@ jobs:
           # Match only the known `SF:lib/` prefix (not a blanket `^SF:`) so an
           # absolute or already-rooted path can't be mangled into a
           # non-matching one — that would silently re-open the false-green.
-          sed -i 's#^SF:lib/#SF:recycled_sound/lib/#' recycled_sound/coverage/lcov.info
+          # `-i.bak` (not bare `-i`) so the same command runs on BSD/macOS sed
+          # too — the gate must be reproducible on the primary dev's machine.
+          sed -i.bak 's#^SF:lib/#SF:recycled_sound/lib/#' recycled_sound/coverage/lcov.info
+          rm -f recycled_sound/coverage/lcov.info.bak
           # Fail CLOSED: the rewrite must have produced repo-root-relative
           # paths. If it matched nothing (lcov format changed upstream), the
           # path intersection would be empty and diff-cover would exit 0 on an

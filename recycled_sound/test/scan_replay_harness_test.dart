@@ -59,29 +59,29 @@ void main() {
       expect(result.framesToModelLock, 2);
     });
 
-    test('B2: KNOWN PATHOLOGY — "oricon" collides with Signia "Orion", '
-        'locks wrong brand and refuses to self-correct', () {
-      // "oricon" is the documented ML Kit misread of "Oticon". It fuzzy-
-      // matches Signia's model "Orion" (Levenshtein 1, 5+ chars), so the
-      // reverse lookup locks brand=Signia FROM MODEL. When the clean
-      // Oticon signal "nera" then arrives, the override guard rejects it
-      // (equal confidence rank) — the elimination tree cannot back out of
-      // its wrong early narrowing.
+    test('B2: "oricon" resolves to Oticon despite the Signia "Orion" '
+        'fuzzy collision', () {
+      // "oricon" is the documented ML Kit misread of "Oticon". It is
+      // Levenshtein-1 from BOTH the brand "Oticon" and Signia's model
+      // "Orion". Before the disambiguation guard in matchModelAnyBrand,
+      // the fuzzy model branch won → brand locked Signia FROM MODEL, and
+      // the override guard then refused the clean "nera" signal, producing
+      // a permanent wrong-brand ID from a transient misread.
       //
-      // This asserts the CURRENT (wrong) behaviour as the regression
-      // baseline. When γ-backtracking lands (feedback_elimination_tree_
-      // backtracking), this test SHOULD fail — that failure is the signal
-      // to flip the expectation to 'Oticon' and is the proof the fix works.
+      // The guard suppresses the fuzzy model interpretation when the token
+      // reads as a brand, so "oricon" is claimed by the direct brand step
+      // (FUZZY Oticon) and "nera" then confirms the Oticon model. This is
+      // the regression test for that fix (was the pinned pathology). See
+      // feedback_elimination_tree_backtracking.
       final result = engine.run([
         ['oricon'],
         ['nera'],
       ]);
 
-      expect(result.finalBrand, 'Signia',
-          reason: 'documents the wrong-brand lock; flip to Oticon when '
-              'backtracking lands');
-      expect(result.finalModel, 'oricon',
-          reason: 'clean "nera" was rejected by the override guard');
+      expect(result.finalBrand, 'Oticon',
+          reason: 'brand-name reading must beat the fuzzy model collision');
+      expect(result.modelLocked, isTrue);
+      expect(result.framesToBrandLock, 1);
     });
 
     test('C: Unitron Moxi with "movi" noise → model locks only after brand',

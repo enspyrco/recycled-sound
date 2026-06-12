@@ -28,6 +28,7 @@ import '../data/device_index.dart';
 import '../data/colour_classifier.dart';
 import '../data/frame_preprocessor.dart';
 import '../data/insight_engine.dart';
+import '../data/ocr_token_accumulator.dart';
 import '../data/scan_tracker.dart';
 import '../data/vision_ocr.dart';
 import 'widgets/capture_animator.dart';
@@ -81,6 +82,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   // ── ML Kit ────────────────────────────────────────────────────────────
   final _textRecognizer = TextRecognizer();
   bool _isProcessing = false;
+
+  /// Every OCR token seen this scan session, bounded + deduped.
+  /// Threaded into [ScanResult.rawLabels] at capture so correction docs
+  /// carry the OCR context the AI was reading when it got a field wrong.
+  final _ocrTokens = OcrTokenAccumulator();
 
   // ── On-device brand classifier (EfficientNet-B0, TFLite) ────────────
   final _brandClassifier = BrandClassifier();
@@ -577,6 +583,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         for (final line in block.lines) {
           final text = line.text.trim();
           if (text.isEmpty || text.length < 2) continue;
+
+          _ocrTokens.add(text);
 
           bool wasMatched = false;
 
@@ -1416,6 +1424,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           final text = line.text.trim();
           if (text.isEmpty || text.length < 2) continue;
 
+          _ocrTokens.add(text);
+
           _log('full-res text: "$text"');
 
           // Model-first detection — OCR text is reliable, can override
@@ -1572,6 +1582,9 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       powerSource: _detectedPower != null
           ? SpecField(value: _detectedPower!, confidence: 70)
           : null,
+      // Everything OCR read this session — corrections copy this, which
+      // is what makes them usable as labelled training data later.
+      rawLabels: _ocrTokens.tokens,
     );
 
     // Push to the provider so the results screen picks it up

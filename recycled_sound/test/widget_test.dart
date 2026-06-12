@@ -13,6 +13,8 @@ import 'package:recycled_sound/core/widgets/rs_progress_dots.dart';
 import 'package:recycled_sound/core/widgets/rs_spec_row.dart';
 import 'package:recycled_sound/features/devices/data/models/device.dart';
 import 'package:recycled_sound/features/devices/providers/device_providers.dart';
+import 'package:recycled_sound/features/scanner/presentation/confirmation_screen.dart';
+import 'package:recycled_sound/features/scanner/presentation/live_scanner_screen.dart';
 
 void main() {
   // Tests skip the diagnostic boot screen — its periodic timers would loop
@@ -113,6 +115,50 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(BottomNavigationBar), findsOneWidget);
+  });
+
+  // ── Scanner navigation (issues #38/#49/#70 family) ─────────────────────
+  // These cover home_screen's nav lines so the diff-cover gate measures
+  // them, and pin the go()-everywhere convention for camera routes.
+  // NOTE: no pumpAndSettle after these taps — LiveScanScreen runs
+  // boot-sequence timers and ConfirmationScreen has an infinite pulse
+  // animation, so settle would time out. Fixed pumps instead.
+  testWidgets('Scan to identify navigates to the live scanner',
+      (tester) async {
+    await tester.pumpWidget(testApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Scan to identify'));
+    await tester.pump(); // start navigation
+    await tester.pump(const Duration(milliseconds: 600)); // route transition
+
+    expect(find.byType(LiveScanScreen), findsOneWidget);
+
+    // Teardown: the scanner's 5s auto-capture fallback timer is anonymous
+    // (not cancelled in dispose). Dispose the tree first so its `mounted`
+    // guard no-ops, then advance fake time so the timer fires and clears —
+    // otherwise the binding fails the test on a pending timer.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 16));
+  });
+
+  testWidgets('7-Field Confirmation tile opens the confirmation screen',
+      (tester) async {
+    await tester.pumpWidget(testApp());
+    await tester.pumpAndSettle();
+
+    // Tile sits below the fold in the test viewport.
+    await tester.scrollUntilVisible(find.text('7-Field Confirmation'), 200);
+    await tester.tap(find.text('7-Field Confirmation'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+
+    expect(find.byType(ConfirmationScreen), findsOneWidget);
+
+    // Teardown: dispose the tree to stop the screen's repeating pulse
+    // animation before the binding's end-of-test invariant check.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 16));
   });
 
   // ── RsButton ───────────────────────────────────────────────────────────

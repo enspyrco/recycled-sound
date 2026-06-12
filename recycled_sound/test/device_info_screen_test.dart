@@ -110,4 +110,34 @@ void main() {
 
     expect(find.text('Device info unavailable'), findsOneWidget);
   });
+
+  testWidgets('build identity card renders with the compile-time defaults',
+      (tester) async {
+    await tester.pumpWidget(_wrap(
+      service: _FakeTelemetryService(() => _telemetry()),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('BUILD'), findsOneWidget);
+    expect(find.text('COMMIT'), findsOneWidget);
+    expect(find.text('BUILT'), findsOneWidget);
+    // No --dart-define in the test environment → honest local fallbacks.
+    expect(find.text('dev'), findsOneWidget);
+    expect(find.text('local'), findsOneWidget);
+  });
+
+  testWidgets('build identity stays visible even when telemetry fails',
+      (tester) async {
+    // The whole point: when device sensors die, you can STILL read which
+    // build is on the phone. Build identity is a compile-time constant, so
+    // it renders independently of the async telemetry section.
+    await tester.pumpWidget(_wrap(
+      service: _FakeTelemetryService(() => throw StateError('no sensors')),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Device info unavailable'), findsOneWidget);
+    expect(find.text('BUILD'), findsOneWidget);
+    expect(find.text('COMMIT'), findsOneWidget);
+  });
 }

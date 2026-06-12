@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/build_info.dart';
 import '../../../core/providers/device_telemetry_provider.dart';
 import '../../../core/services/device_telemetry.dart';
 import '../../../core/theme/app_colors.dart';
@@ -35,12 +36,52 @@ class DeviceInfoScreen extends ConsumerWidget {
         ],
       ),
       body: SafeArea(
-        child: async.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => _ErrorView(error: e),
-          data: (telemetry) => _ReadoutView(telemetry: telemetry),
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            // Build identity first, and ALWAYS — it's a compile-time
+            // constant, so it renders even when device-sensor telemetry
+            // fails. This is the ground-truth "what code is this build?"
+            // answer the marketing version can't give (pubspec may be stale).
+            const _BuildIdentityCard(),
+            const SizedBox(height: 20),
+            async.when(
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+              error: (e, _) => _ErrorView(error: e),
+              data: (telemetry) => _ReadoutView(telemetry: telemetry),
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+/// Always-visible build identity card (git SHA + build date). See [BuildInfo].
+class _BuildIdentityCard extends StatelessWidget {
+  const _BuildIdentityCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('BUILD', style: AppTypography.label),
+        const SizedBox(height: 8),
+        RsCard(
+          child: Column(
+            children: [
+              for (final row in BuildInfo.asRows())
+                RsSpecRow(label: row.key, value: row.value),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

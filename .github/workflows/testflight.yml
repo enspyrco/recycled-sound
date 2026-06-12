@@ -112,9 +112,16 @@ jobs:
           # profile the earlier steps installed into the temp keychain / profiles
           # dir. No fallback — a missing ExportOptions.plist must fail loudly, not
           # silently degrade into a broken automatic-signing build.
+          # Bake build identity so Device Info shows the ground-truth
+          # commit/date regardless of the (often stale) pubspec version.
+          GIT_SHA=$(git rev-parse --short HEAD)
+          GIT_BUILD_DATE=$(date -u +%Y-%m-%d)
+          echo "Stamping build: GIT_SHA=$GIT_SHA GIT_BUILD_DATE=$GIT_BUILD_DATE"
           flutter build ipa \
             --release \
             --build-number=${{ steps.build-number.outputs.build_number }} \
+            --dart-define=GIT_SHA="$GIT_SHA" \
+            --dart-define=GIT_BUILD_DATE="$GIT_BUILD_DATE" \
             --no-codesign
           ARCHIVE=$(find build/ios/archive -maxdepth 1 -name '*.xcarchive' | head -n1)
           if [ -z "$ARCHIVE" ]; then echo "No .xcarchive produced by flutter build" >&2; exit 1; fi

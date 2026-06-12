@@ -36,24 +36,24 @@ class DeviceInfoScreen extends ConsumerWidget {
         ],
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
+        child: Column(
           children: [
-            // Build identity first, and ALWAYS — it's a compile-time
+            // Build identity pinned at top, and ALWAYS — it's a compile-time
             // constant, so it renders even when device-sensor telemetry
             // fails. This is the ground-truth "what code is this build?"
             // answer the marketing version can't give (pubspec may be stale).
-            const _BuildIdentityCard(),
-            const SizedBox(height: 20),
-            async.when(
-              loading: () => const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(),
-                ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
+              child: _BuildIdentityCard(),
+            ),
+            // Telemetry scrolls below in BOUNDED height (Expanded), so the
+            // readout's own scroll view never gets an unbounded constraint.
+            Expanded(
+              child: async.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => _ErrorView(error: e),
+                data: (telemetry) => _ReadoutView(telemetry: telemetry),
               ),
-              error: (e, _) => _ErrorView(error: e),
-              data: (telemetry) => _ReadoutView(telemetry: telemetry),
             ),
           ],
         ),

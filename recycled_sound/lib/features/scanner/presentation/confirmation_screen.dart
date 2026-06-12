@@ -878,23 +878,29 @@ class _FieldContainer extends StatelessWidget {
 
         // Use a Row with a coloured strip instead of Border(left:) + borderRadius,
         // which Flutter doesn't officially support together.
+        // IntrinsicHeight is required: ListView gives children unbounded
+        // height, and a stretch-Row under unbounded height forces the strip
+        // to h=Infinity — a layout exception that blanked the entire field
+        // list (the black "4 OF 7" screen in issue #70).
         return Padding(
           padding: const EdgeInsets.only(bottom: 2),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Container(
               color: bgColor,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(width: 3, color: accentColor),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: child!,
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(width: 3, color: accentColor),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: child!,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

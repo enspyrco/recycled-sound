@@ -184,7 +184,7 @@ The scanner takes 15+ seconds to detect a hearing aid brand. This is the #1 issu
 - Don't add visual features to the frame processing loop without measuring ms/frame impact
 - Don't narrow DeviceIndex on < 70% neural net confidence
 - Don't remove OCR patterns without testing against all known devices (short patterns like 'opn', 'ria', 'ino' are real model names)
-- Don't use `context.push()` when navigating away from camera — use `context.go()` (camera never disposes otherwise)
+- **go()-everywhere on scanner routes (project law).** Every route into/out of `/scan`, `/scan/analysing`, `/scan/confirm` uses `context.go()` (or `pushReplacement` where stack-safe). `push()`/`pop()` are forbidden on these routes: a `push()`ed `LiveScannerScreen` never disposes, so `_processFrame` keeps running and starves the next screen's UI thread (the "grayed-out, frozen confirm screen" symptom); and `pop()` on a `go()`-built stack throws (nothing to pop). All three scanner nav bugs — #38 (back button), #49 (register-write detour), #70 (frozen confirm) — were this one pattern. Pinned by the nav regression tests in `test/widget_test.dart`.
 
 ### Key Files for Scanner Work
 - `lib/features/scanner/presentation/live_scanner_screen.dart` — main scanner, frame processing, state machine

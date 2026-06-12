@@ -51,14 +51,21 @@ that bear directly on the format decision:
    distances/angles → more OCR chances at the field that matters.** Sparse
    stills can miss it entirely (modality-comparison test).
 
-2. **More frames is a double-edged sword until backtracking lands.** Fixture B2
-   is a *known pathology* the harness reproduced deterministically: `"oricon"`
-   (the documented OCR misread of "Oticon") fuzzy-matches **Signia's "Orion"
-   model**, locks brand=Signia FROM MODEL, and the override guard then *refuses*
-   to correct to Oticon when the clean `"nera"` signal arrives. Every extra
-   frame is another chance for a noise token to lock the wrong value early —
-   and the elimination tree cannot currently back out of it
-   (`feedback_elimination_tree_backtracking`, the γ work).
+2. **More frames is a double-edged sword — one sharp edge is now blunted.**
+   Fixture B2 reproduced a real wrong-lock deterministically: `"oricon"` (the
+   documented OCR misread of "Oticon") fuzzy-matched **Signia's "Orion" model**,
+   locked brand=Signia FROM MODEL, and the override guard then refused to
+   correct to Oticon when the clean `"nera"` signal arrived. **Fixed at the
+   matcher (`matchModelAnyBrand` now suppresses a fuzzy model interpretation
+   when the token reads as a brand name), so this specific brand/model fuzzy
+   collision no longer mis-locks** — B2 is now a passing regression test for the
+   fix. The *general* case remains: a genuinely wrong early lock from a
+   non-brand-colliding token still can't be backed out, because the override
+   guard is a stabiliser, not a corrector. That general backtracking
+   (`feedback_elimination_tree_backtracking`, the γ work) is lower-priority now
+   that the most common trigger is removed. Net: every extra frame still carries
+   a small early-wrong-lock risk, but the dominant collision is gone — which
+   tilts the cost/benefit further toward video.
 
 ## Preliminary verdict
 

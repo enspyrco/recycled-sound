@@ -106,6 +106,27 @@ void main() {
       expect(r!.brand, 'Phonak');
     });
 
+    test('genuine fuzzy-only model token (no substring) still matches', () {
+      // "naidx" is Levenshtein-1 from Phonak's "naida" but does NOT contain
+      // it as a substring, so it exercises the fuzzy branch specifically —
+      // and it is not itself a brand name, so the disambiguation guard
+      // leaves it alone.
+      final r = BrandMatcher.matchModelAnyBrand('naidx');
+      expect(r, isNotNull);
+      expect(r!.brand, 'Phonak');
+    });
+
+    test('brand-colliding token is NOT read as a model ("oricon")', () {
+      // "oricon" (OCR misread of "Oticon") is Levenshtein-1 from both the
+      // brand "Oticon" and Signia's model "Orion". The disambiguation guard
+      // suppresses the fuzzy model interpretation so the token is left for
+      // direct brand matching — preventing the wrong-brand lock documented
+      // in feedback_elimination_tree_backtracking.
+      expect(BrandMatcher.matchModelAnyBrand('oricon'), isNull);
+      // Sanity: it DOES read as a brand via the direct matcher.
+      expect(BrandMatcher.matchBrand('oricon'), 'Oticon');
+    });
+
     test('embedded pattern with garbled prefix: "otconActo"', () {
       final r = BrandMatcher.matchModelAnyBrand('otconActo');
       expect(r, isNotNull);

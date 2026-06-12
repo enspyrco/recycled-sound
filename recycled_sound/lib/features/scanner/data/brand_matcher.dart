@@ -131,6 +131,21 @@ class BrandMatcher {
     if (normalized.length < 4 || normalized.length > 30) return null;
     final lower = normalized.toLowerCase();
 
+    // Brand/model disambiguation: a whole token that is itself a (fuzzy)
+    // brand name is far more likely a misread brand than a misread model.
+    // "oricon" is Levenshtein-1 from BOTH the brand "Oticon" and Signia's
+    // model "Orion" — without this guard the fuzzy model branch below wins,
+    // locks the wrong brand (Signia) FROM MODEL, and the DeviceIndex
+    // override guard then refuses to self-correct when the clean "nera"
+    // signal arrives. Brand names are the primary printed signal, so when
+    // the token reads as a brand we suppress the *fuzzy* model branch and
+    // let the caller's direct brand-matching step claim it. Exact and
+    // substring model matches are left untouched (e.g. "oticon ino" still
+    // yields the Ino model) — only the approximate whole-token branch is
+    // gated. See feedback_elimination_tree_backtracking + the B2 fixture
+    // in scan_replay_harness_test.dart.
+    final tokenLooksLikeBrand = matchBrand(normalized) != null;
+
     for (final entry in modelPatterns.entries) {
       final brandKey = entry.key;
       for (final pattern in entry.value) {
@@ -144,8 +159,11 @@ class BrandMatcher {
         else if (pattern.length >= 4 && lower.contains(pattern)) {
           brandName = brands[brandKey];
         }
-        // Fuzzy: 5+ chars only to avoid false positives on short words
-        else if (pattern.length >= 5 && _levenshtein(lower, pattern) <= 1) {
+        // Fuzzy: 5+ chars only to avoid false positives on short words —
+        // and never when the token already reads as a brand name.
+        else if (pattern.length >= 5 &&
+            !tokenLooksLikeBrand &&
+            _levenshtein(lower, pattern) <= 1) {
           brandName = brands[brandKey];
         }
 

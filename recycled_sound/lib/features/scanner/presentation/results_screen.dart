@@ -280,15 +280,7 @@ class _ReviewBodyState extends State<_ReviewBody> {
                   ? 'Confirm & Add to Register'
                   : 'Add to Device Register',
               icon: Icons.add_circle_outline,
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Device added to register (pending QA)'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-                context.go('/devices');
-              },
+              onPressed: () => context.go('/scan/confirm'),
             ),
             const SizedBox(height: 12),
             RsButton(

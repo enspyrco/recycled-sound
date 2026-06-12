@@ -31,8 +31,10 @@ class Correction {
   /// The human-verified value.
   final String correctedValue;
 
-  /// Vision API labels present at scan time — links the correction back
-  /// to what the AI "saw", enabling label→value association learning.
+  /// Raw detection tokens present at scan time — ML Kit OCR lines on the
+  /// live path, Vision API labels on the legacy cloud path. Links the
+  /// correction back to what the AI "saw", enabling label→value
+  /// association learning.
   final List<String> rawLabels;
 
   final DateTime timestamp;

@@ -185,6 +185,30 @@ void main() {
     });
   });
 
+  group('Device.unknownFieldCount', () {
+    test('is zero for a fully-determined device', () {
+      const d = Device(
+        id: 'x',
+        brand: 'Phonak',
+        model: 'P90',
+        type: 'RIC',
+        batterySize: '312',
+      );
+      expect(d.unknownFieldCount, 0);
+    });
+
+    test('counts each spec field flagged Unknown at scan-confirm time', () {
+      const d = Device(
+        id: 'x',
+        brand: 'Phonak',
+        model: 'P90',
+        type: 'Unknown',
+        batterySize: 'Unknown',
+      );
+      expect(d.unknownFieldCount, 2);
+    });
+  });
+
   group('DraftDevice.toDevice', () {
     test('promotes a draft to a Device, pinning the Firestore id', () {
       const draft = DraftDevice(

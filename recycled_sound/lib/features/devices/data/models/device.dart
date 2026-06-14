@@ -15,10 +15,10 @@ enum QaStatus {
   /// Parse the wire form; defaults to [pendingQa] for unknown/empty input
   /// (handles legacy docs and forward-compat with new variants).
   static QaStatus fromWire(String? s) => switch (s) {
-        'passed' => passed,
-        'failed' => failed,
-        _ => pendingQa,
-      };
+    'passed' => passed,
+    'failed' => failed,
+    _ => pendingQa,
+  };
 }
 
 /// Lifecycle status for a hearing aid in the redistribution pipeline.
@@ -37,15 +37,15 @@ enum DeviceStatus {
   final String wire;
 
   static DeviceStatus fromWire(String? s) => switch (s) {
-        'reprogramming' => reprogramming,
-        'servicing' => servicing,
-        'ready' => ready,
-        'matched' => matched,
-        'shipped' => shipped,
-        'delivered' => delivered,
-        'active' => active,
-        _ => donated,
-      };
+    'reprogramming' => reprogramming,
+    'servicing' => servicing,
+    'ready' => ready,
+    'matched' => matched,
+    'shipped' => shipped,
+    'delivered' => delivered,
+    'active' => active,
+    _ => donated,
+  };
 }
 
 /// An as-yet-unpersisted device — the scanner's confirmation output before it
@@ -125,35 +125,35 @@ class DraftDevice {
   /// [id]. Optionally overrides [photos] (used after photo upload resolves the
   /// final gs:// URIs). This is the one-way DraftDevice→Device boundary.
   Device toDevice({required String id, List<String>? photos}) => Device(
-        id: id,
-        brand: brand,
-        model: model,
-        type: type,
-        year: year,
-        serialLeft: serialLeft,
-        serialRight: serialRight,
-        batterySize: batterySize,
-        domeType: domeType,
-        waxFilter: waxFilter,
-        receiver: receiver,
-        programmingInterface: programmingInterface,
-        techLevel: techLevel,
-        gainRange: gainRange,
-        fittingRange: fittingRange,
-        remoteFT: remoteFT,
-        appCompatible: appCompatible,
-        auracast: auracast,
-        chargerType: chargerType,
-        accessories: accessories,
-        condition: condition,
-        qaStatus: qaStatus,
-        status: status,
-        servicingNotes: servicingNotes,
-        servicingCost: servicingCost,
-        donorId: donorId,
-        scanId: scanId,
-        photos: photos ?? this.photos,
-      );
+    id: id,
+    brand: brand,
+    model: model,
+    type: type,
+    year: year,
+    serialLeft: serialLeft,
+    serialRight: serialRight,
+    batterySize: batterySize,
+    domeType: domeType,
+    waxFilter: waxFilter,
+    receiver: receiver,
+    programmingInterface: programmingInterface,
+    techLevel: techLevel,
+    gainRange: gainRange,
+    fittingRange: fittingRange,
+    remoteFT: remoteFT,
+    appCompatible: appCompatible,
+    auracast: auracast,
+    chargerType: chargerType,
+    accessories: accessories,
+    condition: condition,
+    qaStatus: qaStatus,
+    status: status,
+    servicingNotes: servicingNotes,
+    servicingCost: servicingCost,
+    donorId: donorId,
+    scanId: scanId,
+    photos: photos ?? this.photos,
+  );
 }
 
 /// 26-field device model matching the Recycled Sound device register.
@@ -226,6 +226,22 @@ class Device {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  /// How many spec fields the volunteer flagged `Unknown` at scan-confirm time
+  /// (the amber escape valve on the confirm screen). Non-zero means the record
+  /// is registered but still needs the audiologist to determine those fields —
+  /// surfaced as a "NEEDS INPUT" flag on the register card. Kept as a literal
+  /// rather than importing the scanner-side `kUnknownValue` so the devices
+  /// feature stays free of a cross-feature dependency on the scanner.
+  int get unknownFieldCount => [
+    brand,
+    model,
+    type,
+    batterySize,
+    domeType,
+    waxFilter,
+    receiver,
+  ].where((v) => v == 'Unknown').length;
+
   /// Build a [Device] from a Firestore document snapshot.
   ///
   /// The document `id` is taken from the snapshot, not from a `id` field
@@ -277,91 +293,91 @@ class Device {
   /// value would silently fail at the rules layer with a permission-denied
   /// rather than a compile error.
   Map<String, dynamic> toFirestore({required String createdBy}) => {
-        'brand': brand,
-        'model': model,
-        'type': type,
-        'year': year,
-        'serialLeft': serialLeft,
-        'serialRight': serialRight,
-        'batterySize': batterySize,
-        'domeType': domeType,
-        'waxFilter': waxFilter,
-        'receiver': receiver,
-        'programmingInterface': programmingInterface,
-        'techLevel': techLevel,
-        'gainRange': gainRange,
-        'fittingRange': fittingRange,
-        'remoteFT': remoteFT,
-        'appCompatible': appCompatible,
-        'auracast': auracast,
-        'chargerType': chargerType,
-        'accessories': accessories,
-        'condition': condition,
-        'qaStatus': qaStatus.wire,
-        'status': status.wire,
-        'servicingNotes': servicingNotes,
-        'servicingCost': servicingCost,
-        'donorId': donorId,
-        'scanId': scanId,
-        'photos': photos,
-        'createdBy': createdBy,
-        'createdAt': createdAt == null
-            ? FieldValue.serverTimestamp()
-            : Timestamp.fromDate(createdAt!),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+    'brand': brand,
+    'model': model,
+    'type': type,
+    'year': year,
+    'serialLeft': serialLeft,
+    'serialRight': serialRight,
+    'batterySize': batterySize,
+    'domeType': domeType,
+    'waxFilter': waxFilter,
+    'receiver': receiver,
+    'programmingInterface': programmingInterface,
+    'techLevel': techLevel,
+    'gainRange': gainRange,
+    'fittingRange': fittingRange,
+    'remoteFT': remoteFT,
+    'appCompatible': appCompatible,
+    'auracast': auracast,
+    'chargerType': chargerType,
+    'accessories': accessories,
+    'condition': condition,
+    'qaStatus': qaStatus.wire,
+    'status': status.wire,
+    'servicingNotes': servicingNotes,
+    'servicingCost': servicingCost,
+    'donorId': donorId,
+    'scanId': scanId,
+    'photos': photos,
+    'createdBy': createdBy,
+    'createdAt': createdAt == null
+        ? FieldValue.serverTimestamp()
+        : Timestamp.fromDate(createdAt!),
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
 
   /// Sample devices from the existing register for MVP display.
   static List<Device> mockDevices() => [
-        const Device(
-          id: '1',
-          brand: 'Phonak',
-          model: 'Audéo P90',
-          type: 'RIC',
-          year: '2021',
-          batterySize: '312',
-          qaStatus: QaStatus.passed,
-          status: DeviceStatus.ready,
-        ),
-        const Device(
-          id: '2',
-          brand: 'Oticon',
-          model: 'More 1',
-          type: 'BTE',
-          year: '2022',
-          batterySize: '13',
-          qaStatus: QaStatus.pendingQa,
-          status: DeviceStatus.donated,
-        ),
-        const Device(
-          id: '3',
-          brand: 'Signia',
-          model: 'Pure 7Nx',
-          type: 'RIC',
-          year: '2020',
-          batterySize: '312',
-          qaStatus: QaStatus.passed,
-          status: DeviceStatus.matched,
-        ),
-        const Device(
-          id: '4',
-          brand: 'GN Resound',
-          model: 'ONE 9',
-          type: 'RIC',
-          year: '2023',
-          batterySize: 'Rechargeable',
-          qaStatus: QaStatus.pendingQa,
-          status: DeviceStatus.donated,
-        ),
-        const Device(
-          id: '5',
-          brand: 'Widex',
-          model: 'Moment 440',
-          type: 'RIC',
-          year: '2021',
-          batterySize: '10',
-          qaStatus: QaStatus.failed,
-          status: DeviceStatus.servicing,
-        ),
-      ];
+    const Device(
+      id: '1',
+      brand: 'Phonak',
+      model: 'Audéo P90',
+      type: 'RIC',
+      year: '2021',
+      batterySize: '312',
+      qaStatus: QaStatus.passed,
+      status: DeviceStatus.ready,
+    ),
+    const Device(
+      id: '2',
+      brand: 'Oticon',
+      model: 'More 1',
+      type: 'BTE',
+      year: '2022',
+      batterySize: '13',
+      qaStatus: QaStatus.pendingQa,
+      status: DeviceStatus.donated,
+    ),
+    const Device(
+      id: '3',
+      brand: 'Signia',
+      model: 'Pure 7Nx',
+      type: 'RIC',
+      year: '2020',
+      batterySize: '312',
+      qaStatus: QaStatus.passed,
+      status: DeviceStatus.matched,
+    ),
+    const Device(
+      id: '4',
+      brand: 'GN Resound',
+      model: 'ONE 9',
+      type: 'RIC',
+      year: '2023',
+      batterySize: 'Rechargeable',
+      qaStatus: QaStatus.pendingQa,
+      status: DeviceStatus.donated,
+    ),
+    const Device(
+      id: '5',
+      brand: 'Widex',
+      model: 'Moment 440',
+      type: 'RIC',
+      year: '2021',
+      batterySize: '10',
+      qaStatus: QaStatus.failed,
+      status: DeviceStatus.servicing,
+    ),
+  ];
 }

@@ -22,6 +22,16 @@ void main() {
       expect(round.value, s.value);
       expect(round.confidence, s.confidence);
     });
+
+    test('isUnknown is true only for the Unknown sentinel', () {
+      expect(const SpecField(value: kUnknownValue, confidence: 0).isUnknown,
+          isTrue);
+      // A determinate absence is NOT Unknown — these are facts, not flags.
+      expect(const SpecField(value: 'None', confidence: 0).isUnknown, isFalse);
+      expect(const SpecField(value: 'N/A', confidence: 0).isUnknown, isFalse);
+      expect(const SpecField(value: '', confidence: 0).isUnknown, isFalse);
+      expect(const SpecField(value: 'BTE', confidence: 90).isUnknown, isFalse);
+    });
   });
 
   group('ScanResult mock + accessors', () {
@@ -73,6 +83,51 @@ void main() {
         final r2 = m.withField(f, const SpecField(value: 'x', confidence: 50));
         expect(r2.fieldFor(f)?.value, 'x');
       }
+    });
+  });
+
+  group('ScanResult Unknown-field handling', () {
+    // Fill all 7 fields, leaving `tubing` flagged Unknown — the exact case
+    // Delia raised: the scanner can't determine tubing, so without an Unknown
+    // escape valve the completion gate would stall forever.
+    ScanResult complete({String tubing = 'Slim'}) {
+      var r = ScanResult.mock();
+      const filled = SpecField(value: 'x', confidence: 80);
+      for (final f in [
+        ScanField.brand,
+        ScanField.model,
+        ScanField.type,
+        ScanField.powerSource,
+        ScanField.batterySize,
+        ScanField.colour,
+      ]) {
+        r = r.withField(f, filled);
+      }
+      return r.withField(
+        ScanField.tubing,
+        SpecField(value: tubing, confidence: 0),
+      );
+    }
+
+    test('an Unknown flag counts toward completion — no stall', () {
+      final r = complete(tubing: kUnknownValue);
+      expect(r.isComplete, isTrue,
+          reason: 'Unknown must satisfy the gate so the volunteer can proceed');
+    });
+
+    test('unknownFieldCount counts only Unknown-flagged fields', () {
+      expect(complete(tubing: kUnknownValue).unknownFieldCount, 1);
+      expect(complete(tubing: 'Slim').unknownFieldCount, 0);
+    });
+
+    test('isFullyVerified distinguishes complete from confirmed', () {
+      final flagged = complete(tubing: kUnknownValue);
+      expect(flagged.isComplete, isTrue);
+      expect(flagged.isFullyVerified, isFalse,
+          reason: 'complete-but-unverified: still needs the audiologist');
+
+      final confirmed = complete(tubing: 'Slim');
+      expect(confirmed.isFullyVerified, isTrue);
     });
   });
 

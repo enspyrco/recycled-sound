@@ -40,13 +40,13 @@ class Correction {
   final DateTime timestamp;
 
   Map<String, dynamic> toJson() => {
-        'field': field,
-        'originalValue': originalValue,
-        'originalConfidence': originalConfidence,
-        'correctedValue': correctedValue,
-        'rawLabels': rawLabels,
-        'timestamp': timestamp.toIso8601String(),
-      };
+    'field': field,
+    'originalValue': originalValue,
+    'originalConfidence': originalConfidence,
+    'correctedValue': correctedValue,
+    'rawLabels': rawLabels,
+    'timestamp': timestamp.toIso8601String(),
+  };
 }
 
 /// Holds the current scan result in memory, allowing inline edits.
@@ -80,17 +80,25 @@ class ScanResultNotifier extends Notifier<ScanResult> {
     final originalConfidence = oldField?.confidence ?? 0;
     if (originalValue == newValue) return;
 
-    _corrections.add(Correction(
-      field: field.name,
-      originalValue: originalValue,
-      originalConfidence: originalConfidence,
-      correctedValue: newValue,
-      rawLabels: current.rawLabels,
-      timestamp: DateTime.now(),
-    ));
+    _corrections.add(
+      Correction(
+        field: field.name,
+        originalValue: originalValue,
+        originalConfidence: originalConfidence,
+        correctedValue: newValue,
+        rawLabels: current.rawLabels,
+        timestamp: DateTime.now(),
+      ),
+    );
 
-    // Update the field with 100% confidence (human-corrected).
-    final corrected = SpecField(value: newValue, confidence: 100);
+    // Update the field with 100% confidence and human provenance. The source
+    // stamp is what lets a deliberate "Unknown" verdict be told apart from the
+    // AI pipeline's own low-confidence 'Unknown' default downstream.
+    final corrected = SpecField(
+      value: newValue,
+      confidence: 100,
+      source: FieldSource.human,
+    );
     state = current.withField(field, corrected);
   }
 
@@ -98,5 +106,6 @@ class ScanResultNotifier extends Notifier<ScanResult> {
   List<Correction> get corrections => List.unmodifiable(_corrections);
 }
 
-final scanResultProvider =
-    NotifierProvider<ScanResultNotifier, ScanResult>(ScanResultNotifier.new);
+final scanResultProvider = NotifierProvider<ScanResultNotifier, ScanResult>(
+  ScanResultNotifier.new,
+);

@@ -64,12 +64,17 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   }
 
   void _checkCompletion(ScanResult result) {
-    if (result.isComplete && !_completionFired) {
+    // The completion ceremony (heavy haptic + green flash) fires only on
+    // FULL verification — every field confirmed, none left as a volunteer
+    // "Unknown". A record that's complete-but-flagged is registrable but not
+    // a clean win, so it gets the calm amber header, not the victory party.
+    if (result.isFullyVerified && !_completionFired) {
       _completionFired = true;
       HapticFeedback.heavyImpact();
       _completionController.forward();
-    } else if (!result.isComplete && _completionFired) {
-      // User un-filled a field — reset so the ceremony can fire again.
+    } else if (!result.isFullyVerified && _completionFired) {
+      // A field was un-filled or flagged Unknown — reset so the ceremony can
+      // fire again once the record is fully verified.
       _completionFired = false;
       _completionController.reset();
     }
@@ -97,6 +102,8 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
               filled: filled,
               total: 7,
               isComplete: result.isComplete,
+              isFullyVerified: result.isFullyVerified,
+              unknownCount: result.unknownFieldCount,
               completionAnimation: _completionController,
               onClose: () => context.go('/'),
             ),
@@ -237,6 +244,11 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       receiver: result.receiver.value,
       scanId: result.scanId,
       photos: [if (result.imageUrl.isNotEmpty) result.imageUrl],
+      // The volunteer→audiologist handoff: which fields the human deliberately
+      // flagged undetermined. Persisted as a structured set so the register's
+      // "NEEDS INPUT" flag is driven by intent, not by string-matching the
+      // AI pipeline's own 'Unknown' default.
+      needsInputFields: result.volunteerUnknownFieldKeys,
     );
 
     try {
@@ -303,13 +315,23 @@ class _HeaderStrip extends StatelessWidget {
     required this.filled,
     required this.total,
     required this.isComplete,
+    required this.isFullyVerified,
+    required this.unknownCount,
     required this.completionAnimation,
     required this.onClose,
   });
 
   final int filled;
   final int total;
+
+  /// Every field acknowledged (gate is open) — but some may be volunteer
+  /// "Unknown" flags awaiting the audiologist.
   final bool isComplete;
+
+  /// Every field confirmed with a real value — the only state that earns the
+  /// green "IDENTIFICATION COMPLETE" celebration.
+  final bool isFullyVerified;
+  final int unknownCount;
   final AnimationController completionAnimation;
   final VoidCallback onClose;
 
@@ -329,8 +351,10 @@ class _HeaderStrip extends StatelessWidget {
             ),
             border: Border(
               bottom: BorderSide(
-                color: isComplete
+                color: isFullyVerified
                     ? AppColors.success.withValues(alpha: 0.3 + 0.4 * glow)
+                    : isComplete
+                    ? AppColors.warning.withValues(alpha: 0.4)
                     : const Color(0xFF333333),
                 width: 1,
               ),
@@ -352,7 +376,7 @@ class _HeaderStrip extends StatelessWidget {
                       color: isFilled
                           ? AppColors.success
                           : const Color(0xFF444444),
-                      boxShadow: isFilled && isComplete
+                      boxShadow: isFilled && isFullyVerified
                           ? [
                               BoxShadow(
                                 color: AppColors.success.withValues(alpha: 0.5),
@@ -367,12 +391,19 @@ class _HeaderStrip extends StatelessWidget {
 
               const SizedBox(width: 12),
 
-              // Counter text
+              // Counter text — three states: counting up, complete-but-flagged
+              // (amber), and fully verified (green celebration).
               Text(
-                isComplete ? 'IDENTIFICATION COMPLETE' : '$filled OF $total',
+                isFullyVerified
+                    ? 'IDENTIFICATION COMPLETE'
+                    : isComplete
+                    ? 'READY · $unknownCount NEED INPUT'
+                    : '$filled OF $total',
                 style: AppTypography.monoStatus.copyWith(
-                  color: isComplete
+                  color: isFullyVerified
                       ? AppColors.success
+                      : isComplete
+                      ? AppColors.warning
                       : const Color(0xFF888888),
                 ),
               ),

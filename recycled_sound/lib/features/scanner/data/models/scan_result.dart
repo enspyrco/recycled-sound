@@ -17,42 +17,67 @@ enum ScanField {
   powerSource,
 }
 
-/// Sentinel value for a constrained field the volunteer has deliberately
-/// marked as undetermined ("I looked, I can't tell — needs the audiologist").
+/// The display string a constrained field carries when its value is undetermined.
 ///
-/// This is epistemic, NOT the same as a determinate absence like tubing
-/// `None` or battery `N/A` — those are facts about the device; `Unknown` is a
-/// flag that the value still needs expert determination. It counts toward
-/// [ScanResult.filledFieldCount] (so it satisfies the completion gate and the
-/// volunteer is never stalled on a field the scanner can't fill) while
-/// remaining distinguishable via [SpecField.isUnknown] so it can be surfaced
-/// downstream as work for the audiologist.
+/// CRITICAL: this literal is overloaded across the codebase. The scan pipeline
+/// (`scan_fusion.dart`, `device_catalog.dart`) already emits `'Unknown'` as the
+/// *AI's* "I couldn't read this" default, at low confidence. So the string alone
+/// CANNOT tell you whether a human deliberately flagged the field or the neural
+/// net simply failed — that distinction lives in [SpecField.source], not in the
+/// value. Use [SpecField.isVolunteerUnknown], never a raw `value == kUnknownValue`
+/// check, when you mean "a human asked the audiologist to determine this".
 const String kUnknownValue = 'Unknown';
 
-/// Represents a single identified spec field with its confidence score.
+/// Who supplied a field's current value. The provenance that the value string
+/// alone cannot carry: an `'Unknown'` from [ai] is a measurement failure; an
+/// `'Unknown'` from [human] is a deliberate "needs the audiologist" verdict.
+enum FieldSource { ai, human }
+
+/// Represents a single identified spec field with its confidence and provenance.
 class SpecField {
-  const SpecField({required this.value, required this.confidence});
+  const SpecField({
+    required this.value,
+    required this.confidence,
+    this.source = FieldSource.ai,
+  });
 
   final String value;
 
   /// 0–100 confidence percentage.
   final int confidence;
 
-  /// Whether the volunteer explicitly flagged this field as undetermined.
-  /// See [kUnknownValue] for why this is distinct from an empty or absent value.
-  bool get isUnknown => value == kUnknownValue;
+  /// Provenance — defaults to [FieldSource.ai] so every value the scan
+  /// pipeline produces is implicitly AI-sourced; only [ScanResultNotifier
+  /// .updateField] stamps [FieldSource.human] on a deliberate volunteer edit.
+  final FieldSource source;
 
-  SpecField copyWith({String? value, int? confidence}) => SpecField(
-    value: value ?? this.value,
-    confidence: confidence ?? this.confidence,
-  );
+  /// A field a *human* deliberately flagged as undetermined — distinct from an
+  /// AI measurement failure that happens to share the [kUnknownValue] string.
+  /// This is the volunteer→audiologist handoff signal. See [kUnknownValue].
+  bool get isVolunteerUnknown =>
+      value == kUnknownValue && source == FieldSource.human;
+
+  SpecField copyWith({String? value, int? confidence, FieldSource? source}) =>
+      SpecField(
+        value: value ?? this.value,
+        confidence: confidence ?? this.confidence,
+        source: source ?? this.source,
+      );
 
   factory SpecField.fromJson(Map<String, dynamic> json) => SpecField(
     value: json['value'] as String,
     confidence: json['confidence'] as int,
+    source: switch (json['source'] as String?) {
+      'human' => FieldSource.human,
+      _ => FieldSource.ai,
+    },
   );
 
-  Map<String, dynamic> toJson() => {'value': value, 'confidence': confidence};
+  Map<String, dynamic> toJson() => {
+    'value': value,
+    'confidence': confidence,
+    'source': source.name,
+  };
 }
 
 /// The result of a hearing aid scan, returned by the Cloud Function.
@@ -127,11 +152,19 @@ class ScanResult {
       )
       .length;
 
-  /// How many of the 7 fields the volunteer flagged as [kUnknownValue].
-  /// These count as filled (so they don't block completion) but flag work for
-  /// the audiologist — surfaced on the confirm screen and the register card.
-  int get unknownFieldCount =>
-      sevenFields.where((f) => f.field?.isUnknown ?? false).length;
+  /// The keys of the 7 fields a *human* deliberately flagged undetermined
+  /// (e.g. `['tubing', 'colour']`). This is the structured volunteer→audiologist
+  /// handoff: it's persisted onto the device record so the register can flag
+  /// "needs input" without re-deriving intent from an overloaded value string.
+  List<String> get volunteerUnknownFieldKeys => sevenFields
+      .where((f) => f.field?.isVolunteerUnknown ?? false)
+      .map((f) => f.key)
+      .toList();
+
+  /// How many of the 7 fields the volunteer flagged undetermined. These count
+  /// as filled (so they don't block completion) but flag work for the
+  /// audiologist — surfaced on the confirm screen and the register card.
+  int get unknownFieldCount => volunteerUnknownFieldKeys.length;
 
   /// Whether all 7 fields are filled. An `Unknown` flag counts as filled — the
   /// gate asks "has every field been acknowledged?", not "is every value

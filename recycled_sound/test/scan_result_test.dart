@@ -23,15 +23,65 @@ void main() {
       expect(round.confidence, s.confidence);
     });
 
-    test('isUnknown is true only for the Unknown sentinel', () {
-      expect(const SpecField(value: kUnknownValue, confidence: 0).isUnknown,
-          isTrue);
-      // A determinate absence is NOT Unknown — these are facts, not flags.
-      expect(const SpecField(value: 'None', confidence: 0).isUnknown, isFalse);
-      expect(const SpecField(value: 'N/A', confidence: 0).isUnknown, isFalse);
-      expect(const SpecField(value: '', confidence: 0).isUnknown, isFalse);
-      expect(const SpecField(value: 'BTE', confidence: 90).isUnknown, isFalse);
-    });
+    test(
+      'isVolunteerUnknown requires BOTH the sentinel AND human provenance',
+      () {
+        // The whole point: a human deliberately flagged this.
+        expect(
+          const SpecField(
+            value: kUnknownValue,
+            confidence: 100,
+            source: FieldSource.human,
+          ).isVolunteerUnknown,
+          isTrue,
+        );
+        // COLLISION GUARD: the AI pipeline emits 'Unknown' as its own
+        // low-confidence default (scan_fusion.dart). That must NOT read as a
+        // volunteer flag, or every AI gap would raise a false "needs input".
+        expect(
+          const SpecField(
+            value: kUnknownValue,
+            confidence: 10,
+          ).isVolunteerUnknown,
+          isFalse,
+          reason: 'AI-sourced Unknown is a measurement failure, not a verdict',
+        );
+        // Determinate absences are facts, not flags — never volunteer-unknown.
+        expect(
+          const SpecField(
+            value: 'None',
+            confidence: 100,
+            source: FieldSource.human,
+          ).isVolunteerUnknown,
+          isFalse,
+        );
+        expect(
+          const SpecField(
+            value: 'BTE',
+            confidence: 100,
+            source: FieldSource.human,
+          ).isVolunteerUnknown,
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'source round-trips through JSON, defaulting to ai for legacy docs',
+      () {
+        const human = SpecField(
+          value: 'Slim',
+          confidence: 100,
+          source: FieldSource.human,
+        );
+        expect(SpecField.fromJson(human.toJson()).source, FieldSource.human);
+        // A legacy doc with no 'source' key parses as ai (back-compat).
+        expect(
+          SpecField.fromJson({'value': 'x', 'confidence': 50}).source,
+          FieldSource.ai,
+        );
+      },
+    );
   });
 
   group('ScanResult mock + accessors', () {
@@ -90,7 +140,11 @@ void main() {
     // Fill all 7 fields, leaving `tubing` flagged Unknown — the exact case
     // Delia raised: the scanner can't determine tubing, so without an Unknown
     // escape valve the completion gate would stall forever.
-    ScanResult complete({String tubing = 'Slim'}) {
+    // `tubingByHuman` mirrors the real volunteer path: tapping a chip routes
+    // through updateField, which stamps FieldSource.human. The other six are
+    // filled as AI values (default source) so the test also proves AI gaps
+    // don't leak into the volunteer-unknown count.
+    ScanResult complete({String tubing = 'Slim', bool tubingByHuman = true}) {
       var r = ScanResult.mock();
       const filled = SpecField(value: 'x', confidence: 80);
       for (final f in [
@@ -105,26 +159,46 @@ void main() {
       }
       return r.withField(
         ScanField.tubing,
-        SpecField(value: tubing, confidence: 0),
+        SpecField(
+          value: tubing,
+          confidence: tubingByHuman ? 100 : 10,
+          source: tubingByHuman ? FieldSource.human : FieldSource.ai,
+        ),
       );
     }
 
-    test('an Unknown flag counts toward completion — no stall', () {
+    test('a volunteer Unknown flag counts toward completion — no stall', () {
       final r = complete(tubing: kUnknownValue);
-      expect(r.isComplete, isTrue,
-          reason: 'Unknown must satisfy the gate so the volunteer can proceed');
+      expect(
+        r.isComplete,
+        isTrue,
+        reason: 'Unknown must satisfy the gate so the volunteer can proceed',
+      );
     });
 
-    test('unknownFieldCount counts only Unknown-flagged fields', () {
-      expect(complete(tubing: kUnknownValue).unknownFieldCount, 1);
-      expect(complete(tubing: 'Slim').unknownFieldCount, 0);
+    test('volunteerUnknownFieldKeys captures only human-flagged Unknowns', () {
+      expect(complete(tubing: kUnknownValue).volunteerUnknownFieldKeys, [
+        'tubing',
+      ]);
+      expect(complete(tubing: 'Slim').volunteerUnknownFieldKeys, isEmpty);
+    });
+
+    test('an AI-sourced Unknown does NOT count as a volunteer flag', () {
+      // The collision Carnot caught: AI emits 'Unknown' too. It completes the
+      // gate (filled) but must not raise a needs-input flag.
+      final r = complete(tubing: kUnknownValue, tubingByHuman: false);
+      expect(r.isComplete, isTrue);
+      expect(r.unknownFieldCount, 0);
     });
 
     test('isFullyVerified distinguishes complete from confirmed', () {
       final flagged = complete(tubing: kUnknownValue);
       expect(flagged.isComplete, isTrue);
-      expect(flagged.isFullyVerified, isFalse,
-          reason: 'complete-but-unverified: still needs the audiologist');
+      expect(
+        flagged.isFullyVerified,
+        isFalse,
+        reason: 'complete-but-unverified: still needs the audiologist',
+      );
 
       final confirmed = complete(tubing: 'Slim');
       expect(confirmed.isFullyVerified, isTrue);

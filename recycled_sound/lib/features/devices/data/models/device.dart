@@ -91,6 +91,7 @@ class DraftDevice {
     this.donorId = '',
     this.scanId = '',
     this.photos = const [],
+    this.needsInputFields = const [],
   });
 
   final String brand;
@@ -120,6 +121,12 @@ class DraftDevice {
   final String donorId;
   final String scanId;
   final List<String> photos;
+
+  /// Keys of the 7-field scan model the volunteer flagged as undetermined,
+  /// asking the audiologist to determine them (e.g. `['tubing', 'colour']`).
+  /// A structured handoff, not a guess re-derived from an overloaded value
+  /// string — see [ScanResult.volunteerUnknownFieldKeys].
+  final List<String> needsInputFields;
 
   /// Promote this draft to a persisted [Device], pinning the Firestore-issued
   /// [id]. Optionally overrides [photos] (used after photo upload resolves the
@@ -153,6 +160,7 @@ class DraftDevice {
     donorId: donorId,
     scanId: scanId,
     photos: photos ?? this.photos,
+    needsInputFields: needsInputFields,
   );
 }
 
@@ -191,6 +199,7 @@ class Device {
     this.donorId = '',
     this.scanId = '',
     this.photos = const [],
+    this.needsInputFields = const [],
     this.createdAt,
     this.updatedAt,
   });
@@ -223,24 +232,22 @@ class Device {
   final String donorId;
   final String scanId;
   final List<String> photos;
+
+  /// Keys of the 7-field scan model the volunteer flagged as undetermined at
+  /// scan-confirm time (the amber escape valve), persisted as a structured
+  /// handoff to the audiologist. See [DraftDevice.needsInputFields].
+  final List<String> needsInputFields;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  /// How many spec fields the volunteer flagged `Unknown` at scan-confirm time
-  /// (the amber escape valve on the confirm screen). Non-zero means the record
-  /// is registered but still needs the audiologist to determine those fields —
-  /// surfaced as a "NEEDS INPUT" flag on the register card. Kept as a literal
-  /// rather than importing the scanner-side `kUnknownValue` so the devices
-  /// feature stays free of a cross-feature dependency on the scanner.
-  int get unknownFieldCount => [
-    brand,
-    model,
-    type,
-    batterySize,
-    domeType,
-    waxFilter,
-    receiver,
-  ].where((v) => v == 'Unknown').length;
+  /// How many fields the volunteer flagged for the audiologist to determine.
+  /// Reads the persisted [needsInputFields] set rather than string-matching
+  /// `'Unknown'` against value fields — the AI pipeline emits `'Unknown'` as
+  /// its own low-confidence default, so a value-match would raise false flags
+  /// for fields the volunteer never touched. Surfaced as the register's
+  /// "NEEDS INPUT" chip.
+  int get unknownFieldCount => needsInputFields.length;
 
   /// Build a [Device] from a Firestore document snapshot.
   ///
@@ -279,6 +286,9 @@ class Device {
       donorId: (d['donorId'] as String?) ?? '',
       scanId: (d['scanId'] as String?) ?? '',
       photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
+      needsInputFields:
+          ((d['needsInputFields'] as List?)?.cast<String>()) ??
+          const <String>[],
       createdAt: ts(d['createdAt']),
       updatedAt: ts(d['updatedAt']),
     );
@@ -320,6 +330,7 @@ class Device {
     'donorId': donorId,
     'scanId': scanId,
     'photos': photos,
+    'needsInputFields': needsInputFields,
     'createdBy': createdBy,
     'createdAt': createdAt == null
         ? FieldValue.serverTimestamp()

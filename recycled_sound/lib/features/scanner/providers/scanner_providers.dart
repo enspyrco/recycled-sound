@@ -78,18 +78,31 @@ class ScanResultNotifier extends Notifier<ScanResult> {
     // record the correction from empty.
     final originalValue = oldField?.value ?? '';
     final originalConfidence = oldField?.confidence ?? 0;
-    if (originalValue == newValue) return;
+    final alreadyHuman = oldField?.source == FieldSource.human;
 
-    _corrections.add(
-      Correction(
-        field: field.name,
-        originalValue: originalValue,
-        originalConfidence: originalConfidence,
-        correctedValue: newValue,
-        rawLabels: current.rawLabels,
-        timestamp: DateTime.now(),
-      ),
-    );
+    // A volunteer tapping the value the AI already proposed is STILL a
+    // deliberate human act — provenance must upgrade even when the string is
+    // unchanged. This is the common case the scanner can't determine (e.g.
+    // battery size): scan fusion emits 'Unknown', the volunteer confirms it by
+    // tapping the visible Unknown chip, and that confirmation must register as
+    // the audiologist handoff. Only a true no-op — same value AND already
+    // human-sourced — bails early.
+    if (originalValue == newValue && alreadyHuman) return;
+
+    // Record a correction only when the value actually changed; a same-value
+    // provenance upgrade isn't a correction worth logging as training signal.
+    if (originalValue != newValue) {
+      _corrections.add(
+        Correction(
+          field: field.name,
+          originalValue: originalValue,
+          originalConfidence: originalConfidence,
+          correctedValue: newValue,
+          rawLabels: current.rawLabels,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
 
     // Update the field with 100% confidence and human provenance. The source
     // stamp is what lets a deliberate "Unknown" verdict be told apart from the

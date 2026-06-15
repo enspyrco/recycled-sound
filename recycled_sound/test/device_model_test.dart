@@ -256,5 +256,88 @@ void main() {
       expect(device.photos, hasLength(2));
       expect(device.photos.last, endsWith('0.jpg'));
     });
+
+    test('carries tubing/powerSource/colour/location through to Device', () {
+      // Issue #751/#766: these four were previously dropped at the
+      // DraftDevice→Device boundary. Confirm they survive promotion.
+      const draft = DraftDevice(
+        brand: 'Phonak',
+        model: 'P90',
+        tubing: 'Slim',
+        powerSource: 'Rechargeable',
+        colour: 'Champagne',
+        location: 'B07',
+      );
+
+      final device = draft.toDevice(id: 'x');
+
+      expect(device.tubing, 'Slim');
+      expect(device.powerSource, 'Rechargeable');
+      expect(device.colour, 'Champagne');
+      expect(device.location, 'B07');
+    });
+  });
+
+  group('clinical value + location fields (#751, #766)', () {
+    late FakeFirebaseFirestore firestore;
+
+    setUp(() => firestore = FakeFirebaseFirestore());
+
+    test(
+      'tubing/powerSource/colour/location survive a toFirestore→fromFirestore '
+      'round-trip',
+      () async {
+        const d = Device(
+          id: 'rt',
+          brand: 'Phonak',
+          model: 'P90',
+          tubing: 'Standard',
+          powerSource: 'Battery',
+          colour: 'Graphite',
+          location: 'C10',
+        );
+
+        final map = d.toFirestore(createdBy: 'user-1');
+        // The wire form carries each value as a plain String.
+        expect(map['tubing'], 'Standard');
+        expect(map['powerSource'], 'Battery');
+        expect(map['colour'], 'Graphite');
+        expect(map['location'], 'C10');
+
+        await firestore.collection('incoming').doc('rt').set(map);
+        final snap = await firestore.collection('incoming').doc('rt').get();
+        final back = Device.fromFirestore(snap);
+
+        expect(back.tubing, 'Standard');
+        expect(back.powerSource, 'Battery');
+        expect(back.colour, 'Graphite');
+        expect(back.location, 'C10');
+      },
+    );
+
+    test('fields default to empty string when absent from the document',
+        () async {
+      await firestore.collection('incoming').doc('bare').set({'brand': 'X'});
+      final snap = await firestore.collection('incoming').doc('bare').get();
+      final d = Device.fromFirestore(snap);
+
+      expect(d.tubing, '');
+      expect(d.powerSource, '');
+      expect(d.colour, '');
+      expect(d.location, '');
+    });
+
+    test('location is normalised (trim + uppercase) the way the confirm '
+        'screen persists it', () {
+      // The confirm screen does `text.trim().toUpperCase()` before building the
+      // DraftDevice; assert that normalised value round-trips unchanged.
+      const raw = '  b07 ';
+      final normalised = raw.trim().toUpperCase();
+      expect(normalised, 'B07');
+
+      final d = Device(id: 'x', brand: 'B', model: 'M', location: normalised);
+      final map = d.toFirestore(createdBy: 'u');
+      expect(map['location'], 'B07');
+    });
   });
 }

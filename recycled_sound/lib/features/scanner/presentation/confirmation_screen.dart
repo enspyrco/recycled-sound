@@ -42,6 +42,10 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   late final AnimationController _completionController;
   bool _completionFired = false;
 
+  /// Free-text physical storage location (box/bag, e.g. B07). Metadata, not a
+  /// clinical field — never gates the "Add to Register" completion button.
+  final TextEditingController _locationController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +64,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   void dispose() {
     _pulseController.dispose();
     _completionController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -199,6 +204,11 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .read(scanResultProvider.notifier)
                         .updateField(ScanField.colour, v),
                   ),
+
+                  // LOCATION — physical storage box/bag (metadata, optional).
+                  // Not one of the 7 clinical fields and not counted toward the
+                  // completion gate; purely "where does this device live".
+                  _LocationField(controller: _locationController),
                 ],
               ),
             ),
@@ -239,10 +249,19 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       type: result.type.value,
       year: result.year.value,
       batterySize: result.batterySize.value,
+      // Clinical fields 4/5/7 — previously dropped at persist (issue #751).
+      // ScanResult holds these as optional SpecFields; fall back to '' when
+      // the volunteer never touched them, matching the model's empty default.
+      tubing: result.tubing?.value ?? '',
+      powerSource: result.powerSource?.value ?? '',
+      colour: result.colour?.value ?? '',
       domeType: result.domeType.value,
       waxFilter: result.waxFilter.value,
       receiver: result.receiver.value,
       scanId: result.scanId,
+      // Physical storage location (issue #766) — trimmed + uppercased so
+      // `b07` and ` B07 ` both persist as `B07`. Empty when left blank.
+      location: _locationController.text.trim().toUpperCase(),
       photos: [if (result.imageUrl.isNotEmpty) result.imageUrl],
       // The volunteer→audiologist handoff: which fields the human deliberately
       // flagged undetermined. Persisted as a structured set so the register's
@@ -803,6 +822,73 @@ class _ColourSwatchField extends StatelessWidget {
             }).toList(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Location Field — free-text physical storage box/bag (metadata)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A single labelled free-text field for the physical storage Location ID
+/// (box/bag number, e.g. `B07`, `C10`). Deliberately NOT a chip selector: the
+/// storage layout is open-ended and not a clinical spec. It does not count
+/// toward the 7-field completion gate — purely "where does this device live".
+///
+/// Uppercasing happens at persist time (see `_confirmAndPersist`), so the
+/// raw text is shown as typed and normalised only on save.
+class _LocationField extends StatelessWidget {
+  const _LocationField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          color: const Color(0xFF151515),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(width: 3, color: const Color(0xFF3A3A3A)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        const _FieldLabel(label: 'BOX'),
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            textCapitalization:
+                                TextCapitalization.characters,
+                            style: _valueStyle(true),
+                            cursorColor: AppColors.success,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              hintText: 'Location ID — e.g. B07 (optional)',
+                              hintStyle: TextStyle(
+                                color: Color(0xFF555555),
+                                fontSize: 14,
+                              ),
+                              contentPadding: EdgeInsets.symmetric(vertical: 4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

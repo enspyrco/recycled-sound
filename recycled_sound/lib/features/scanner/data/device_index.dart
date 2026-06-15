@@ -144,6 +144,26 @@ class DeviceIndex {
   final _contradictions = <ContradictionRecord>[];
   static const int _kMaxContradictions = 200;
 
+  /// Live tally of how many times a *specific* alternative value has been
+  /// rejected for a still-locked field, keyed by "field|rejectedValue"
+  /// (lowercased). This is the lever the contradiction-aware re-open uses:
+  /// it counts only *consistent* contradictions (the same alternative
+  /// arriving repeatedly), which is the fingerprint of a wrong early lock —
+  /// the exact opposite of frame-to-frame flapping (which oscillates between
+  /// values and so never accumulates against any single one). Reset on
+  /// reset() and cleared per-field when that field re-opens or relocks.
+  final _rejectedValueCounts = <String, int>{};
+
+  /// How many times the SAME alternative value must be rejected against a
+  /// locked field before the override guard re-opens that field for
+  /// re-narrowing. Must be > 1 so a single weaker reading (the common,
+  /// genuinely-noisy case the guard was built to suppress on 2026-05-07)
+  /// is still rejected — only a *persistent* contradiction breaks the lock.
+  static const int _kReopenThreshold = 2;
+
+  String _rejKey(DeviceField field, String value) =>
+      '${field.name}|${value.toLowerCase().trim()}';
+
   /// Read-only view of contradictions from the current scan session.
   List<ContradictionRecord> get contradictions =>
       List.unmodifiable(_contradictions);
@@ -258,7 +278,63 @@ class DeviceIndex {
     _candidates = Set.from(_allDeviceIds);
     _locked.clear();
     _contradictions.clear();
+    _rejectedValueCounts.clear();
     _emitState();
+  }
+
+  /// Re-open a wrong-locked [field] (contradiction-aware re-open, #733).
+  ///
+  /// Drops the field's lock and any fields derived from it, then rebuilds
+  /// the candidate set from the *surviving* locks alone — so the candidates
+  /// the bad lock wrongly eliminated come back into play. The caller then
+  /// re-narrows with the persistently-contradicting value. The rejected-
+  /// value tally for this field is cleared so the freshly-applied value
+  /// starts from a clean slate (no immediate re-trigger).
+  void _reopenField(DeviceField field) {
+    // Remove the field and its derived children so a stale cascade can't
+    // pin the candidate set back to the wrong narrowing.
+    _locked.remove(field);
+    for (final derived in _derivedOf(field)) {
+      // Only drop derived locks that were auto-filled, never a manual one.
+      final lf = _locked[derived];
+      if (lf != null && lf.source != DetectionSource.manual) {
+        _locked.remove(derived);
+      }
+    }
+
+    // Rebuild candidates from the surviving locks (intersection of each
+    // locked field's matches). Start from the full set; an empty surviving
+    // lock set restores everything, exactly like a fresh scan.
+    var rebuilt = Set<String>.from(_allDeviceIds);
+    for (final entry in _locked.entries) {
+      final idx = _indexForField(entry.key);
+      if (idx == null) continue; // derived/colour fields don't narrow
+      final m = _fuzzyLookup(
+          entry.key, entry.value.value.toLowerCase().trim(), idx);
+      if (m != null && m.isNotEmpty) {
+        final next = rebuilt.intersection(m);
+        if (next.isNotEmpty) rebuilt = next; // keep open-mode semantics
+      }
+    }
+    _candidates = rebuilt;
+
+    // Clear this field's contradiction tallies so the incoming value lands
+    // fresh and a future genuine contradiction must re-accumulate.
+    _rejectedValueCounts
+        .removeWhere((k, _) => k.startsWith('${field.name}|'));
+  }
+
+  /// Fields auto-derived from [field] (so they must be dropped when it
+  /// re-opens). Mirrors [_autoLockDerived].
+  static List<DeviceField> _derivedOf(DeviceField field) {
+    switch (field) {
+      case DeviceField.batterySize:
+        return const [DeviceField.power];
+      case DeviceField.type:
+        return const [DeviceField.tubing];
+      default:
+        return const [];
+    }
   }
 
   /// Narrow candidates by a detected field value.
@@ -298,13 +374,42 @@ class DeviceIndex {
           newRank: newRank,
           newSource: source,
         );
-        if (kDebugMode) {
-          debugPrint('DeviceIndex: REJECT override on ${field.name} — '
-              'kept "${existing.value}" (${existing.confidence}, '
-              'rank=$existingRank) over incoming "$value" '
-              '($confidence, rank=$newRank)');
+
+        // Contradiction-aware re-open (issue #733). The guard above is a
+        // one-way ratchet: once a transient misread locks a field, every
+        // equal/lower-rank signal — even the CORRECT one — is rejected
+        // forever, freezing a wrong ID. To break that ratchet WITHOUT
+        // reintroducing flapping, we count how many times this *same*
+        // alternative value has been rejected. A single weaker reading
+        // (noise) is still rejected; but the SAME contradicting value
+        // arriving _kReopenThreshold times is not noise — it is steady
+        // evidence the lock is wrong. At that point we re-open the field
+        // and let this value narrow normally below. (Flapping oscillates
+        // between values, so it never accumulates against any single one
+        // and never trips this path.)
+        final key = _rejKey(field, value);
+        final count = (_rejectedValueCounts[key] ?? 0) + 1;
+        _rejectedValueCounts[key] = count;
+
+        if (count < _kReopenThreshold) {
+          if (kDebugMode) {
+            debugPrint('DeviceIndex: REJECT override on ${field.name} — '
+                'kept "${existing.value}" (${existing.confidence}, '
+                'rank=$existingRank) over incoming "$value" '
+                '($confidence, rank=$newRank) [contradiction $count/'
+                '$_kReopenThreshold]');
+          }
+          return state;
         }
-        return state;
+
+        // Threshold reached — re-open the field and fall through so the
+        // persistently-contradicting value re-narrows the candidate set.
+        if (kDebugMode) {
+          debugPrint('DeviceIndex: RE-OPEN ${field.name} — "$value" '
+              'contradicted the "${existing.value}" lock $count× '
+              '(≥ $_kReopenThreshold); breaking the ratchet');
+        }
+        _reopenField(field);
       }
     }
 

@@ -96,13 +96,14 @@ void main() {
   });
 
   group('Device.toFirestore', () {
-    test('emits all 26 fields with sentinel server timestamps', () {
+    test('emits the device fields with sentinel server timestamps', () {
       const d = Device(
         id: 'x',
         brand: 'Oticon',
         model: 'More 1',
         type: 'BTE',
         batterySize: '13',
+        needsInputFields: ['tubing'],
       );
       final map = d.toFirestore(createdBy: 'user-1');
 
@@ -112,6 +113,7 @@ void main() {
       expect(map['batterySize'], '13');
       expect(map['accessories'], isEmpty);
       expect(map['photos'], isEmpty);
+      expect(map['needsInputFields'], ['tubing']);
       // Enums serialized to their wire form
       expect(map['qaStatus'], 'pending_qa');
       expect(map['status'], 'donated');
@@ -130,18 +132,10 @@ void main() {
 
     test('createdAt preserved when device already has one', () {
       final created = DateTime.utc(2026, 3, 1);
-      final d = Device(
-        id: 'x',
-        brand: 'B',
-        model: 'M',
-        createdAt: created,
-      );
+      final d = Device(id: 'x', brand: 'B', model: 'M', createdAt: created);
       final map = d.toFirestore(createdBy: 'user-1');
       expect(map['createdAt'], isA<Timestamp>());
-      expect(
-        (map['createdAt'] as Timestamp).toDate().toUtc(),
-        created,
-      );
+      expect((map['createdAt'] as Timestamp).toDate().toUtc(), created);
     });
 
     test('non-default qaStatus and status round-trip via enum', () {
@@ -178,9 +172,46 @@ void main() {
       expect(mocks.first.brand, 'Phonak');
       expect(mocks.last.brand, 'Widex');
       // Spot-check distinct brands
+      expect(mocks.map((m) => m.brand).toSet(), {
+        'Phonak',
+        'Oticon',
+        'Signia',
+        'GN Resound',
+        'Widex',
+      });
+    });
+  });
+
+  group('Device.unknownFieldCount', () {
+    test('is zero when no fields were flagged', () {
+      const d = Device(id: 'x', brand: 'Phonak', model: 'P90', type: 'RIC');
+      expect(d.unknownFieldCount, 0);
+    });
+
+    test('reflects the persisted needsInputFields set', () {
+      const d = Device(
+        id: 'x',
+        brand: 'Phonak',
+        model: 'P90',
+        needsInputFields: ['tubing', 'colour'],
+      );
+      expect(d.unknownFieldCount, 2);
+    });
+
+    test('does NOT flag AI-default "Unknown" values (collision guard)', () {
+      // scan_fusion emits 'Unknown' for fields the AI couldn't read. Those are
+      // NOT volunteer handoffs — only the persisted needsInputFields set is.
+      const d = Device(
+        id: 'x',
+        brand: 'Phonak',
+        model: 'P90',
+        type: 'Unknown',
+        batterySize: 'Unknown',
+      );
       expect(
-        mocks.map((m) => m.brand).toSet(),
-        {'Phonak', 'Oticon', 'Signia', 'GN Resound', 'Widex'},
+        d.unknownFieldCount,
+        0,
+        reason: 'value=="Unknown" must not be mistaken for a volunteer flag',
       );
     });
   });

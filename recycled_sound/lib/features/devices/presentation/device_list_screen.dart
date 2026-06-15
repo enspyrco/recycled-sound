@@ -49,7 +49,8 @@ class DeviceListScreen extends ConsumerWidget {
               if (devices.isEmpty) {
                 return const _SectionEmpty(
                   icon: Icons.hourglass_empty,
-                  message: "Devices you scan appear here until an "
+                  message:
+                      "Devices you scan appear here until an "
                       'audiologist reviews them.',
                 );
               }
@@ -162,9 +163,9 @@ class _SectionLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(child: CircularProgressIndicator()),
-      );
+    padding: EdgeInsets.symmetric(vertical: 24),
+    child: Center(child: CircularProgressIndicator()),
+  );
 }
 
 class _SectionError extends StatelessWidget {
@@ -174,10 +175,7 @@ class _SectionError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RsCard(
-      child: Text(
-        'Failed to load: $error',
-        style: AppTypography.body,
-      ),
+      child: Text('Failed to load: $error', style: AppTypography.body),
     );
   }
 }
@@ -194,9 +192,7 @@ class _SectionEmpty extends StatelessWidget {
         children: [
           Icon(icon, size: 28, color: AppColors.textMuted),
           const SizedBox(width: 12),
-          Expanded(
-            child: Text(message, style: AppTypography.caption),
-          ),
+          Expanded(child: Text(message, style: AppTypography.caption)),
         ],
       ),
     );
@@ -218,10 +214,10 @@ class _DeviceCard extends StatelessWidget {
   final bool pending;
 
   RsChipVariant _qaVariant(QaStatus status) => switch (status) {
-        QaStatus.passed => RsChipVariant.success,
-        QaStatus.failed => RsChipVariant.error,
-        QaStatus.pendingQa => RsChipVariant.warning,
-      };
+    QaStatus.passed => RsChipVariant.success,
+    QaStatus.failed => RsChipVariant.error,
+    QaStatus.pendingQa => RsChipVariant.warning,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -266,16 +262,32 @@ class _DeviceCard extends StatelessWidget {
                 ],
               ),
             ),
-            pending
-                ? const RsChip(
-                    label: 'PENDING REVIEW',
-                    variant: RsChipVariant.info,
-                  )
-                : RsChip(
-                    label:
-                        device.qaStatus.wire.replaceAll('_', ' ').toUpperCase(),
-                    variant: _qaVariant(device.qaStatus),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                pending
+                    ? const RsChip(
+                        label: 'PENDING REVIEW',
+                        variant: RsChipVariant.info,
+                      )
+                    : RsChip(
+                        label: device.qaStatus.wire
+                            .replaceAll('_', ' ')
+                            .toUpperCase(),
+                        variant: _qaVariant(device.qaStatus),
+                      ),
+                // Volunteer flagged one or more fields Unknown at scan time —
+                // the audiologist still needs to determine them.
+                if (device.unknownFieldCount > 0) ...[
+                  const SizedBox(height: 6),
+                  const RsChip(
+                    label: 'NEEDS INPUT',
+                    variant: RsChipVariant.warning,
                   ),
+                ],
+              ],
+            ),
           ],
         ),
       ),

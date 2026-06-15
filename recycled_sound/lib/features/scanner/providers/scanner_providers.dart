@@ -40,13 +40,13 @@ class Correction {
   final DateTime timestamp;
 
   Map<String, dynamic> toJson() => {
-        'field': field,
-        'originalValue': originalValue,
-        'originalConfidence': originalConfidence,
-        'correctedValue': correctedValue,
-        'rawLabels': rawLabels,
-        'timestamp': timestamp.toIso8601String(),
-      };
+    'field': field,
+    'originalValue': originalValue,
+    'originalConfidence': originalConfidence,
+    'correctedValue': correctedValue,
+    'rawLabels': rawLabels,
+    'timestamp': timestamp.toIso8601String(),
+  };
 }
 
 /// Holds the current scan result in memory, allowing inline edits.
@@ -78,19 +78,40 @@ class ScanResultNotifier extends Notifier<ScanResult> {
     // record the correction from empty.
     final originalValue = oldField?.value ?? '';
     final originalConfidence = oldField?.confidence ?? 0;
-    if (originalValue == newValue) return;
+    final alreadyHuman = oldField?.source == FieldSource.human;
 
-    _corrections.add(Correction(
-      field: field.name,
-      originalValue: originalValue,
-      originalConfidence: originalConfidence,
-      correctedValue: newValue,
-      rawLabels: current.rawLabels,
-      timestamp: DateTime.now(),
-    ));
+    // A volunteer tapping the value the AI already proposed is STILL a
+    // deliberate human act — provenance must upgrade even when the string is
+    // unchanged. This is the common case the scanner can't determine (e.g.
+    // battery size): scan fusion emits 'Unknown', the volunteer confirms it by
+    // tapping the visible Unknown chip, and that confirmation must register as
+    // the audiologist handoff. Only a true no-op — same value AND already
+    // human-sourced — bails early.
+    if (originalValue == newValue && alreadyHuman) return;
 
-    // Update the field with 100% confidence (human-corrected).
-    final corrected = SpecField(value: newValue, confidence: 100);
+    // Record a correction only when the value actually changed; a same-value
+    // provenance upgrade isn't a correction worth logging as training signal.
+    if (originalValue != newValue) {
+      _corrections.add(
+        Correction(
+          field: field.name,
+          originalValue: originalValue,
+          originalConfidence: originalConfidence,
+          correctedValue: newValue,
+          rawLabels: current.rawLabels,
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
+
+    // Update the field with 100% confidence and human provenance. The source
+    // stamp is what lets a deliberate "Unknown" verdict be told apart from the
+    // AI pipeline's own low-confidence 'Unknown' default downstream.
+    final corrected = SpecField(
+      value: newValue,
+      confidence: 100,
+      source: FieldSource.human,
+    );
     state = current.withField(field, corrected);
   }
 
@@ -98,5 +119,6 @@ class ScanResultNotifier extends Notifier<ScanResult> {
   List<Correction> get corrections => List.unmodifiable(_corrections);
 }
 
-final scanResultProvider =
-    NotifierProvider<ScanResultNotifier, ScanResult>(ScanResultNotifier.new);
+final scanResultProvider = NotifierProvider<ScanResultNotifier, ScanResult>(
+  ScanResultNotifier.new,
+);

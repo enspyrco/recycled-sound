@@ -71,6 +71,9 @@ class DraftDevice {
     this.serialLeft = '',
     this.serialRight = '',
     this.batterySize = '',
+    this.tubing = '',
+    this.powerSource = '',
+    this.colour = '',
     this.domeType = '',
     this.waxFilter = '',
     this.receiver = '',
@@ -90,6 +93,7 @@ class DraftDevice {
     this.servicingCost = 0,
     this.donorId = '',
     this.scanId = '',
+    this.location = '',
     this.photos = const [],
     this.needsInputFields = const [],
   });
@@ -101,6 +105,17 @@ class DraftDevice {
   final String serialLeft;
   final String serialRight;
   final String batterySize;
+
+  /// Tubing type (slim/standard/none) — Seray's field 4. Human-determined at
+  /// confirm time; empty until acknowledged.
+  final String tubing;
+
+  /// Power source (Battery/Rechargeable) — Seray's field 5. Human-confirmed.
+  final String powerSource;
+
+  /// Device colour — Seray's field 7. Confirmed against brand/generic swatches.
+  final String colour;
+
   final String domeType;
   final String waxFilter;
   final String receiver;
@@ -120,6 +135,13 @@ class DraftDevice {
   final double servicingCost;
   final String donorId;
   final String scanId;
+
+  /// Physical storage location — the box/bag the device lives in (e.g. `B07`,
+  /// `C10`). Free text, not a constrained set: the storage layout evolves and
+  /// new bins appear faster than an enum could track. Uppercased/trimmed on
+  /// save. Metadata, not one of the 7 clinical fields — never gates completion.
+  final String location;
+
   final List<String> photos;
 
   /// Keys of the 7-field scan model the volunteer flagged as undetermined,
@@ -140,6 +162,9 @@ class DraftDevice {
     serialLeft: serialLeft,
     serialRight: serialRight,
     batterySize: batterySize,
+    tubing: tubing,
+    powerSource: powerSource,
+    colour: colour,
     domeType: domeType,
     waxFilter: waxFilter,
     receiver: receiver,
@@ -159,6 +184,7 @@ class DraftDevice {
     servicingCost: servicingCost,
     donorId: donorId,
     scanId: scanId,
+    location: location,
     photos: photos ?? this.photos,
     needsInputFields: needsInputFields,
   );
@@ -179,6 +205,9 @@ class Device {
     this.serialLeft = '',
     this.serialRight = '',
     this.batterySize = '',
+    this.tubing = '',
+    this.powerSource = '',
+    this.colour = '',
     this.domeType = '',
     this.waxFilter = '',
     this.receiver = '',
@@ -198,6 +227,7 @@ class Device {
     this.servicingCost = 0,
     this.donorId = '',
     this.scanId = '',
+    this.location = '',
     this.photos = const [],
     this.needsInputFields = const [],
     this.createdAt,
@@ -212,6 +242,16 @@ class Device {
   final String serialLeft;
   final String serialRight;
   final String batterySize;
+
+  /// Tubing type (slim/standard/none) — Seray's field 4. Human-determined.
+  final String tubing;
+
+  /// Power source (Battery/Rechargeable) — Seray's field 5. Human-confirmed.
+  final String powerSource;
+
+  /// Device colour — Seray's field 7. Confirmed against brand/generic swatches.
+  final String colour;
+
   final String domeType;
   final String waxFilter;
   final String receiver;
@@ -231,6 +271,12 @@ class Device {
   final double servicingCost;
   final String donorId;
   final String scanId;
+
+  /// Physical storage location — the box/bag the device lives in (e.g. `B07`,
+  /// `C10`). Free text, not a constrained set. Uppercased/trimmed on save.
+  /// Metadata, not one of the 7 clinical fields — never gates completion.
+  final String location;
+
   final List<String> photos;
 
   /// Keys of the 7-field scan model the volunteer flagged as undetermined at
@@ -265,6 +311,9 @@ class Device {
       serialLeft: (d['serialLeft'] as String?) ?? '',
       serialRight: (d['serialRight'] as String?) ?? '',
       batterySize: (d['batterySize'] as String?) ?? '',
+      tubing: (d['tubing'] as String?) ?? '',
+      powerSource: (d['powerSource'] as String?) ?? '',
+      colour: (d['colour'] as String?) ?? '',
       domeType: (d['domeType'] as String?) ?? '',
       waxFilter: (d['waxFilter'] as String?) ?? '',
       receiver: (d['receiver'] as String?) ?? '',
@@ -285,6 +334,7 @@ class Device {
       servicingCost: ((d['servicingCost'] as num?) ?? 0).toDouble(),
       donorId: (d['donorId'] as String?) ?? '',
       scanId: (d['scanId'] as String?) ?? '',
+      location: (d['location'] as String?) ?? '',
       photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
       needsInputFields:
           ((d['needsInputFields'] as List?)?.cast<String>()) ??
@@ -310,6 +360,9 @@ class Device {
     'serialLeft': serialLeft,
     'serialRight': serialRight,
     'batterySize': batterySize,
+    'tubing': tubing,
+    'powerSource': powerSource,
+    'colour': colour,
     'domeType': domeType,
     'waxFilter': waxFilter,
     'receiver': receiver,
@@ -329,6 +382,7 @@ class Device {
     'servicingCost': servicingCost,
     'donorId': donorId,
     'scanId': scanId,
+    'location': location,
     'photos': photos,
     'needsInputFields': needsInputFields,
     'createdBy': createdBy,

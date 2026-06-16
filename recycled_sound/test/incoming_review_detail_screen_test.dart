@@ -61,7 +61,7 @@ Device _device({
   Tubing tubing = Tubing.unspecified,
   PowerSource powerSource = PowerSource.unspecified,
   String colour = '',
-  List<String> needsInputFields = const [],
+  List<ClinicalField> needsInputFields = const [],
   QaStatus qaStatus = QaStatus.pendingQa,
 }) =>
     Device(
@@ -113,7 +113,8 @@ void main() {
   testWidgets('renders device fields and the needsInputFields banner',
       (tester) async {
     await _pump(tester,
-        device: _device(needsInputFields: ['tubing', 'colour']));
+        device: _device(
+            needsInputFields: [ClinicalField.tubing, ClinicalField.colour]));
 
     expect(find.text('Oticon More 1'), findsOneWidget);
     expect(find.text('Identification'), findsOneWidget);
@@ -133,7 +134,7 @@ void main() {
       (tester) async {
     // 'type' is the scan model's Style field; it must render as "Style", not
     // the raw key.
-    await _pump(tester, device: _device(needsInputFields: ['type']));
+    await _pump(tester, device: _device(needsInputFields: [ClinicalField.type]));
     expect(find.textContaining('Style'), findsWidgets);
     expect(find.textContaining('type'), findsNothing);
   });
@@ -144,7 +145,7 @@ void main() {
     // brand/model/type/batterySize are read-only on this screen, so a flag on
     // one can never be resolved here — the banner must persist with its
     // friendly label even though there's no editable affordance for it.
-    await _pump(tester, device: _device(needsInputFields: ['brand']));
+    await _pump(tester, device: _device(needsInputFields: [ClinicalField.brand]));
     expect(find.textContaining('Needs your input (1)'), findsOneWidget);
     expect(find.textContaining('Make'), findsWidgets);
     // No "all resolved" banner — it can't be resolved here.
@@ -154,7 +155,7 @@ void main() {
   testWidgets('Pass QA persists edits then promotes, navigating to the queue',
       (tester) async {
     final repo = await _pump(tester,
-        device: _device(needsInputFields: ['colour']));
+        device: _device(needsInputFields: [ClinicalField.colour]));
 
     // Resolve the flagged colour field.
     await tester.enterText(find.byType(TextField).first, 'Charcoal');

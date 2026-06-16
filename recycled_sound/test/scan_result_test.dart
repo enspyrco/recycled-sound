@@ -95,8 +95,19 @@ void main() {
     });
 
     test('sevenFields returns 7 entries in audiologist order', () {
-      final keys = m.sevenFields.map((f) => f.key).toList();
-      expect(keys, [
+      // Assert on the typed fields AND their wire strings — the wire assertion
+      // pins backward-compat (these are the exact persisted Firestore keys).
+      final fields = m.sevenFields.map((f) => f.clinicalField).toList();
+      expect(fields, [
+        ClinicalField.brand,
+        ClinicalField.model,
+        ClinicalField.type,
+        ClinicalField.tubing,
+        ClinicalField.powerSource,
+        ClinicalField.batterySize,
+        ClinicalField.colour,
+      ]);
+      expect(fields.map((f) => f.wire).toList(), [
         'brand',
         'model',
         'type',
@@ -176,11 +187,11 @@ void main() {
       );
     });
 
-    test('volunteerUnknownFieldKeys captures only human-flagged Unknowns', () {
-      expect(complete(tubing: kUnknownValue).volunteerUnknownFieldKeys, [
-        'tubing',
+    test('volunteerUnknownFields captures only human-flagged Unknowns', () {
+      expect(complete(tubing: kUnknownValue).volunteerUnknownFields, [
+        ClinicalField.tubing,
       ]);
-      expect(complete(tubing: 'Slim').volunteerUnknownFieldKeys, isEmpty);
+      expect(complete(tubing: 'Slim').volunteerUnknownFields, isEmpty);
     });
 
     test('an AI-sourced Unknown does NOT count as a volunteer flag', () {

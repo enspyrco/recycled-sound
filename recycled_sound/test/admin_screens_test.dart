@@ -127,7 +127,7 @@ void main() {
                 brand: 'Oticon',
                 model: 'More 1',
                 type: 'BTE',
-                needsInputFields: ['tubing'],
+                needsInputFields: [ClinicalField.tubing],
               ),
               // Clean → quick-Approve still offered.
               Device(id: 'clean', brand: 'Phonak', model: 'P90', type: 'RIC'),

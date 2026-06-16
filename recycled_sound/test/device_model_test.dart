@@ -103,7 +103,7 @@ void main() {
         model: 'More 1',
         type: 'BTE',
         batterySize: '13',
-        needsInputFields: ['tubing'],
+        needsInputFields: [ClinicalField.tubing],
       );
       final map = d.toFirestore(createdBy: 'user-1');
 
@@ -193,7 +193,7 @@ void main() {
         id: 'x',
         brand: 'Phonak',
         model: 'P90',
-        needsInputFields: ['tubing', 'colour'],
+        needsInputFields: [ClinicalField.tubing, ClinicalField.colour],
       );
       expect(d.unknownFieldCount, 2);
     });

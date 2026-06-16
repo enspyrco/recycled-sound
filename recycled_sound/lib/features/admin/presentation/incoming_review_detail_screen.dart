@@ -137,18 +137,23 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
   /// (not just the persisted doc) — so the amber banner shrinks live as the
   /// audiologist fills fields in. A key counts resolved once its field holds a
   /// non-empty / non-`unspecified` value.
-  Set<String> get _unresolved {
+  Set<ClinicalField> get _unresolved {
     // Only the three human-determined fields editable ON THIS SCREEN can be
-    // resolved here. The identity keys (`brand`/`model`/`type`/`batterySize`)
-    // are read-only scanner output on this surface, so they fall through to
-    // `false` and a flag on them STAYS VISIBLE in the banner — the audiologist
-    // sees it and resolves it elsewhere / by overriding, rather than it being
-    // silently treated as done.
-    bool resolved(String key) => switch (key) {
-          'tubing' => _tubing != Tubing.unspecified,
-          'powerSource' => _powerSource != PowerSource.unspecified,
-          'colour' => _colour.text.trim().isNotEmpty,
-          _ => false,
+    // resolved here. The identity fields (brand/model/type/batterySize) are
+    // read-only scanner output on this surface, so they resolve to `false` and
+    // a flag on them STAYS VISIBLE in the banner — the audiologist sees it and
+    // resolves it elsewhere / by overriding, rather than it being silently
+    // treated as done. The typed switch is exhaustive: a future [ClinicalField]
+    // forces a compile error here until its resolution rule is decided (#777).
+    bool resolved(ClinicalField f) => switch (f) {
+          ClinicalField.tubing => _tubing != Tubing.unspecified,
+          ClinicalField.powerSource => _powerSource != PowerSource.unspecified,
+          ClinicalField.colour => _colour.text.trim().isNotEmpty,
+          ClinicalField.brand ||
+          ClinicalField.model ||
+          ClinicalField.type ||
+          ClinicalField.batterySize =>
+            false,
         };
     return widget.device.needsInputFields
         .where((k) => !resolved(k))
@@ -318,7 +323,8 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _FieldLabel('Tubing', flagged: _isFlagged('tubing')),
+                    _FieldLabel('Tubing',
+                        flagged: _isFlagged(ClinicalField.tubing)),
                     _TubingPicker(
                       value: _tubing,
                       onChanged: _busy
@@ -326,7 +332,8 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                           : (v) => setState(() => _tubing = v),
                     ),
                     const SizedBox(height: 16),
-                    _FieldLabel('Power', flagged: _isFlagged('powerSource')),
+                    _FieldLabel('Power',
+                        flagged: _isFlagged(ClinicalField.powerSource)),
                     _PowerSourcePicker(
                       value: _powerSource,
                       onChanged: _busy
@@ -334,7 +341,8 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                           : (v) => setState(() => _powerSource = v),
                     ),
                     const SizedBox(height: 16),
-                    _FieldLabel('Colour', flagged: _isFlagged('colour')),
+                    _FieldLabel('Colour',
+                        flagged: _isFlagged(ClinicalField.colour)),
                     TextField(
                       controller: _colour,
                       enabled: !_busy,
@@ -346,7 +354,10 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 16),
-                    _FieldLabel('Location', flagged: _isFlagged('location')),
+                    // Location is free-text metadata, never one of the 7
+                    // clinical fields — so it can never appear in
+                    // needsInputFields and is never flagged.
+                    const _FieldLabel('Location'),
                     TextField(
                       controller: _location,
                       enabled: !_busy,
@@ -437,32 +448,22 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     );
   }
 
-  bool _isFlagged(String key) => widget.device.needsInputFields.contains(key);
+  bool _isFlagged(ClinicalField field) =>
+      widget.device.needsInputFields.contains(field);
 }
 
 /// Amber work-list banner — the fields the volunteer flagged for the
 /// audiologist to resolve, shrinking live as each is filled.
 class _NeedsInputBanner extends StatelessWidget {
   const _NeedsInputBanner({required this.keys});
-  final Set<String> keys;
-
-  /// The 7 real scan-model field keys → audiologist-facing labels, matching
-  /// `ScanResult.sevenFields` (scan_result.dart). These are the ONLY keys that
-  /// ever appear in `needsInputFields`; any unknown key falls back to its raw
-  /// string in the banner rather than being mislabelled.
-  static const _labels = {
-    'brand': 'Make',
-    'model': 'Model',
-    'type': 'Style',
-    'tubing': 'Tubing',
-    'powerSource': 'Power',
-    'batterySize': 'Battery Size',
-    'colour': 'Colour',
-  };
+  final Set<ClinicalField> keys;
 
   @override
   Widget build(BuildContext context) {
-    final names = keys.map((k) => _labels[k] ?? k).toSet().toList()..sort();
+    // Labels come straight off [ClinicalField.label] — the single source of
+    // truth. The old hand-rolled key→label map (which once drifted to invented
+    // keys 'make'/'style'/'battery' on PR #85) is gone: the type IS the map.
+    final names = keys.map((k) => k.label).toSet().toList()..sort();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),

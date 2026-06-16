@@ -1,5 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:recycled_sound/core/clinical_field.dart';
+
+export 'package:recycled_sound/core/clinical_field.dart' show ClinicalField;
+
 /// QA gate state for a hearing aid. The set is closed: stringly-typing it
 /// would let a typo silently fall through the chip-variant switch.
 enum QaStatus {
@@ -195,11 +199,11 @@ class DraftDevice {
 
   final List<String> photos;
 
-  /// Keys of the 7-field scan model the volunteer flagged as undetermined,
-  /// asking the audiologist to determine them (e.g. `['tubing', 'colour']`).
-  /// A structured handoff, not a guess re-derived from an overloaded value
-  /// string — see [ScanResult.volunteerUnknownFieldKeys].
-  final List<String> needsInputFields;
+  /// The 7-field scan-model fields the volunteer flagged as undetermined, asking
+  /// the audiologist to determine them (e.g. `[ClinicalField.tubing,
+  /// ClinicalField.colour]`). A structured, *typed* handoff — not magic strings
+  /// re-derived from an overloaded value — see [ScanResult.volunteerUnknownFields].
+  final List<ClinicalField> needsInputFields;
 
   /// Promote this draft to a persisted [Device], pinning the Firestore-issued
   /// [id]. Optionally overrides [photos] (used after photo upload resolves the
@@ -330,10 +334,10 @@ class Device {
 
   final List<String> photos;
 
-  /// Keys of the 7-field scan model the volunteer flagged as undetermined at
-  /// scan-confirm time (the amber escape valve), persisted as a structured
-  /// handoff to the audiologist. See [DraftDevice.needsInputFields].
-  final List<String> needsInputFields;
+  /// The 7-field scan-model fields the volunteer flagged as undetermined at
+  /// scan-confirm time (the amber escape valve), persisted as a structured,
+  /// *typed* handoff to the audiologist. See [DraftDevice.needsInputFields].
+  final List<ClinicalField> needsInputFields;
 
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -387,9 +391,7 @@ class Device {
       scanId: (d['scanId'] as String?) ?? '',
       location: (d['location'] as String?) ?? '',
       photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
-      needsInputFields:
-          ((d['needsInputFields'] as List?)?.cast<String>()) ??
-          const <String>[],
+      needsInputFields: ClinicalField.parseList(d['needsInputFields']),
       createdAt: ts(d['createdAt']),
       updatedAt: ts(d['updatedAt']),
     );
@@ -435,7 +437,7 @@ class Device {
     'scanId': scanId,
     'location': location,
     'photos': photos,
-    'needsInputFields': needsInputFields,
+    'needsInputFields': needsInputFields.toWireList(),
     'createdBy': createdBy,
     'createdAt': createdAt == null
         ? FieldValue.serverTimestamp()
@@ -496,4 +498,53 @@ class Device {
       status: DeviceStatus.servicing,
     ),
   ];
+}
+
+/// The outcome of reviewing a device for promotion across the trust boundary
+/// `incoming/` → `devices/` (the curated clinical register). A sealed type so
+/// the compiler forces every caller to handle BOTH arms — there is no way to
+/// obtain a [Promotable] (and thus write to `devices/`) while a device still
+/// carries unresolved clinical fields. This is the human-in-the-loop safety
+/// spine encoded as a type rather than enforced by a reviewer noticing a bypass.
+///
+/// See feedback_trust_boundary_needs_type_enforcement and feedback_review_
+/// approves_compilation_not_purpose for why PR #85's vigilance-only gate was
+/// bypassable three ways.
+sealed class PromotionVerdict {
+  const PromotionVerdict();
+}
+
+/// The device cleared the gate — every clinical field is resolved. [device] is
+/// ready to write into `devices/`. Obtainable ONLY from [Promotion
+/// .reviewForPromotion], so its existence is proof the invariant held.
+class Promotable extends PromotionVerdict {
+  const Promotable(this.device);
+  final Device device;
+}
+
+/// The device cannot be promoted: [unresolved] clinical fields still await
+/// audiologist input. The caller must surface these, not silently promote.
+/// (#777 adds the audited override escape valve — a deliberate, logged decision
+/// that turns a [NeedsResolution] into a promotion — and wires this gate into
+/// `IncomingDeviceRepository.promoteToDevice`.)
+class NeedsResolution extends PromotionVerdict {
+  const NeedsResolution(this.unresolved);
+  final List<ClinicalField> unresolved;
+}
+
+extension Promotion on Device {
+  /// Pure domain gate for the `incoming/` → `devices/` trust boundary. Returns
+  /// [Promotable] only when [needsInputFields] is empty; otherwise [NeedsResolution]
+  /// naming the fields that block promotion. The sealed return makes "promote a
+  /// device with unresolved fields" a state the type system won't let a caller
+  /// reach without explicitly handling the block.
+  ///
+  /// Note: this reads the *persisted* [needsInputFields] set. A field counts as
+  /// resolved once the audiologist's edit removes it from that set on the
+  /// incoming doc — which the review screen does not yet do for identity fields
+  /// (that resolution path is #777). Until then this gate is defined and tested
+  /// but not yet wired into the repository; #777 performs the enforcement flip.
+  PromotionVerdict reviewForPromotion() => needsInputFields.isEmpty
+      ? Promotable(this)
+      : NeedsResolution(needsInputFields);
 }

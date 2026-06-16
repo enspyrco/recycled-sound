@@ -269,7 +269,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       // flagged undetermined. Persisted as a structured set so the register's
       // "NEEDS INPUT" flag is driven by intent, not by string-matching the
       // AI pipeline's own 'Unknown' default.
-      needsInputFields: result.volunteerUnknownFieldKeys,
+      needsInputFields: result.volunteerUnknownFields,
     );
 
     try {

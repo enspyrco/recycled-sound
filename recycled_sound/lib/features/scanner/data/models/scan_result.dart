@@ -1,3 +1,7 @@
+import 'package:recycled_sound/core/clinical_field.dart';
+
+export 'package:recycled_sound/core/clinical_field.dart' show ClinicalField;
+
 /// Enumeration of all editable spec fields on a scan result.
 ///
 /// Used by [ScanResultNotifier.updateField] so the compiler enforces
@@ -124,22 +128,26 @@ class ScanResult {
 
   final List<String> rawLabels;
 
-  /// The 7 fields Seray's audiologist model requires, in order.
-  /// Returns a map of field key → (label, SpecField?, whether AI can fill it).
-  List<({String key, String label, SpecField? field, bool aiAssisted})>
+  /// The 7 fields Seray's audiologist model requires, in order. Each entry pairs
+  /// the typed [ClinicalField] (the canonical key + display label) with the
+  /// [SpecField] holding its current value and whether AI can pre-fill it.
+  List<({ClinicalField clinicalField, SpecField? field, bool aiAssisted})>
   get sevenFields => [
-    (key: 'brand', label: 'Make', field: brand, aiAssisted: true),
-    (key: 'model', label: 'Model', field: model, aiAssisted: true),
-    (key: 'type', label: 'Style', field: type, aiAssisted: true),
-    (key: 'tubing', label: 'Tubing', field: tubing, aiAssisted: true),
-    (key: 'powerSource', label: 'Power', field: powerSource, aiAssisted: true),
+    (clinicalField: ClinicalField.brand, field: brand, aiAssisted: true),
+    (clinicalField: ClinicalField.model, field: model, aiAssisted: true),
+    (clinicalField: ClinicalField.type, field: type, aiAssisted: true),
+    (clinicalField: ClinicalField.tubing, field: tubing, aiAssisted: true),
     (
-      key: 'batterySize',
-      label: 'Battery Size',
+      clinicalField: ClinicalField.powerSource,
+      field: powerSource,
+      aiAssisted: true,
+    ),
+    (
+      clinicalField: ClinicalField.batterySize,
       field: batterySize,
       aiAssisted: true,
     ),
-    (key: 'colour', label: 'Colour', field: colour, aiAssisted: true),
+    (clinicalField: ClinicalField.colour, field: colour, aiAssisted: true),
   ];
 
   /// How many of the 7 fields have a non-empty value.
@@ -152,19 +160,20 @@ class ScanResult {
       )
       .length;
 
-  /// The keys of the 7 fields a *human* deliberately flagged undetermined
-  /// (e.g. `['tubing', 'colour']`). This is the structured volunteer→audiologist
-  /// handoff: it's persisted onto the device record so the register can flag
-  /// "needs input" without re-deriving intent from an overloaded value string.
-  List<String> get volunteerUnknownFieldKeys => sevenFields
+  /// The 7 fields a *human* deliberately flagged undetermined (e.g.
+  /// `[ClinicalField.tubing, ClinicalField.colour]`). This is the structured
+  /// volunteer→audiologist handoff: it's persisted onto the device record so the
+  /// register can flag "needs input" without re-deriving intent from an
+  /// overloaded value string, and typed so consumers can't invent bogus keys.
+  List<ClinicalField> get volunteerUnknownFields => sevenFields
       .where((f) => f.field?.isVolunteerUnknown ?? false)
-      .map((f) => f.key)
+      .map((f) => f.clinicalField)
       .toList();
 
   /// How many of the 7 fields the volunteer flagged undetermined. These count
   /// as filled (so they don't block completion) but flag work for the
   /// audiologist — surfaced on the confirm screen and the register card.
-  int get unknownFieldCount => volunteerUnknownFieldKeys.length;
+  int get unknownFieldCount => volunteerUnknownFields.length;
 
   /// Whether all 7 fields are filled. An `Unknown` flag counts as filled — the
   /// gate asks "has every field been acknowledged?", not "is every value

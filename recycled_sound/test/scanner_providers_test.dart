@@ -84,7 +84,7 @@ void main() {
       final result = container.read(scanResultProvider);
       expect(result.batterySize.source, FieldSource.human);
       expect(result.batterySize.isVolunteerUnknown, isTrue);
-      expect(result.volunteerUnknownFieldKeys, contains('batterySize'));
+      expect(result.volunteerUnknownFields, contains(ClinicalField.batterySize));
     });
 
     // Note: the old "invalid field does nothing" test is no longer needed —

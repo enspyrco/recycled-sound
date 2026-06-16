@@ -22,3 +22,6 @@ runs/
 
 # Firebase deploy cache (local-only)
 .firebase/
+
+# Local hearing-aid capture data — large binaries, kept local (accidentally committed in #83, untracked in this commit)
+data/photos_nick_aids/

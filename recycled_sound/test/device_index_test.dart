@@ -99,6 +99,72 @@ void main() {
       expect(index.contradictionsByField['brand'], greaterThan(0));
     });
 
+    test('two consistent contradictions re-open the locked field', () {
+      // The contradiction-aware re-open (issue #733): a WRONG early lock
+      // emits the SAME contradicting value repeatedly. The first equal/lower
+      // -rank rejection is held (could be noise); the second is steady
+      // evidence and must re-open the field so the correct value narrows in.
+      index.reset();
+      // Lock a wrong brand with a non-trivial confidence.
+      index.narrow(DeviceField.brand, 'Phonak', confidence: 'HIGH');
+      // First clean-but-lower-rank contradiction — rejected, lock stands.
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr);
+      expect(index.state.valueOf(DeviceField.brand), 'Phonak',
+          reason: 'a single contradiction must not break the lock');
+      // Second consistent contradiction — threshold reached, re-open + apply.
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr);
+      expect(index.state.valueOf(DeviceField.brand), 'Oticon',
+          reason: 'the SAME contradicting value, twice, must re-open the '
+              'field and narrow in (ratchet broken)');
+    });
+
+    test('oscillating contradictions never trip the re-open (anti-flap '
+        'invariant is frame-rate invariant)', () {
+      // This is the property the COUNT threshold actually guarantees, and
+      // the regression that protects it from silent erosion: FLAPPING
+      // oscillates between competing values, so no SINGLE value ever
+      // accumulates _kReopenThreshold rejections — no matter how many frames
+      // pass. The lock must therefore survive an arbitrarily long alternating
+      // barrage. (Contrast with the test above, where one value repeats.)
+      index.reset();
+      index.narrow(DeviceField.brand, 'Phonak', confidence: 'HIGH');
+
+      // 20 frames of two DIFFERENT weaker contradictions, alternating.
+      // Each value is only ever seen on every other frame, so neither
+      // reaches a count of 2 — the anti-flap shape, independent of frame rate.
+      for (var i = 0; i < 10; i++) {
+        index.narrow(DeviceField.brand, 'Oticon',
+            confidence: 'LOW', source: DetectionSource.ocr);
+        index.narrow(DeviceField.brand, 'Widex',
+            confidence: 'LOW', source: DetectionSource.ocr);
+      }
+
+      expect(index.state.valueOf(DeviceField.brand), 'Phonak',
+          reason: 'oscillating (flapping) contradictions must never break the '
+              'lock, however many frames elapse — the count threshold keys on '
+              'per-value consistency, not elapsed frames');
+    });
+
+    test('a different contradiction between repeats resets the consecutive '
+        'run (#778)', () {
+      // The consecutive-run semantics in close-up: Oticon, then Widex, then
+      // Oticon again. Cumulative counting would re-open on the 2nd Oticon
+      // (count reaches 2); consecutive counting must NOT, because Widex broke
+      // Oticon's run. The lock holds — only an UNINTERRUPTED pair re-opens.
+      index.reset();
+      index.narrow(DeviceField.brand, 'Phonak', confidence: 'HIGH');
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr); // Oticon run = 1
+      index.narrow(DeviceField.brand, 'Widex',
+          confidence: 'LOW', source: DetectionSource.ocr); // resets Oticon
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr); // Oticon run = 1
+      expect(index.state.valueOf(DeviceField.brand), 'Phonak',
+          reason: 'an interrupted (non-consecutive) repeat must not re-open');
+    });
+
     test('manual override always wins regardless of rank', () {
       index.reset();
       index.narrow(DeviceField.brand, 'Phonak', confidence: 'HIGH');

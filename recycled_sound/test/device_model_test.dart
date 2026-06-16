@@ -435,12 +435,19 @@ void main() {
         expect(Style.fromWire(s.wire), s,
             reason: '${s.name} must round-trip through "${s.wire}"');
       }
-      // The 'Unknown' provenance sentinel and any garbage/legacy/empty value
+      // The 'Unknown' provenance sentinel and any genuinely-garbage/empty value
       // fall back to unspecified — the value is never the "needs input" signal.
-      for (final junk in [null, '', 'Unknown', 'ric', 'BTE2', '???', '10']) {
+      for (final junk in [null, '', 'Unknown', 'BTE2', '???', '10']) {
         expect(Style.fromWire(junk), Style.unspecified,
             reason: 'Style "$junk" must fall back, not throw');
       }
+      // Auto-healing: legacy mixed-case / padded variants recover to their
+      // canonical enum rather than collapsing to unspecified and being blanked
+      // on save (Kelvin, PR #90 cage-match).
+      expect(Style.fromWire('ric'), Style.ric);
+      expect(Style.fromWire('Ric'), Style.ric);
+      expect(Style.fromWire(' BTE '), Style.bte);
+      expect(Style.fromWire('cic'), Style.cic);
       // Spot-check the exact wire strings the Firestore rules read.
       expect(Style.bte.wire, 'BTE');
       expect(Style.iic.wire, 'IIC');
@@ -460,6 +467,9 @@ void main() {
       // 'Rechargeable' overlaps PowerSource deliberately — it is a valid
       // battery-size value, not derived from the power field.
       expect(BatterySize.fromWire('Rechargeable'), BatterySize.rechargeable);
+      // Auto-healing: legacy mixed-case / padded variants recover (Kelvin, #90).
+      expect(BatterySize.fromWire('rechargeable'), BatterySize.rechargeable);
+      expect(BatterySize.fromWire(' 312 '), BatterySize.size312);
       expect(BatterySize.size312.wire, '312');
       expect(BatterySize.unspecified.wire, '');
     });

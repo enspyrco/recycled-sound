@@ -81,7 +81,15 @@ enum Style {
 
   /// Parse the wire form; any unrecognized/empty/legacy value (including the
   /// `'Unknown'` provenance sentinel) falls back to [unspecified]. Never throws.
-  static Style fromWire(String? s) => switch (s) {
+  ///
+  /// **Case- and whitespace-tolerant (auto-healing).** The input is trimmed and
+  /// upper-cased before matching, so a legacy free-text variant like `'ric'`,
+  /// `'Ric'`, or `' BTE '` recovers to its canonical enum instead of collapsing
+  /// to [unspecified] and being blanked on the next save (Kelvin, PR #90
+  /// cage-match: "do not freeze the patient to cure the fever"). Output is
+  /// unchanged — [wire] always emits the canonical upper-case string — so the
+  /// `devices/` rules contract round-trips untouched while legacy casing heals.
+  static Style fromWire(String? s) => switch (s?.trim().toUpperCase()) {
     'BTE' => bte,
     'RIC' => ric,
     'ITE' => ite,
@@ -136,12 +144,19 @@ enum BatterySize {
   /// to [unspecified]) keeps a rechargeable scan persisting the canonical
   /// `'Rechargeable'` wire string — the unchanged wire contract — instead of
   /// silently emptying the field on save (Carnot, PR #90 cage-match).
-  static BatterySize fromWire(String? s) => switch (s) {
+  ///
+  /// **Case- and whitespace-tolerant (auto-healing).** Input is trimmed and
+  /// upper-cased before matching, so a legacy `'rechargeable'` / `'N/A'` / a
+  /// padded `' 312 '` recovers to its canonical enum rather than collapsing to
+  /// [unspecified] and being blanked on save (Kelvin, PR #90). The numeric
+  /// values are unaffected by case-folding; [wire] still emits the canonical
+  /// mixed-case `'Rechargeable'` so the rules contract round-trips untouched.
+  static BatterySize fromWire(String? s) => switch (s?.trim().toUpperCase()) {
     '10' => size10,
     '13' => size13,
     '312' => size312,
     '675' => size675,
-    'Rechargeable' || 'N/A' => rechargeable,
+    'RECHARGEABLE' || 'N/A' => rechargeable,
     _ => unspecified,
   };
 

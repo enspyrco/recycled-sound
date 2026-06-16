@@ -12,16 +12,22 @@ import 'package:flutter/material.dart';
 /// the stills (individual frames can be extracted later).
 ///
 /// This widget is the *demonstration + progress* overlay:
-///  - a hearing-aid illustration that slowly turns about its vertical axis,
-///    demonstrating the motion the volunteer should mirror;
+///  - a real 3D hearing-aid **turntable** (pre-rendered frames played in a
+///    loop) demonstrating the rotation the volunteer should mirror;
 ///  - a circular progress arc that fills once over [sweepDuration] while
 ///    [running] is true, then fires [onComplete];
 ///  - a plain-language instruction.
 ///
+/// The turntable is a sequence of pre-rendered transparent PNGs (a CC-BY 3D
+/// model spun in Blender — see ATTRIBUTION.md). Playing frames means **no
+/// runtime 3D engine**: the device looks genuinely 3D but costs only what an
+/// image swap costs, honouring the project's throughput-sacred rule on the
+/// camera screen.
+///
 /// Like [CaptureGuideHand] it is **purely cosmetic and must never block or
-/// throw into the capture pipeline** (the cosmetic-never-blocks-pipeline
-/// rule). A missing asset degrades to a hearing icon; the only moving parts
-/// are two [AnimationController]s, disposed with the widget.
+/// throw into the capture pipeline**. A missing frame degrades to a hearing
+/// icon; the only moving parts are two [AnimationController]s, disposed with
+/// the widget.
 class SweepGuide extends StatefulWidget {
   const SweepGuide({
     super.key,
@@ -30,7 +36,8 @@ class SweepGuide extends StatefulWidget {
     this.spinPeriod = const Duration(seconds: 4),
     this.running = true,
     this.onComplete,
-    this.asset = 'assets/capture_guide/hearing_aid_device.png',
+    this.frameDir = 'assets/capture_guide/aid_turntable',
+    this.frameCount = 24,
     this.instruction =
         'Slowly turn the hearing aid through a full rotation.\n'
         'Keep the printed side facing the camera as it passes.',
@@ -43,25 +50,31 @@ class SweepGuide extends StatefulWidget {
   /// over this duration.
   final Duration sweepDuration;
 
-  /// How long the demonstration device takes to complete one visual turn.
+  /// How long the demonstration turntable takes to complete one full turn.
   /// Independent of [sweepDuration]: the device keeps demonstrating the motion
   /// regardless of capture progress.
   final Duration spinPeriod;
 
   /// While true, the progress ring advances and [onComplete] eventually fires.
   /// Setting it false pauses and resets progress (e.g. the volunteer lifted
-  /// the device out of frame).
+  /// the device out of frame) and stops the turntable to save frames.
   final bool running;
 
   /// Called once when the progress ring completes a full sweep.
   final VoidCallback? onComplete;
 
-  /// Transparent PNG of the hearing-aid device. A missing asset falls back to
-  /// [Icons.hearing] rather than a broken-image glyph.
-  final String asset;
+  /// Asset directory holding the turntable frames `frame_00.png`..`frame_NN`.
+  final String frameDir;
+
+  /// Number of turntable frames (named `frame_00.png` .. `frame_{count-1}`).
+  final int frameCount;
 
   /// Plain-language sweep instruction shown beneath the device.
   final String instruction;
+
+  /// Asset path of frame [i], zero-padded to two digits.
+  String frameAsset(int i) =>
+      '$frameDir/frame_${i.toString().padLeft(2, '0')}.png';
 
   @override
   State<SweepGuide> createState() => _SweepGuideState();
@@ -71,17 +84,33 @@ class _SweepGuideState extends State<SweepGuide>
     with TickerProviderStateMixin {
   late final AnimationController _spin;
   late final AnimationController _progress;
+  bool _precached = false;
 
   @override
   void initState() {
     super.initState();
-    _spin = AnimationController(vsync: this, duration: widget.spinPeriod)
-      ..repeat();
+    _spin = AnimationController(vsync: this, duration: widget.spinPeriod);
     _progress = AnimationController(vsync: this, duration: widget.sweepDuration)
       ..addStatusListener((status) {
         if (status == AnimationStatus.completed) widget.onComplete?.call();
       });
-    if (widget.running) _progress.forward();
+    if (widget.running) {
+      _spin.repeat();
+      _progress.forward();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Warm the image cache so the loop doesn't hitch on first pass.
+    if (!_precached) {
+      _precached = true;
+      for (var i = 0; i < widget.frameCount; i++) {
+        precacheImage(AssetImage(widget.frameAsset(i)), context)
+            .catchError((_) {}); // missing frames degrade gracefully
+      }
+    }
   }
 
   @override
@@ -95,8 +124,12 @@ class _SweepGuideState extends State<SweepGuide>
     }
     if (widget.running != oldWidget.running) {
       if (widget.running) {
+        _spin.repeat();
         _progress.forward();
       } else {
+        // Pause the turntable too — no point repainting a guide nobody is
+        // mirroring (throughput-sacred: don't burn frames when idle).
+        _spin.stop();
         _progress
           ..stop()
           ..reset();
@@ -130,30 +163,31 @@ class _SweepGuideState extends State<SweepGuide>
                   builder: (context, _) => CustomPaint(
                     painter: _SweepRingPainter(
                       progress: _progress.value,
-                      trackColor: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.12,
-                      ),
+                      trackColor:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.12),
                       progressColor: theme.colorScheme.primary,
                     ),
                   ),
                 ),
               ),
-              // Device turning about its vertical axis, demonstrating the motion.
+              // 3D turntable: the spin controller selects the current frame.
               Padding(
-                padding: EdgeInsets.all(widget.size * 0.16),
+                padding: EdgeInsets.all(widget.size * 0.12),
                 child: AnimatedBuilder(
                   animation: _spin,
-                  builder: (context, child) {
-                    final angle = _spin.value * 2 * math.pi;
-                    return Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.identity()
-                        ..setEntry(3, 2, 0.001) // perspective
-                        ..rotateY(angle),
-                      child: child,
+                  builder: (context, _) {
+                    final i = (_spin.value * widget.frameCount).floor() %
+                        widget.frameCount;
+                    return Image.asset(
+                      widget.frameAsset(i),
+                      fit: BoxFit.contain,
+                      gaplessPlayback: true, // hold prev frame, no flicker
+                      errorBuilder: (context, error, stack) => FittedBox(
+                        child: Icon(Icons.hearing,
+                            color: theme.colorScheme.primary),
+                      ),
                     );
                   },
-                  child: _DeviceImage(asset: widget.asset),
                 ),
               ),
             ],
@@ -166,28 +200,6 @@ class _SweepGuideState extends State<SweepGuide>
           style: theme.textTheme.bodyMedium?.copyWith(height: 1.3),
         ),
       ],
-    );
-  }
-}
-
-/// The device image, with a graceful fallback so a missing/corrupt asset can
-/// never surface a broken-image glyph in the capture flow.
-class _DeviceImage extends StatelessWidget {
-  const _DeviceImage({required this.asset});
-
-  final String asset;
-
-  @override
-  Widget build(BuildContext context) {
-    return Image.asset(
-      asset,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stack) => FittedBox(
-        child: Icon(
-          Icons.hearing,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-      ),
     );
   }
 }
@@ -208,28 +220,29 @@ class _SweepRingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final stroke = size.shortestSide * 0.045;
-    final rect = Offset.zero & size;
-    final center = rect.center;
+    final center = (Offset.zero & size).center;
     final radius = (size.shortestSide - stroke) / 2;
 
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..color = trackColor;
-    canvas.drawCircle(center, radius, track);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = trackColor,
+    );
 
     if (progress > 0) {
-      final arc = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = stroke
-        ..color = progressColor;
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         -math.pi / 2, // start at 12 o'clock
         progress * 2 * math.pi,
         false,
-        arc,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = stroke
+          ..color = progressColor,
       );
     }
   }

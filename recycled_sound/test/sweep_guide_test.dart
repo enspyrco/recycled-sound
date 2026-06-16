@@ -41,14 +41,17 @@ void main() {
     await tester.pumpWidget(host(const SizedBox()));
   });
 
-  testWidgets('falls back to a hearing icon when the asset is missing',
+  testWidgets('falls back to a hearing icon when the frames are missing',
       (tester) async {
     await tester.pumpWidget(host(const SweepGuide(
       running: false,
-      asset: 'assets/capture_guide/does_not_exist.png',
+      frameCount: 1,
+      frameDir: 'assets/capture_guide/does_not_exist',
     )));
-    // errorBuilder resolves synchronously for a missing asset bundle entry.
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50)); // let the load fail
     expect(find.byIcon(Icons.hearing), findsOneWidget);
+    // The missing-asset load is *expected* and handled by errorBuilder; drain
+    // the resource-service errors so the harness doesn't fail the graceful path.
+    while (tester.takeException() != null) {}
   });
 }

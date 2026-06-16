@@ -463,6 +463,228 @@ describe('Firestore: devices/', () => {
         })
       );
     });
+
+  // ── Override SET-COVER: self-attribution ≠ audit accuracy (#791, Carnot) ───
+  // hasSelfAttributedOverride() proves the override names the CALLER, not that it
+  // describes WHAT was skipped. A direct write could declare two blockers but stamp
+  // an override covering only one — under-describing the promotion it waved through.
+  // The gate now requires needsInputFields ⊆ (qaOverride.fields ∪ qaOverride.unrecognised).
+  // qaOverride.fields are the same wire strings as the needsInputFields keys
+  // (ClinicalField.wire), so the set comparison is apples-to-apples (verified).
+  it('NEGATIVE: #791 — override under-describes blockers on CREATE (covers '
+    + 'brand only, blockers are brand+colour) is rejected', async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover1'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          colour: '',
+          needsInputFields: ['brand', 'colour'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] }, // misses colour
+        })
+      );
+    });
+
+  it('POSITIVE: #791 — override exactly covering both blockers is allowed',
+    async () => {
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover2'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          colour: '',
+          needsInputFields: ['brand', 'colour'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+        })
+      );
+    });
+
+  it('POSITIVE: #791 — a blocker covered via qaOverride.unrecognised is allowed',
+    async () => {
+      // An unrecognised blocker key (legacy/typo/future) is covered when the
+      // override's unrecognised list names it — coverage is over the UNION.
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover3'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          needsInputFields: ['brand', 'wax_filter'],
+          qaOverride: {
+            overriddenBy: 'aud1',
+            fields: ['brand'],
+            unrecognised: ['wax_filter'],
+          },
+        })
+      );
+    });
+
+  it('POSITIVE: #791 — an over-covering override (superset of blockers) is '
+    + 'allowed', async () => {
+      // hasAll is subset, not equality: the override may name more than is flagged.
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover4'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          needsInputFields: ['brand'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #791 — a self-attributed but malformed override (no fields/'
+    + 'unrecognised keys) does NOT throw and fails coverage → rejected',
+    async () => {
+      // The override names the caller (passes self-attribution) but lists nothing,
+      // so it covers the empty set — every blocker is uncovered. Must deny, not
+      // error: the missing-list defaults to [] in overrideCovered().
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover5'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          needsInputFields: ['brand'],
+          qaOverride: { overriddenBy: 'aud1' },
+        })
+      );
+    });
+
+  it('POSITIVE: #791 — a clean device (no blockers) is unaffected by the '
+    + 'coverage gate (vacuously satisfied)', async () => {
+      // The set-cover predicate is vacuously true when needsInputFields is empty,
+      // so the noBlockers path still admits a complete clean device.
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover6'), {
+          ...CLEAN_DEVICE,
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: #791 — UPDATE expanding blockers with a FRESH override that '
+    + 'under-describes them is rejected', async () => {
+      // Carnot #87 stale-override concern, one level up: even a fresh override must
+      // COVER the expanded blocker set, not just be renewed and self-attributed.
+      await seed((db) => setDoc(doc(db, 'devices/cover7'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/cover7'), {
+          colour: '',
+          needsInputFields: ['brand', 'colour'],
+          // FRESH override (different object) but still only covers brand.
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'], unrecognised: [] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — needsInputFields of a non-list type is rejected by the '
+    + 'COVERAGE gate, not incidentally (all values valid)', async () => {
+      // Carnot #792 finding #2: an earlier draft returned true for a non-list
+      // needsInputFields (wrong polarity → fail-open). Here EVERY clinical value is
+      // valid, so valueFlagConsistent() passes and noBlockers() is false (a string's
+      // .size() != 0) — the ONLY thing that can reject is the coverage gate. It must.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover8'), {
+          ...CLEAN_DEVICE, // all seven fields carry real values
+          needsInputFields: 'brand', // a string, not a list
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — UPDATE that mutates the override to UNDER-COVER while the '
+    + 'blocker set is unchanged is rejected (blockersUnchanged arm closed)',
+    async () => {
+      // Carnot #792 finding #1 (consensus w/ Maxwell): the blockersUnchanged arm
+      // previously skipped coverage, so an elevated user could degrade an already-
+      // justified override (drop colour) without changing needsInputFields — leaving
+      // needsInputFields ⊄ override on the curated register. Coverage is now a
+      // top-level conjunct, so the mutation is denied.
+      await seed((db) => setDoc(doc(db, 'devices/cover9'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        colour: '',
+        needsInputFields: ['brand', 'colour'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+      }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/cover9'), {
+          // blocker SET unchanged, but the override now covers only brand.
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — UPDATE forging qaOverride.overriddenBy onto another uid '
+    + '(coverage intact, blockers unchanged) is rejected', async () => {
+      // Carnot #792 2nd pass: decoupling coverage from attribution left the
+      // blockersUnchanged arm able to REWRITE overriddenBy to a victim uid while
+      // keeping the blocker set + coverage intact — post-hoc audit attribution
+      // forgery. The arm now also requires overrideUnchanged(); a changed override
+      // must go through overrideRenewed() (fresh + SELF-attributed), so attributing
+      // it to someone else is denied.
+      await seed((db) => setDoc(doc(db, 'devices/forge1'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/forge1'), {
+          qaOverride: { overriddenBy: 'victim-uid', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('POSITIVE: #792 — an elevated user re-stamping their OWN override (fresh + '
+    + 'self-attributed + covering, blockers unchanged) is allowed', async () => {
+      // The legitimate counterpart: aud1 restamps its own override (e.g. new
+      // timestamp) on an unchanged blocker set. overrideUnchanged() is false, but
+      // overrideRenewed() (fresh + self-attributed) + coverage admit it.
+      await seed((db) => setDoc(doc(db, 'devices/restamp1'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertSucceeds(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/restamp1'), {
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'], note: 're-reviewed' },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — needsInputFields as a MAP (not a list) with all valid '
+    + 'values is rejected by the coverage gate (Kelvin fail-open case)',
+    async () => {
+      // Kelvin #792: the prior `!(… is list)` disjunct returned true for a Map too,
+      // so a Map blocker set sailed through whenever values were valid (a Map passes
+      // declaredBlocker()'s `key in` natively, unlike the string which threw). The
+      // positive `is list && size==0` structure now sends a Map to the .hasAll()
+      // arm, which can't be satisfied over a non-list → deny.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover11'), {
+          ...CLEAN_DEVICE, // every clinical value valid
+          needsInputFields: { brand: true, colour: true }, // a Map, not a list
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — a self-attributed override whose fields is the WRONG TYPE '
+    + '(not a list) is rejected, not thrown', async () => {
+      // Carnot #792 finding #3: overrideFields()/overrideUnrecognised() guard
+      // is-list, so a non-list `fields` contributes [] (fails coverage) rather than
+      // making .concat() throw. Here fields is a string → covered set is empty →
+      // the brand blocker is uncovered → deny.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover10'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          needsInputFields: ['brand'],
+          qaOverride: { overriddenBy: 'aud1', fields: 'brand' }, // string, not list
+        })
+      );
+    });
 });
 
 describe('Firestore: users/ role self-assignment', () => {

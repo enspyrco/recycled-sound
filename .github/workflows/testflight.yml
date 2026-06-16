@@ -56,6 +56,15 @@ jobs:
           channel: stable
           cache: true
 
+      # Pin Swift Package Manager mode ON before pub get regenerates the iOS
+      # scaffolding. The hybrid (Firebase + camera resolve via SPM; ML Kit, TFLite,
+      # arkit_plugin via CocoaPods) depends on this flag, which is GLOBAL per-machine
+      # and NOT tracked in the repo — a runner with it off would resolve Firebase +
+      # camera back onto CocoaPods, a different dependency graph from the same source.
+      # Pinning it makes the build reproducible. See docs/ios-dependency-strategy.md.
+      - name: Pin Swift Package Manager mode
+        run: flutter config --enable-swift-package-manager
+
       - name: Flutter pub get
         run: flutter pub get
 

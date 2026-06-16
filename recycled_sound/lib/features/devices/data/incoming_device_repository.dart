@@ -304,6 +304,42 @@ class IncomingDeviceRepository {
       .snapshots()
       .map((q) => q.docs.map(Device.fromFirestore).toList());
 
+  /// Persist the audiologist's review edits onto an `incoming/{id}` doc.
+  ///
+  /// A focused partial update — only the fields the review screen lets the
+  /// audiologist set (the human-determined clinical fields, location,
+  /// servicing notes/cost) plus an optional [qaStatus] flip. Deliberately does
+  /// NOT touch scanner-owned identity fields (brand/model/type/year/battery):
+  /// those round-trip untouched from the scan, so a partial write keeps the
+  /// audiologist edit from ever clobbering the AI's read.
+  ///
+  /// Enums serialize via their `.wire` form so the stored strings match the
+  /// model's `fromWire` parse and the scanner/confirm-screen contract.
+  /// `updatedAt` is bumped server-side. Only audiologists/admins may write the
+  /// `incoming/` doc's review fields; the rules layer rejects other callers.
+  Future<void> updateIncoming(
+    String id, {
+    required Tubing tubing,
+    required PowerSource powerSource,
+    required String colour,
+    required String location,
+    required String servicingNotes,
+    required double servicingCost,
+    QaStatus? qaStatus,
+  }) async {
+    final data = <String, dynamic>{
+      'tubing': tubing.wire,
+      'powerSource': powerSource.wire,
+      'colour': colour,
+      'location': location,
+      'servicingNotes': servicingNotes,
+      'servicingCost': servicingCost,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (qaStatus != null) 'qaStatus': qaStatus.wire,
+    };
+    await _col.doc(id).update(data);
+  }
+
   /// Triage promotion: copy an incoming doc into `devices/{id}` (with
   /// `qaStatus` flipped to passed) and delete the original. Runs as a
   /// batched write so the two sides land atomically.

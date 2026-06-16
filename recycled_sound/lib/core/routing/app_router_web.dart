@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/admin/presentation/admin_shell.dart';
 import '../../features/admin/presentation/device_register_screen.dart';
 import '../../features/admin/presentation/incoming_queue_screen.dart';
+import '../../features/admin/presentation/incoming_review_detail_screen.dart';
 import '../../features/admin/presentation/placeholder_admin_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
@@ -33,6 +34,12 @@ GoRouter buildWebRouter({String initialLocation = '/incoming'}) => GoRouter(
         GoRoute(
           path: '/incoming',
           builder: (context, state) => const IncomingQueueScreen(),
+        ),
+        GoRoute(
+          path: '/incoming/:id/review',
+          builder: (context, state) => IncomingReviewDetailScreen(
+            deviceId: state.pathParameters['id']!,
+          ),
         ),
         GoRoute(
           path: '/devices',

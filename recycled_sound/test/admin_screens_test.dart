@@ -112,6 +112,38 @@ void main() {
       expect(find.text('1 awaiting review'), findsOneWidget);
     });
 
+    testWidgets(
+        'flagged row hides quick-Approve (forces review), unflagged keeps it',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 800));
+      await tester.pumpWidget(_wrap(
+        const IncomingQueueScreen(),
+        overrides: [
+          allIncomingDevicesProvider.overrideWith(
+            (_) => Stream.value(const [
+              // Flagged → Approve suppressed, only a Review affordance.
+              Device(
+                id: 'flagged',
+                brand: 'Oticon',
+                model: 'More 1',
+                type: 'BTE',
+                needsInputFields: ['tubing'],
+              ),
+              // Clean → quick-Approve still offered.
+              Device(id: 'clean', brand: 'Phonak', model: 'P90', type: 'RIC'),
+            ]),
+          ),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      // Exactly one Approve (the clean row) and one Review (the flagged row).
+      expect(find.text('Approve'), findsOneWidget);
+      expect(find.text('Review'), findsOneWidget);
+      // The flagged row carries the NEEDS INPUT chip.
+      expect(find.text('NEEDS INPUT 1'), findsOneWidget);
+    });
+
     testWidgets('permission-denied error gets a friendly message',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 800));

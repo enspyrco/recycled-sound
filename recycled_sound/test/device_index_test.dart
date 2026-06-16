@@ -165,6 +165,46 @@ void main() {
           reason: 'an interrupted (non-consecutive) repeat must not re-open');
     });
 
+    test('a frame that CORROBORATES the lock resets the contradiction run (#88)',
+        () {
+      // Carnot, #88 cage-match: the run must be broken by a re-read of the LOCK
+      // too, not only by a different alternative. Phonak, Oticon(rej), Phonak
+      // (corroborates), Oticon(rej): the middle Phonak re-affirms the lock, so
+      // Oticon never accumulates two CONSECUTIVE frames — the lock must hold.
+      // (Without the corroboration reset this re-opened on the 2nd Oticon.)
+      index.reset();
+      index.narrow(DeviceField.brand, 'Phonak', confidence: 'HIGH');
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr); // Oticon run = 1
+      index.narrow(DeviceField.brand, 'Phonak',
+          confidence: 'HIGH'); // corroborates lock → resets Oticon's run
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr); // Oticon run = 1
+      expect(index.state.valueOf(DeviceField.brand), 'Phonak',
+          reason: 'a corroborating read between contradictions breaks the run');
+    });
+
+    test('a successful relock clears the old lock\'s stale contradiction counts '
+        '(#88)', () {
+      // Carnot, #88: counts are per-LOCK. Phonak locked, one Oticon rejection
+      // banked; then a STRONGER Widex relocks the field. That relock must clear
+      // Oticon's stale count, so a single later Oticon contradiction against the
+      // NEW Widex lock does NOT re-open it (it would, if the count carried over).
+      index.reset();
+      index.narrow(DeviceField.brand, 'Phonak', confidence: 'MEDIUM');
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr); // banked vs Phonak
+      index.narrow(DeviceField.brand, 'Widex',
+          confidence: 'HIGH'); // stronger → relock, must clear stale counts
+      expect(index.state.valueOf(DeviceField.brand), 'Widex',
+          reason: 'stronger evidence relocks the field');
+      index.narrow(DeviceField.brand, 'Oticon',
+          confidence: 'LOW', source: DetectionSource.ocr); // run = 1, not 2
+      expect(index.state.valueOf(DeviceField.brand), 'Widex',
+          reason: 'a stale count from the previous lock must not re-open the '
+              'new one after a single contradiction');
+    });
+
     test('manual override always wins regardless of rank', () {
       index.reset();
       index.narrow(DeviceField.brand, 'Phonak', confidence: 'HIGH');

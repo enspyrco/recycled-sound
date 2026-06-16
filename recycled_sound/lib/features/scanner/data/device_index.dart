@@ -399,8 +399,17 @@ class DeviceIndex {
     DetectionSource source = DetectionSource.ocr,
     String? confidence,
   }) {
-    // Don't re-narrow a field to the same value
-    if (_locked[field]?.value == value) return state;
+    // Don't re-narrow a field to the same value. A re-read that CORROBORATES the
+    // current lock is positive evidence FOR it, so it must also break every
+    // competing value's consecutive-contradiction run — otherwise a contradiction
+    // split by reads that re-affirm the lock (A_lock, B_rej, A_corroborate, B_rej)
+    // would still re-open on the 2nd B, which is not two CONSECUTIVE frames of
+    // contradiction (Carnot, #88 cage-match — the "consecutive frames" invariant
+    // must survive interleaved corroboration, not just interleaved alternatives).
+    if (_locked[field]?.value == value) {
+      _rejectedValueCounts.removeWhere((k, _) => k.startsWith('${field.name}|'));
+      return state;
+    }
 
     // Override guard: stops the "right answer then noisy override" flapping
     // observed live on 2026-05-07. If the field is already locked, require
@@ -434,13 +443,19 @@ class DeviceIndex {
         // evidence the lock is wrong. At that point we re-open the field and
         // let this value narrow normally below.
         //
-        // The count is a CONSECUTIVE run, not a cumulative tally: any
-        // rejection of a *different* value resets every other value's count
-        // for this field (below). This is what makes the anti-flap guarantee
-        // real — classic flapping oscillates A,B,A,B…, so each value's run is
-        // broken by the other on every frame and neither ever reaches 2.
-        // (A cumulative tally would, wrongly, let an A,B,A oscillation re-open
-        // on the second A — the bug this consecutive reset fixes, #778.)
+        // The count is a CONSECUTIVE run, not a cumulative tally: the run for a
+        // value is broken by EITHER a rejection of a *different* value (below)
+        // OR a frame that corroborates the current lock (the early-return at the
+        // top of narrow()). So a re-open needs _kReopenThreshold frames that ALL
+        // read the SAME contradicting value, uninterrupted — genuinely
+        // consecutive readable frames, not merely consecutive among rejected
+        // alternatives. This is what makes the anti-flap guarantee real: classic
+        // flapping oscillates A,B,A,B…, so each value's run is broken every frame
+        // and neither ever reaches 2; and a lock that keeps reading true (A,B,A
+        // where the middle A re-affirms the lock) likewise never lets B
+        // accumulate. (A cumulative tally would wrongly re-open on the second B —
+        // the bug the consecutive reset fixes, #778; the corroboration reset
+        // closes the interleaved-corroboration gap, #88.)
         final key = _rejKey(field, value);
         // Break the run of every OTHER contradicting value for this field:
         // a switch to a new alternative means the previous one is no longer
@@ -472,6 +487,17 @@ class DeviceIndex {
         _reopenField(field);
       }
     }
+
+    // Reaching here means this value is being ACCEPTED — it cleared the guard as
+    // strictly stronger evidence, it's a manual override (which bypasses the
+    // guard), or the field was just re-opened above and is re-narrowing. In every
+    // case the field is about to (re)lock, so its old per-value contradiction runs
+    // are stale and must be cleared — otherwise a count accumulated against the
+    // PREVIOUS lock could re-open the NEW one after a single contradiction. This
+    // honors the _rejectedValueCounts doc-comment ("cleared per-field when that
+    // field re-opens or relocks") which the relock + manual-override paths
+    // previously violated (Carnot, #88 cage-match — per-lock state isolation).
+    _rejectedValueCounts.removeWhere((k, _) => k.startsWith('${field.name}|'));
 
     final normalized = value.toLowerCase().trim();
     final index = _indexForField(field);

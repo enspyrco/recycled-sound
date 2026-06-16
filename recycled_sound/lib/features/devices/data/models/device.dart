@@ -187,10 +187,21 @@ enum Tubing {
 
   /// Parse the wire form; any unrecognized/empty/legacy value (including the
   /// `'Unknown'` provenance sentinel) falls back to [unspecified]. Never throws.
-  static Tubing fromWire(String? s) => switch (s) {
-    'Slim' => slim,
-    'Standard' => standard,
-    'None' => none,
+  ///
+  /// **Case- and whitespace-tolerant (auto-healing).** Input is trimmed and
+  /// upper-cased before matching, so a legacy free-text variant like `'slim'`,
+  /// `'Slim '`, or `' standard'` recovers to its canonical enum instead of
+  /// collapsing to [unspecified] and being blanked on the next save. This
+  /// matters because the confirm flow rewrites this field on every save, so a
+  /// case-sensitive parse would silently empty a legacy mixed-case value
+  /// (Kelvin's data-loss finding, PR #90 cage-match — extended to all four
+  /// clinical-value enums in #801). Output is unchanged — [wire] always emits
+  /// the canonical mixed-case string — so the `devices/` rules value↔flag
+  /// contract round-trips untouched while legacy casing heals.
+  static Tubing fromWire(String? s) => switch (s?.trim().toUpperCase()) {
+    'SLIM' => slim,
+    'STANDARD' => standard,
+    'NONE' => none,
     _ => unspecified,
   };
 }
@@ -210,9 +221,16 @@ enum PowerSource {
   final String wire;
 
   /// Parse the wire form; unrecognized/empty/legacy → [unspecified]. Never throws.
-  static PowerSource fromWire(String? s) => switch (s) {
-    'Battery' => battery,
-    'Rechargeable' => rechargeable,
+  ///
+  /// **Case- and whitespace-tolerant (auto-healing).** Input is trimmed and
+  /// upper-cased before matching, so a legacy `'rechargeable'` / `' Battery '`
+  /// recovers to its canonical enum rather than collapsing to [unspecified] and
+  /// being blanked on the next save (Kelvin, PR #90 cage-match — extended to all
+  /// four clinical-value enums in #801). [wire] still emits the canonical
+  /// mixed-case string, so the `devices/` rules contract round-trips untouched.
+  static PowerSource fromWire(String? s) => switch (s?.trim().toUpperCase()) {
+    'BATTERY' => battery,
+    'RECHARGEABLE' => rechargeable,
     _ => unspecified,
   };
 }

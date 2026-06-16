@@ -576,16 +576,73 @@ describe('Firestore: devices/', () => {
       );
     });
 
-  it('NEGATIVE: #791 — needsInputFields of a non-list type on a malicious write '
-    + 'does NOT throw and is rejected', async () => {
-      // A string (not a list) where a list is expected must fail closed, not error.
-      // The is-list guard in overrideCoversBlockers short-circuits before hasAll.
+  it('NEGATIVE: #792 — needsInputFields of a non-list type is rejected by the '
+    + 'COVERAGE gate, not incidentally (all values valid)', async () => {
+      // Carnot #792 finding #2: an earlier draft returned true for a non-list
+      // needsInputFields (wrong polarity → fail-open). Here EVERY clinical value is
+      // valid, so valueFlagConsistent() passes and noBlockers() is false (a string's
+      // .size() != 0) — the ONLY thing that can reject is the coverage gate. It must.
       await assertFails(
         setDoc(doc(asAudiologist().firestore(), 'devices/cover8'), {
-          ...CLEAN_DEVICE,
-          brand: '',
+          ...CLEAN_DEVICE, // all seven fields carry real values
           needsInputFields: 'brand', // a string, not a list
           qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — UPDATE that mutates the override to UNDER-COVER while the '
+    + 'blocker set is unchanged is rejected (blockersUnchanged arm closed)',
+    async () => {
+      // Carnot #792 finding #1 (consensus w/ Maxwell): the blockersUnchanged arm
+      // previously skipped coverage, so an elevated user could degrade an already-
+      // justified override (drop colour) without changing needsInputFields — leaving
+      // needsInputFields ⊄ override on the curated register. Coverage is now a
+      // top-level conjunct, so the mutation is denied.
+      await seed((db) => setDoc(doc(db, 'devices/cover9'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        colour: '',
+        needsInputFields: ['brand', 'colour'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+      }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/cover9'), {
+          // blocker SET unchanged, but the override now covers only brand.
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — needsInputFields as a MAP (not a list) with all valid '
+    + 'values is rejected by the coverage gate (Kelvin fail-open case)',
+    async () => {
+      // Kelvin #792: the prior `!(… is list)` disjunct returned true for a Map too,
+      // so a Map blocker set sailed through whenever values were valid (a Map passes
+      // declaredBlocker()'s `key in` natively, unlike the string which threw). The
+      // positive `is list && size==0` structure now sends a Map to the .hasAll()
+      // arm, which can't be satisfied over a non-list → deny.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover11'), {
+          ...CLEAN_DEVICE, // every clinical value valid
+          needsInputFields: { brand: true, colour: true }, // a Map, not a list
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('NEGATIVE: #792 — a self-attributed override whose fields is the WRONG TYPE '
+    + '(not a list) is rejected, not thrown', async () => {
+      // Carnot #792 finding #3: overrideFields()/overrideUnrecognised() guard
+      // is-list, so a non-list `fields` contributes [] (fails coverage) rather than
+      // making .concat() throw. Here fields is a string → covered set is empty →
+      // the brand blocker is uncovered → deny.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cover10'), {
+          ...CLEAN_DEVICE,
+          brand: '',
+          needsInputFields: ['brand'],
+          qaOverride: { overriddenBy: 'aud1', fields: 'brand' }, // string, not list
         })
       );
     });

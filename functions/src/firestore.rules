@@ -114,6 +114,36 @@ service cloud.firestore {
         return !('needsInputFields' in request.resource.data) ||
           request.resource.data.needsInputFields.size() == 0;
       }
+      // A clinical field is UNRESOLVED when its value is missing, empty, or the
+      // 'Unknown' volunteer-flag sentinel — the same notion the review screen's
+      // _deSentinel + identityResolved use, enforced here at the boundary.
+      function valueUnresolved(key) {
+        return !(key in request.resource.data) ||
+          !(request.resource.data[key] is string) ||
+          request.resource.data[key] == '' ||
+          request.resource.data[key] == 'Unknown';
+      }
+      function declaredBlocker(key) {
+        return 'needsInputFields' in request.resource.data &&
+          key in request.resource.data.needsInputFields;
+      }
+      // VALUE↔FLAG CONSISTENCY (Bypass A, cage-match PR #89): the gate trusts the
+      // client's needsInputFields, so the client could claim a field resolved
+      // (drop it from the set) while its value is still empty/sentinel — sneaking
+      // an unresolved field into the curated register with no override + no audit.
+      // Close it on request.resource.data ALONE (no cross-doc get): every clinical
+      // field with an unresolved VALUE must be DECLARED as a blocker. Then
+      // noBlockers() (nothing flagged) genuinely implies every clinical field
+      // carries a real value, and the override path still describes what it skips.
+      function valueFlagConsistent() {
+        return (!valueUnresolved('brand') || declaredBlocker('brand')) &&
+          (!valueUnresolved('model') || declaredBlocker('model')) &&
+          (!valueUnresolved('type') || declaredBlocker('type')) &&
+          (!valueUnresolved('tubing') || declaredBlocker('tubing')) &&
+          (!valueUnresolved('powerSource') || declaredBlocker('powerSource')) &&
+          (!valueUnresolved('batterySize') || declaredBlocker('batterySize')) &&
+          (!valueUnresolved('colour') || declaredBlocker('colour'));
+      }
       // A flagged result carries a qaOverride attributed to the caller — the
       // audit record can't be forged for someone else.
       function hasSelfAttributedOverride() {
@@ -141,15 +171,19 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      // Create crosses the trust boundary: the result must be clean OR carry a
-      // self-attributed override.
+      // Create crosses the trust boundary: the result must be value↔flag
+      // consistent (no empty/sentinel clinical field left undeclared — Bypass A,
+      // #89) AND clean OR carrying a self-attributed override.
       allow create: if isElevated() &&
+        valueFlagConsistent() &&
         (noBlockers() || hasSelfAttributedOverride());
       // Update may NOT introduce/expand blockers except via a FRESH self-
-      // attributed override (the side door, Carnot #87). Editing other fields on
-      // an already-justified flagged device (blocker set unchanged) is fine, and
-      // cleaning all blockers off is fine.
+      // attributed override (the side door, Carnot #87), and must stay value↔flag
+      // consistent (#89). Editing other fields on an already-justified flagged
+      // device (blocker set unchanged) is fine, and cleaning all blockers off is
+      // fine — provided every now-clean field actually carries a value.
       allow update: if isElevated() &&
+        valueFlagConsistent() &&
         (noBlockers() || blockersUnchanged() || overrideRenewed());
       allow delete: if isElevated();
     }

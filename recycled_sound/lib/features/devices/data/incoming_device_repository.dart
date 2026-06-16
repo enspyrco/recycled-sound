@@ -353,20 +353,22 @@ class IncomingDeviceRepository {
 
   /// Persist the audiologist's review edits onto an `incoming/{id}` doc.
   ///
-  /// A focused partial update — the human-determined clinical fields, location,
-  /// servicing notes/cost, an optional [qaStatus] flip, and (since #783) the
-  /// audiologist's corrections to the scanner-read identity fields.
+  /// A focused review update — the scanner-read identity fields (since #783), the
+  /// human-determined clinical fields, location, servicing notes/cost, and an
+  /// optional [qaStatus] flip.
   ///
-  /// **Identity fields: intentional, gated reversal of the old "never touch the
-  /// AI read" rule (#783).** This call historically excluded
-  /// brand/model/type/batterySize so a partial write could never clobber the
-  /// scanner's read. #783 reverses that *deliberately and narrowly*: each of
-  /// [brand]/[model]/[type]/[batterySize] is nullable and written ONLY when the
-  /// caller passes a non-null value — i.e. when the audiologist actually edited
-  /// it. A null leaves the persisted AI read untouched, preserving the original
-  /// guarantee for every field the audiologist didn't correct. `year` remains
-  /// read-only — it is not one of the seven [ClinicalField]s and never gates
-  /// promotion.
+  /// **Identity fields are always rewritten from the review screen (#783).** This
+  /// call historically excluded brand/model/type/batterySize to avoid clobbering
+  /// the scanner's read. #783 reverses that: the review screen IS the audiologist's
+  /// authority over these fields, so it writes all four every time. An unedited
+  /// field round-trips its existing value (a no-op write); a corrected field
+  /// persists the new value; a flagged-but-uncorrected field persists the empty
+  /// string ([IncomingReviewDetailScreen] de-sentinels `'Unknown'` → `''`) while
+  /// its flag stays in [needsInputFields]. Integrity is enforced at the BACKEND:
+  /// the `devices/` rules reject any promotion where a clinical field is
+  /// empty/sentinel but not declared a blocker (value↔flag consistency, #89), so
+  /// an empty identity value can only cross the boundary as a declared+overridden
+  /// blocker. `year` stays read-only — not a [ClinicalField], never gates.
   ///
   /// Enums serialize via their `.wire` form so the stored strings match the
   /// model's `fromWire` parse and the scanner/confirm-screen contract.
@@ -381,10 +383,10 @@ class IncomingDeviceRepository {
   /// Omit [needsInputFields] (null) to leave the persisted set untouched.
   Future<void> updateIncoming(
     String id, {
-    String? brand,
-    String? model,
-    String? type,
-    String? batterySize,
+    required String brand,
+    required String model,
+    required String type,
+    required String batterySize,
     required Tubing tubing,
     required PowerSource powerSource,
     required String colour,
@@ -396,12 +398,13 @@ class IncomingDeviceRepository {
     List<String> unrecognisedNeedsInput = const [],
   }) async {
     final data = <String, dynamic>{
-      // Identity edits: written only when the audiologist actually changed them
-      // (non-null), so an unedited field's AI read is never clobbered (#783).
-      'brand': ?brand,
-      'model': ?model,
-      'type': ?type,
-      'batterySize': ?batterySize,
+      // Identity fields are always rewritten — the review screen is the
+      // audiologist's authority over them. Backend value↔flag consistency (#89)
+      // is what protects an empty value from crossing into devices/ unflagged.
+      'brand': brand,
+      'model': model,
+      'type': type,
+      'batterySize': batterySize,
       'tubing': tubing.wire,
       'powerSource': powerSource.wire,
       'colour': colour,

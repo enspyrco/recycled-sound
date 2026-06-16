@@ -43,10 +43,10 @@ class _RecordingRepository extends IncomingDeviceRepository {
   @override
   Future<void> updateIncoming(
     String id, {
-    String? brand,
-    String? model,
-    String? type,
-    String? batterySize,
+    required String brand,
+    required String model,
+    required String type,
+    required String batterySize,
     required Tubing tubing,
     required PowerSource powerSource,
     required String colour,

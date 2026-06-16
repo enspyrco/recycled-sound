@@ -200,7 +200,11 @@ class _QueueRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = '${device.brand} ${device.model}'.trim();
-    final flagged = device.needsInputFields.length;
+    // Includes unrecognised blocker keys, not just typed flags — so a device
+    // the promotion gate would reject (fail-closed on an un-nameable key) never
+    // gets a quick-Approve button that would just throw. Keeps the queue's
+    // bypass-suppression aligned with the gate in promoteToDevice.
+    final flagged = device.unknownFieldCount;
     return InkWell(
       onTap: onReview,
       child: Container(

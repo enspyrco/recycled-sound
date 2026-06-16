@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import 'package:recycled_sound/core/clinical_field.dart';
+
 import 'models/device.dart';
 
 /// Known [FirebaseException] states a persist call can surface to the UI.
@@ -317,6 +319,13 @@ class IncomingDeviceRepository {
   /// model's `fromWire` parse and the scanner/confirm-screen contract.
   /// `updatedAt` is bumped server-side. Only audiologists/admins may write the
   /// `incoming/` doc's review fields; the rules layer rejects other callers.
+  ///
+  /// When [needsInputFields] is provided it OVERWRITES the doc's flag set — the
+  /// review screen passes the shrunk set as the audiologist resolves fields, so
+  /// a resolved flag drops out of the "needs input" list (and the promotion gate
+  /// sees it as resolved). [unrecognisedNeedsInput] is re-appended verbatim so a
+  /// tolerant read→write never destroys a blocker key we couldn't interpret.
+  /// Omit [needsInputFields] (null) to leave the persisted set untouched.
   Future<void> updateIncoming(
     String id, {
     required Tubing tubing,
@@ -326,6 +335,8 @@ class IncomingDeviceRepository {
     required String servicingNotes,
     required double servicingCost,
     QaStatus? qaStatus,
+    List<ClinicalField>? needsInputFields,
+    List<String> unrecognisedNeedsInput = const [],
   }) async {
     final data = <String, dynamic>{
       'tubing': tubing.wire,
@@ -336,6 +347,11 @@ class IncomingDeviceRepository {
       'servicingCost': servicingCost,
       'updatedAt': FieldValue.serverTimestamp(),
       if (qaStatus != null) 'qaStatus': qaStatus.wire,
+      if (needsInputFields != null)
+        'needsInputFields': [
+          ...needsInputFields.toWireList(),
+          ...unrecognisedNeedsInput,
+        ],
     };
     await _col.doc(id).update(data);
   }
@@ -347,20 +363,56 @@ class IncomingDeviceRepository {
   /// Only audiologists/admins have write access to `devices/`; the rule
   /// layer rejects this call for any other caller.
   ///
-  /// **UNGUARDED TRUST-BOUNDARY WRITE — pending #777.** This is the
-  /// `incoming/` → `devices/` promotion, and it currently copies the raw
-  /// document map without consuming [Device.reviewForPromotion] — so a device
-  /// with unresolved (or unrecognised) `needsInputFields` can still be promoted
-  /// here. #777 routes this through the [PromotionVerdict] gate (handling
-  /// [NeedsResolution] with an audited, logged override) so promotion can no
-  /// longer bypass the clinical invariant. Do not add new callers that lean on
-  /// this method as if it enforced the gate — it does not yet.
-  Future<void> promoteToDevice(String incomingId) async {
+  /// **GATE-ENFORCED TRUST BOUNDARY.** The freshly-read doc is parsed into a
+  /// [Device] and run through [Device.reviewForPromotion]. A [Promotable]
+  /// verdict (no flags) promotes cleanly. A [NeedsResolution] verdict promotes
+  /// ONLY when the caller supplies an override (non-empty [overrideFields] or
+  /// [overrideUnrecognised]) — and then the decision is stamped onto the
+  /// `devices/` doc as a [QaOverride] audit record (who/when/which). With
+  /// unresolved flags and NO override this **throws** rather than silently
+  /// promoting: there is no path from scanner/volunteer uncertainty into the
+  /// curated register without either resolved fields or a recorded, attributable
+  /// human decision. Re-reading (rather than trusting a passed-in model) means
+  /// the gate runs against exactly what will be written.
+  ///
+  /// The caller (the review screen) passes the live-unresolved fields it is
+  /// about to override; identity callers that pass nothing get the clean-path
+  /// behaviour and a fail-closed throw if the doc is still flagged.
+  Future<void> promoteToDevice(
+    String incomingId, {
+    List<ClinicalField> overrideFields = const [],
+    List<String> overrideUnrecognised = const [],
+  }) async {
     final src = await _col.doc(incomingId).get();
     if (!src.exists) {
       throw StateError('No incoming/$incomingId to promote');
     }
+    final device = Device.fromFirestore(src);
+    final verdict = device.reviewForPromotion();
+    final hasOverride =
+        overrideFields.isNotEmpty || overrideUnrecognised.isNotEmpty;
+
     final data = Map<String, dynamic>.from(src.data() ?? const {});
+    switch (verdict) {
+      case Promotable():
+        // Clean path — every flag resolved. An override passed here would be
+        // spurious, so we ignore it and record nothing.
+        break;
+      case NeedsResolution(:final unresolved, :final unrecognised):
+        if (!hasOverride) {
+          throw StateError(
+            'Refusing to promote incoming/$incomingId: '
+            '${unresolved.map((f) => f.wire).toList()} + $unrecognised '
+            'unresolved and no override supplied.',
+          );
+        }
+        data['qaOverride'] = QaOverride(
+          overriddenBy: _auth.currentUser?.uid ?? 'unknown',
+          overriddenAt: DateTime.now(),
+          fields: overrideFields,
+          unrecognised: overrideUnrecognised,
+        ).toFirestore();
+    }
     data['qaStatus'] = QaStatus.passed.wire;
     data['updatedAt'] = FieldValue.serverTimestamp();
     final batch = _firestore.batch();

@@ -172,6 +172,11 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
 
   /// Persist the audiologist's edits onto the incoming doc. Shared by Pass
   /// (before promote) and Fail (with the failed flag).
+  ///
+  /// Rewrites `needsInputFields` to the *still*-unresolved set ([_unresolved]),
+  /// so a flag the audiologist just resolved (e.g. picked a Tubing) drops off
+  /// the persisted list and the promotion gate sees it as resolved. Unrecognised
+  /// blocker keys are preserved verbatim (never silently destroyed).
   Future<void> _persist({QaStatus? qaStatus}) {
     final repo = ref.read(incomingDeviceRepositoryProvider);
     return repo.updateIncoming(
@@ -183,34 +188,54 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
       servicingNotes: _servicingNotes.text.trim(),
       servicingCost: _parsedCost,
       qaStatus: qaStatus,
+      needsInputFields: _unresolved.toList(),
+      unrecognisedNeedsInput: widget.device.unrecognisedNeedsInput,
     );
   }
 
-  /// Pass QA is deliberately NOT hard-gated on `_unresolved.isEmpty`. The
-  /// audiologist is the final human-in-the-loop authority, and the identity
-  /// flags (`brand`/`model`/`type`/`batterySize`) can't be resolved on this
-  /// screen — gating on them would deadlock those devices. The real
-  /// enforcement boundary is in the queue: a flagged device can no longer be
-  /// promoted via the silent quick-Approve bypass, so it MUST route through
-  /// this screen, where Pass is a conscious, banner-informed human action.
+  /// True when, given the audiologist's current edits, blockers remain that the
+  /// gate would reject — recognised flags not yet resolved on this screen (the
+  /// read-only identity flags always count) OR unrecognised persisted keys.
+  /// Passing in this state is an OVERRIDE, not a clean pass.
+  bool get _requiresOverride =>
+      _unresolved.isNotEmpty || widget.device.unrecognisedNeedsInput.isNotEmpty;
+
+  /// Pass QA. When every flag is resolved this is a clean promotion. When
+  /// blockers remain ([_requiresOverride]) it is a DELIBERATE, AUDITED override:
+  /// the gate in [IncomingDeviceRepository.promoteToDevice] would otherwise throw
+  /// with no override, and the override is stamped onto the `devices/` record
+  /// (who/when/which fields) — the audiologist is the final authority, but the
+  /// decision is no longer a silently-ungated button (PR #85 retro / #777).
   Future<void> _passQa() async {
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
     final d = widget.device;
+    // Capture the override content from the live edit state BEFORE persisting.
+    final overrideFields = _unresolved.toList();
+    final overrideUnrecognised = d.unrecognisedNeedsInput;
+    final isOverride = _requiresOverride;
     setState(() => _busy = true);
     try {
       // Persist edits FIRST: promoteToDevice re-reads the doc and copies it
-      // into devices/, so the audiologist's corrections must already be on the
-      // incoming doc before the batch runs. promoteToDevice flips qaStatus to
-      // passed itself, so we don't pass it here.
+      // into devices/, so the audiologist's corrections (and the shrunk
+      // needsInputFields) must already be on the incoming doc before the batch
+      // runs. promoteToDevice flips qaStatus to passed itself.
       await _persist();
-      await repo.promoteToDevice(d.id);
+      await repo.promoteToDevice(
+        d.id,
+        overrideFields: overrideFields,
+        overrideUnrecognised: overrideUnrecognised,
+      );
       router.go('/incoming');
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Passed QA — ${d.brand} ${d.model} added to register.'),
-          backgroundColor: AppColors.success,
+          content: Text(isOverride
+              ? 'Override recorded — ${d.brand} ${d.model} promoted with '
+                  '${overrideFields.length + overrideUnrecognised.length} '
+                  'unresolved field(s).'
+              : 'Passed QA — ${d.brand} ${d.model} added to register.'),
+          backgroundColor: isOverride ? AppColors.warning : AppColors.success,
         ),
       );
     } catch (e) {
@@ -422,22 +447,35 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _busy ? null : _passQa,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(_busy ? 'Working…' : 'Pass QA'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.success,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                    ),
+                    child: Builder(builder: (context) {
+                      // When blockers remain, Pass is an explicit, audited
+                      // override — labelled + coloured distinctly so the
+                      // audiologist knows they're not on the clean path.
+                      final override = _requiresOverride;
+                      final n = _unresolved.length +
+                          widget.device.unrecognisedNeedsInput.length;
+                      return FilledButton.icon(
+                        onPressed: _busy ? null : _passQa,
+                        icon: _busy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                            : Icon(override ? Icons.gpp_maybe : Icons.check),
+                        label: Text(_busy
+                            ? 'Working…'
+                            : override
+                                ? 'Override & pass ($n unresolved)'
+                                : 'Pass QA'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor:
+                              override ? AppColors.warning : AppColors.success,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      );
+                    }),
                   ),
                 ],
               ),

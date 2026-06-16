@@ -532,6 +532,84 @@ void main() {
       expect(() => repo.promoteToDevice('does-not-exist'),
           throwsA(isA<StateError>()));
     });
+
+    // ── Gate enforcement (PR #777 / #13) ──────────────────────────────────
+    test('clean device promotes with NO override audit record', () async {
+      await firestore.collection('incoming').doc('clean').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+      });
+      await repo.promoteToDevice('clean');
+      final dst = await firestore.collection('devices').doc('clean').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!.containsKey('qaOverride'), isFalse);
+    });
+
+    test('FAILS CLOSED: unresolved flags + no override → throws, no write',
+        () async {
+      await firestore.collection('incoming').doc('flagged').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+        'needsInputFields': ['tubing', 'colour'],
+      });
+      await expectLater(
+          repo.promoteToDevice('flagged'), throwsA(isA<StateError>()));
+      // Nothing crossed the boundary; incoming source untouched.
+      expect((await firestore.collection('devices').doc('flagged').get()).exists,
+          isFalse);
+      expect(
+          (await firestore.collection('incoming').doc('flagged').get()).exists,
+          isTrue);
+    });
+
+    test('unrecognised-only blocker also fails closed without override',
+        () async {
+      await firestore.collection('incoming').doc('legacy').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+        'needsInputFields': ['make'], // not a real ClinicalField wire key
+      });
+      await expectLater(
+          repo.promoteToDevice('legacy'), throwsA(isA<StateError>()));
+      expect((await firestore.collection('devices').doc('legacy').get()).exists,
+          isFalse);
+    });
+
+    test('override promotes AND stamps an audit record (who/which)', () async {
+      await firestore.collection('incoming').doc('ovr').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+        'needsInputFields': ['brand', 'make'], // one real, one unrecognised
+      });
+      await repo.promoteToDevice('ovr',
+          overrideFields: [ClinicalField.brand],
+          overrideUnrecognised: ['make']);
+
+      final dst = await firestore.collection('devices').doc('ovr').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!['qaStatus'], 'passed');
+      final promoted = Device.fromFirestore(dst);
+      final ov = promoted.qaOverride;
+      expect(ov, isNotNull, reason: 'override must leave an audit trail');
+      expect(ov!.overriddenBy, 'user-abc'); // the signed-in mock uid
+      expect(ov.fields, [ClinicalField.brand]);
+      expect(ov.unrecognised, ['make']);
+    });
+
+    test('a spurious override on a clean device records nothing', () async {
+      await firestore.collection('incoming').doc('cln').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+      });
+      await repo.promoteToDevice('cln', overrideFields: [ClinicalField.tubing]);
+      final dst = await firestore.collection('devices').doc('cln').get();
+      expect(dst.data()!.containsKey('qaOverride'), isFalse);
+    });
   });
 
   group('watchAllDevices', () {

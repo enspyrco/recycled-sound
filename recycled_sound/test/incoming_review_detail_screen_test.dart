@@ -29,6 +29,10 @@ class _RecordingRepository extends IncomingDeviceRepository {
   PowerSource? lastPowerSource;
   String? lastColour;
   double? lastServicingCost;
+  List<ClinicalField>? lastNeedsInputFields;
+  // Captured override args from the last promoteToDevice call.
+  List<ClinicalField> lastOverrideFields = const [];
+  List<String> lastOverrideUnrecognised = const [];
 
   @override
   Future<void> updateIncoming(
@@ -40,6 +44,8 @@ class _RecordingRepository extends IncomingDeviceRepository {
     required String servicingNotes,
     required double servicingCost,
     QaStatus? qaStatus,
+    List<ClinicalField>? needsInputFields,
+    List<String> unrecognisedNeedsInput = const [],
   }) async {
     updateCalls++;
     updateQaStatuses.add(qaStatus);
@@ -47,11 +53,18 @@ class _RecordingRepository extends IncomingDeviceRepository {
     lastPowerSource = powerSource;
     lastColour = colour;
     lastServicingCost = servicingCost;
+    lastNeedsInputFields = needsInputFields;
   }
 
   @override
-  Future<void> promoteToDevice(String incomingId) async {
+  Future<void> promoteToDevice(
+    String incomingId, {
+    List<ClinicalField> overrideFields = const [],
+    List<String> overrideUnrecognised = const [],
+  }) async {
     promoteCalls++;
+    lastOverrideFields = overrideFields;
+    lastOverrideUnrecognised = overrideUnrecognised;
   }
 }
 
@@ -171,8 +184,57 @@ void main() {
     // Pass leaves qaStatus to promoteToDevice — update is called without it.
     expect(repo.updateQaStatuses.single, isNull);
     expect(repo.lastColour, 'Charcoal');
+    // Resolved → clean pass, no override fields, and the shrunk flag set
+    // (colour resolved) is persisted as empty.
+    expect(repo.lastOverrideFields, isEmpty);
+    expect(repo.lastNeedsInputFields, isEmpty);
     // Navigated back to the queue.
     expect(find.text('QUEUE'), findsOneWidget);
+  });
+
+  testWidgets(
+      'an unresolved identity flag makes Pass an explicit "Override & pass"',
+      (tester) async {
+    await _pump(tester,
+        device: _device(needsInputFields: [ClinicalField.brand]));
+    // brand is read-only here, so it stays unresolved — the action is an
+    // override, not a clean pass.
+    expect(find.widgetWithText(FilledButton, 'Pass QA'), findsNothing);
+    expect(find.textContaining('Override & pass (1 unresolved)'),
+        findsOneWidget);
+  });
+
+  testWidgets('Override & pass records the unresolved fields as an override',
+      (tester) async {
+    final repo = await _pump(tester,
+        device: _device(needsInputFields: [ClinicalField.brand]));
+
+    final btn = find.textContaining('Override & pass');
+    await tester.ensureVisible(btn);
+    await tester.tap(btn);
+    await tester.pumpAndSettle();
+
+    expect(repo.promoteCalls, 1);
+    expect(repo.lastOverrideFields, [ClinicalField.brand]);
+    // The flag persists (read-only identity can't be resolved here) so the
+    // override is self-describing on the promoted record.
+    expect(repo.lastNeedsInputFields, [ClinicalField.brand]);
+    expect(find.text('QUEUE'), findsOneWidget);
+  });
+
+  testWidgets('resolving the last clinical flag flips Override back to Pass QA',
+      (tester) async {
+    await _pump(tester,
+        device: _device(needsInputFields: [ClinicalField.colour]));
+    // Colour starts empty → unresolved → override label.
+    expect(find.textContaining('Override & pass'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'Charcoal');
+    await tester.pumpAndSettle();
+
+    // Now resolved → clean pass.
+    expect(find.textContaining('Override & pass'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Pass QA'), findsOneWidget);
   });
 
   testWidgets('Fail QA sets failed without promoting and stays put',

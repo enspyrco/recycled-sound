@@ -28,6 +28,7 @@ class _RecordingRepository extends IncomingDeviceRepository {
   Tubing? lastTubing;
   PowerSource? lastPowerSource;
   String? lastColour;
+  double? lastServicingCost;
 
   @override
   Future<void> updateIncoming(
@@ -45,6 +46,7 @@ class _RecordingRepository extends IncomingDeviceRepository {
     lastTubing = tubing;
     lastPowerSource = powerSource;
     lastColour = colour;
+    lastServicingCost = servicingCost;
   }
 
   @override
@@ -240,5 +242,26 @@ void main() {
 
     expect(find.textContaining('audiologist or admin role'), findsOneWidget);
     expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+  });
+
+  testWidgets('servicing cost left as a trailing-dot "5." persists 5.0, not 0',
+      (tester) async {
+    // Cage-match (Carnot) residual: double.tryParse("5.") returns null, so a
+    // value left mid-typing would silently save 0 on a money field. _parsedCost
+    // normalises the trailing dot before parsing.
+    final repo = await _pump(tester, device: _device());
+
+    // Cost is the last TextField (colour, location, notes, cost).
+    final costField = find.byType(TextField).last;
+    await tester.ensureVisible(costField);
+    await tester.enterText(costField, '5.');
+    await tester.pumpAndSettle();
+
+    final fail = find.widgetWithText(OutlinedButton, 'Fail QA');
+    await tester.ensureVisible(fail);
+    await tester.tap(fail);
+    await tester.pumpAndSettle();
+
+    expect(repo.lastServicingCost, 5.0);
   });
 }

@@ -155,7 +155,15 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
         .toSet();
   }
 
-  double get _parsedCost => double.tryParse(_servicingCost.text.trim()) ?? 0;
+  double get _parsedCost {
+    final t = _servicingCost.text.trim();
+    if (t.isEmpty) return 0;
+    // The formatter permits a trailing '.' mid-typing ("5."), which
+    // double.tryParse rejects → would silently save 0. Drop it so a value
+    // left as "5." persists 5.0, not 0.
+    final normalised = t.endsWith('.') ? t.substring(0, t.length - 1) : t;
+    return double.tryParse(normalised) ?? 0;
+  }
 
   /// Persist the audiologist's edits onto the incoming doc. Shared by Pass
   /// (before promote) and Fail (with the failed flag).
@@ -541,15 +549,17 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
-/// Constrains a text field to a well-formed decimal amount — digits, an
-/// optional single `.`, and at most two fractional digits. Rejects any edit
-/// that would produce a malformed string (e.g. a second `.`), so the value
-/// always round-trips cleanly through `double.parse` and never silently
-/// collapses to 0.
+/// Constrains a text field to a well-formed decimal amount — at least one
+/// digit, an optional single `.`, and at most two fractional digits. Rejects
+/// any edit that would produce a malformed string (a second `.`, OR a lone `.`
+/// with no digit), so a non-empty value always carries real magnitude and
+/// never silently collapses to 0.
 class _CurrencyInputFormatter extends TextInputFormatter {
   const _CurrencyInputFormatter();
 
-  static final _valid = RegExp(r'^\d*\.?\d{0,2}$');
+  // `(?=.*\d)` requires a digit somewhere, so a lone `.` (which
+  // double.tryParse rejects → silent 0) can never be entered.
+  static final _valid = RegExp(r'^(?=.*\d)\d*\.?\d{0,2}$');
 
   @override
   TextEditingValue formatEditUpdate(

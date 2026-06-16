@@ -346,6 +346,15 @@ class IncomingDeviceRepository {
   ///
   /// Only audiologists/admins have write access to `devices/`; the rule
   /// layer rejects this call for any other caller.
+  ///
+  /// **UNGUARDED TRUST-BOUNDARY WRITE — pending #777.** This is the
+  /// `incoming/` → `devices/` promotion, and it currently copies the raw
+  /// document map without consuming [Device.reviewForPromotion] — so a device
+  /// with unresolved (or unrecognised) `needsInputFields` can still be promoted
+  /// here. #777 routes this through the [PromotionVerdict] gate (handling
+  /// [NeedsResolution] with an audited, logged override) so promotion can no
+  /// longer bypass the clinical invariant. Do not add new callers that lean on
+  /// this method as if it enforced the gate — it does not yet.
   Future<void> promoteToDevice(String incomingId) async {
     final src = await _col.doc(incomingId).get();
     if (!src.exists) {

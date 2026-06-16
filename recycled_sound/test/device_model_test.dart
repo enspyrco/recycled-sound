@@ -316,6 +316,35 @@ void main() {
       },
     );
 
+    test(
+      'needsInputFields with an unrecognised key is retained, blocks promotion, '
+      'and round-trips losslessly (fail-closed; PR #86 cage-match)',
+      () async {
+        await firestore.collection('incoming').doc('mixed').set({
+          'brand': 'Phonak',
+          'model': 'P90',
+          'needsInputFields': ['colour', 'make'], // one real, one garbage key
+        });
+        final snap = await firestore.collection('incoming').doc('mixed').get();
+        final d = Device.fromFirestore(snap);
+
+        // Recognised key is typed; the unknown one is RETAINED, not dropped.
+        expect(d.needsInputFields, [ClinicalField.colour]);
+        expect(d.unrecognisedNeedsInput, ['make']);
+        expect(d.unknownFieldCount, 2);
+
+        // The gate fails CLOSED — an un-nameable blocker still blocks.
+        final verdict = d.reviewForPromotion();
+        expect(verdict, isA<NeedsResolution>());
+        expect((verdict as NeedsResolution).unrecognised, ['make']);
+
+        // A tolerant read followed by a write must not silently destroy the
+        // unknown blocker.
+        expect(d.toFirestore(createdBy: 'u')['needsInputFields'],
+            ['colour', 'make']);
+      },
+    );
+
     test('enum fields default to unspecified when absent from the document',
         () async {
       await firestore.collection('incoming').doc('bare').set({'brand': 'X'});

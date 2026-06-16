@@ -76,6 +76,27 @@ void main() {
     });
   });
 
+  group('ClinicalField.partition (fail-closed at the trust boundary)', () {
+    test('splits recognised fields from unknown keys, both retained', () {
+      final p = ClinicalField.partition(['tubing', 'make', 'colour', 'year']);
+      expect(p.known, [ClinicalField.tubing, ClinicalField.colour]);
+      // Unknown keys are RETAINED (not dropped) so a downstream gate can block.
+      expect(p.unknown, ['make', 'year']);
+    });
+
+    test('non-string entries are recorded as strings, never vanish', () {
+      final p = ClinicalField.partition(['tubing', 42, null]);
+      expect(p.known, [ClinicalField.tubing]);
+      expect(p.unknown, ['42', 'null']);
+    });
+
+    test('null / non-list → empty buckets', () {
+      final p = ClinicalField.partition(null);
+      expect(p.known, isEmpty);
+      expect(p.unknown, isEmpty);
+    });
+  });
+
   group('Device.reviewForPromotion (the trust-boundary gate)', () {
     const resolved = Device(id: 'd', brand: 'Phonak', model: 'P90');
     const flagged = Device(
@@ -96,6 +117,21 @@ void main() {
       expect(verdict, isA<NeedsResolution>());
       expect((verdict as NeedsResolution).unresolved,
           [ClinicalField.tubing, ClinicalField.colour]);
+    });
+
+    test('FAILS CLOSED on an unrecognised persisted blocker key', () {
+      // The Carnot catch (PR #86): a device whose ONLY blocker is a key we
+      // can't interpret must NOT be promotable. Dropping it would fail open.
+      const garbage = Device(
+        id: 'd',
+        brand: 'Phonak',
+        model: 'P90',
+        unrecognisedNeedsInput: ['make'], // an invented/legacy key
+      );
+      final verdict = garbage.reviewForPromotion();
+      expect(verdict, isA<NeedsResolution>());
+      expect((verdict as NeedsResolution).unresolved, isEmpty);
+      expect(verdict.unrecognised, ['make']);
     });
 
     test('a sealed switch must handle both arms (compile-time exhaustiveness)',

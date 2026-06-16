@@ -54,15 +54,42 @@ enum ClinicalField {
     _ => null,
   };
 
-  /// Parse a persisted list (a Firestore `List<dynamic>` or `null`) into typed
-  /// fields, silently dropping any unrecognized/garbage entry. Order-preserving.
-  /// Never throws — a malformed `needsInputFields` array degrades to the fields
-  /// it *can* understand rather than crashing the register or the review queue.
-  static List<ClinicalField> parseList(Object? raw) => switch (raw) {
-    final List<dynamic> l =>
-      l.map((e) => fromWire(e is String ? e : null)).whereType<ClinicalField>().toList(),
-    _ => const [],
-  };
+  /// Parse a persisted list into the typed fields it recognizes, dropping
+  /// anything unrecognized. Order-preserving, never throws. This is the
+  /// **display-tolerant** view — use it where an unknown key is genuinely
+  /// harmless (a banner that shows what it understands). For the trust boundary,
+  /// use [partition], which RETAINS the unknown keys so the gate can fail closed.
+  static List<ClinicalField> parseList(Object? raw) => partition(raw).known;
+
+  /// Parse a persisted list into recognized [known] fields AND the raw [unknown]
+  /// wire keys that did not map to any [ClinicalField]. Order-preserving within
+  /// each bucket; never throws.
+  ///
+  /// **Why retain the unknowns.** Silently dropping a key is the right move for
+  /// display tolerance but the WRONG thermodynamic sign at a trust boundary
+  /// (Carnot, PR #86 cage-match): a persisted `needsInputFields` entry we can't
+  /// even name is still an *unresolved blocker*. If we drop it, a downstream
+  /// promotion gate sees an empty list and waves the device through — fail-open
+  /// at exactly the boundary the type exists to protect. Keeping the unknown
+  /// keys lets the gate fail CLOSED on a blocker it can't interpret. A non-string
+  /// entry (a number, null) is recorded as its `toString()` so it still blocks
+  /// rather than vanishing.
+  static ({List<ClinicalField> known, List<String> unknown}) partition(
+    Object? raw,
+  ) {
+    if (raw is! List) return (known: const [], unknown: const []);
+    final known = <ClinicalField>[];
+    final unknown = <String>[];
+    for (final e in raw) {
+      final field = fromWire(e is String ? e : null);
+      if (field != null) {
+        known.add(field);
+      } else {
+        unknown.add(e?.toString() ?? 'null');
+      }
+    }
+    return (known: known, unknown: unknown);
+  }
 }
 
 /// Serialize a typed field list back to the wire strings Firestore stores.

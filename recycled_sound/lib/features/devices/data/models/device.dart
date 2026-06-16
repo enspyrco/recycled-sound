@@ -285,6 +285,7 @@ class Device {
     this.location = '',
     this.photos = const [],
     this.needsInputFields = const [],
+    this.unrecognisedNeedsInput = const [],
     this.createdAt,
     this.updatedAt,
   });
@@ -339,6 +340,14 @@ class Device {
   /// *typed* handoff to the audiologist. See [DraftDevice.needsInputFields].
   final List<ClinicalField> needsInputFields;
 
+  /// Raw `needsInputFields` wire keys that did NOT map to a [ClinicalField]
+  /// (legacy keys, typos, future-version values). Retained — not dropped — so
+  /// the promotion gate can fail CLOSED on an unresolved blocker it can't name
+  /// (see [ClinicalField.partition]). Round-trips back to Firestore alongside
+  /// the typed keys so a tolerant read never silently destroys data on save.
+  /// Almost always empty for app-written docs (the writer only emits real keys).
+  final List<String> unrecognisedNeedsInput;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -348,7 +357,8 @@ class Device {
   /// its own low-confidence default, so a value-match would raise false flags
   /// for fields the volunteer never touched. Surfaced as the register's
   /// "NEEDS INPUT" chip.
-  int get unknownFieldCount => needsInputFields.length;
+  int get unknownFieldCount =>
+      needsInputFields.length + unrecognisedNeedsInput.length;
 
   /// Build a [Device] from a Firestore document snapshot.
   ///
@@ -357,6 +367,9 @@ class Device {
   factory Device.fromFirestore(DocumentSnapshot<Map<String, dynamic>> snap) {
     final d = snap.data() ?? const <String, dynamic>{};
     DateTime? ts(dynamic v) => v is Timestamp ? v.toDate() : null;
+    // Partition (not drop) unknown keys so the promotion gate fails closed on a
+    // blocker it can't name; both buckets round-trip back to Firestore below.
+    final needsInput = ClinicalField.partition(d['needsInputFields']);
     return Device(
       id: snap.id,
       brand: (d['brand'] as String?) ?? '',
@@ -391,7 +404,8 @@ class Device {
       scanId: (d['scanId'] as String?) ?? '',
       location: (d['location'] as String?) ?? '',
       photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
-      needsInputFields: ClinicalField.parseList(d['needsInputFields']),
+      needsInputFields: needsInput.known,
+      unrecognisedNeedsInput: needsInput.unknown,
       createdAt: ts(d['createdAt']),
       updatedAt: ts(d['updatedAt']),
     );
@@ -437,7 +451,9 @@ class Device {
     'scanId': scanId,
     'location': location,
     'photos': photos,
-    'needsInputFields': needsInputFields.toWireList(),
+    // Typed keys + any retained unrecognised keys — so a tolerant read followed
+    // by a write never silently destroys a blocker we couldn't interpret.
+    'needsInputFields': [...needsInputFields.toWireList(), ...unrecognisedNeedsInput],
     'createdBy': createdBy,
     'createdAt': createdAt == null
         ? FieldValue.serverTimestamp()
@@ -501,11 +517,19 @@ class Device {
 }
 
 /// The outcome of reviewing a device for promotion across the trust boundary
-/// `incoming/` → `devices/` (the curated clinical register). A sealed type so
-/// the compiler forces every caller to handle BOTH arms — there is no way to
-/// obtain a [Promotable] (and thus write to `devices/`) while a device still
-/// carries unresolved clinical fields. This is the human-in-the-loop safety
-/// spine encoded as a type rather than enforced by a reviewer noticing a bypass.
+/// `incoming/` → `devices/` (the curated clinical register). A sealed type: the
+/// compiler forces a caller that switches on it to handle BOTH arms, so once the
+/// repository *consumes* this verdict (the enforcement flip in #777) there is no
+/// way to write a device to `devices/` while it carries unresolved blockers
+/// without explicitly handling [NeedsResolution].
+///
+/// SCOPE (PR #86): this type + [Promotion.reviewForPromotion] are defined and
+/// tested, but `IncomingDeviceRepository.promoteToDevice` does NOT yet consume
+/// them — it remains a raw `Map → Map` copy. So in #86 the verdict is the
+/// *representation* of the invariant, not yet its *enforcement*; wiring it
+/// (without deadlocking on read-only identity fields) is #777. The guarantee
+/// above is conditional on that wiring — stated honestly rather than overclaimed
+/// (Carnot, PR #86 cage-match).
 ///
 /// See feedback_trust_boundary_needs_type_enforcement and feedback_review_
 /// approves_compilation_not_purpose for why PR #85's vigilance-only gate was
@@ -514,37 +538,43 @@ sealed class PromotionVerdict {
   const PromotionVerdict();
 }
 
-/// The device cleared the gate — every clinical field is resolved. [device] is
-/// ready to write into `devices/`. Obtainable ONLY from [Promotion
-/// .reviewForPromotion], so its existence is proof the invariant held.
+/// The device cleared the gate — no clinical field (recognised OR unrecognised)
+/// remains flagged. [device] is ready to write into `devices/`. Obtainable ONLY
+/// from [Promotion.reviewForPromotion], so its existence is proof the gate ran.
 class Promotable extends PromotionVerdict {
   const Promotable(this.device);
   final Device device;
 }
 
-/// The device cannot be promoted: [unresolved] clinical fields still await
-/// audiologist input. The caller must surface these, not silently promote.
-/// (#777 adds the audited override escape valve — a deliberate, logged decision
-/// that turns a [NeedsResolution] into a promotion — and wires this gate into
+/// The device cannot be promoted. [unresolved] names the typed clinical fields
+/// still awaiting audiologist input; [unrecognised] holds any persisted blocker
+/// keys that did not map to a [ClinicalField] (legacy/typo/future) — they block
+/// too, because a blocker we can't interpret is the LAST thing that should wave
+/// a device through (fail closed). The caller must surface these, not promote.
+/// (#777 adds the audited override escape valve and wires this into
 /// `IncomingDeviceRepository.promoteToDevice`.)
 class NeedsResolution extends PromotionVerdict {
-  const NeedsResolution(this.unresolved);
+  const NeedsResolution(this.unresolved, {this.unrecognised = const []});
   final List<ClinicalField> unresolved;
+  final List<String> unrecognised;
 }
 
 extension Promotion on Device {
   /// Pure domain gate for the `incoming/` → `devices/` trust boundary. Returns
-  /// [Promotable] only when [needsInputFields] is empty; otherwise [NeedsResolution]
-  /// naming the fields that block promotion. The sealed return makes "promote a
-  /// device with unresolved fields" a state the type system won't let a caller
-  /// reach without explicitly handling the block.
+  /// [Promotable] only when there are NO blockers at all — no recognised
+  /// [needsInputFields] AND no [unrecognisedNeedsInput]; otherwise
+  /// [NeedsResolution] naming what blocks promotion. Failing closed on
+  /// unrecognised keys is deliberate: dropping a blocker we can't name would
+  /// fail OPEN at the exact boundary this gate exists to protect.
   ///
-  /// Note: this reads the *persisted* [needsInputFields] set. A field counts as
-  /// resolved once the audiologist's edit removes it from that set on the
-  /// incoming doc — which the review screen does not yet do for identity fields
-  /// (that resolution path is #777). Until then this gate is defined and tested
-  /// but not yet wired into the repository; #777 performs the enforcement flip.
-  PromotionVerdict reviewForPromotion() => needsInputFields.isEmpty
-      ? Promotable(this)
-      : NeedsResolution(needsInputFields);
+  /// Note: this reads the *persisted* blocker set. A field counts as resolved
+  /// once the audiologist's edit removes it from that set on the incoming doc —
+  /// which the review screen does not yet do for identity fields (that
+  /// resolution path is #777). Until #777 wires this into the repository, the
+  /// gate is defined and tested but not yet enforced.
+  PromotionVerdict reviewForPromotion() =>
+      needsInputFields.isEmpty && unrecognisedNeedsInput.isEmpty
+          ? Promotable(this)
+          : NeedsResolution(needsInputFields,
+              unrecognised: unrecognisedNeedsInput);
 }

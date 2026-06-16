@@ -246,6 +246,38 @@ describe('Firestore: devices/', () => {
         })
       );
     });
+
+  // Carnot #87 3rd pass: expanding blockers while REUSING the stored override
+  // (so the audit under-describes the new blockers) must be rejected.
+  it('NEGATIVE: cannot expand blockers reusing the existing override',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev11'), {
+        brand: 'Oticon',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      // Same override object, but blockers grow — denied.
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/dev11'), {
+          needsInputFields: ['brand', 'colour'],
+        })
+      );
+    });
+
+  it('POSITIVE: expanding blockers WITH a fresh self-attributed override is '
+    + 'allowed', async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev12'), {
+        brand: 'Oticon',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertSucceeds(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/dev12'), {
+          needsInputFields: ['brand', 'colour'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+        })
+      );
+    });
 });
 
 describe('Firestore: users/ role self-assignment', () => {

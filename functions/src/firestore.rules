@@ -130,18 +130,27 @@ service cloud.firestore {
           (!('needsInputFields' in request.resource.data) ||
             request.resource.data.needsInputFields == resource.data.needsInputFields);
       }
+      // A self-attributed override that is FRESH this write (not the one already
+      // stored). Changing the blocker set requires renewing the override, so an
+      // elevated user can't expand blockers while reusing a stale override that
+      // under-describes them (Carnot, PR #87 3rd pass).
+      function overrideRenewed() {
+        return hasSelfAttributedOverride() &&
+          (!('qaOverride' in resource.data) ||
+            request.resource.data.qaOverride != resource.data.qaOverride);
+      }
 
       allow read: if request.auth != null;
       // Create crosses the trust boundary: the result must be clean OR carry a
       // self-attributed override.
       allow create: if isElevated() &&
         (noBlockers() || hasSelfAttributedOverride());
-      // Update may NOT introduce/expand blockers without a fresh self-attributed
-      // override — that would smuggle a flagged device in via the side door
-      // (Carnot, PR #87). But an update that leaves the blocker set unchanged
-      // (servicing/status edits on an already-overridden device) is fine.
+      // Update may NOT introduce/expand blockers except via a FRESH self-
+      // attributed override (the side door, Carnot #87). Editing other fields on
+      // an already-justified flagged device (blocker set unchanged) is fine, and
+      // cleaning all blockers off is fine.
       allow update: if isElevated() &&
-        (noBlockers() || hasSelfAttributedOverride() || blockersUnchanged());
+        (noBlockers() || blockersUnchanged() || overrideRenewed());
       allow delete: if isElevated();
     }
 

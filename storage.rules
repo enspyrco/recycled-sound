@@ -43,13 +43,26 @@ service firebase.storage {
     // Same grants as the hardened scans block: owner read/write, elevated
     // (audiologist/admin) cross-user read for the triage register and elevated
     // delete for end-to-end cleanup.
+    //
+    // Captures holds TWO media kinds, each with its own size ceiling:
+    //   * stills — the legacy 6-slot photo set (image/*, ≤ 10 MB), and
+    //   * sweep clips — the in-app video-sweep protocol (video/*, ≤ 50 MB),
+    //     uploaded as `captures/{uid}/{deviceId}/sweep_{ts}.mp4`.
+    // A 10-15s 720p H.264 clip runs ~8-30 MB, so video gets a higher cap; the
+    // image ceiling stays at 10 MB so a still upload can't smuggle 50 MB. The
+    // disjunction pairs each content-type with ITS OWN size limit — a video
+    // can't ride the image arm and vice-versa.
     match /captures/{userId}/{allPaths=**} {
       allow read: if request.auth != null
         && (request.auth.uid == userId || isElevated());
       allow create, update: if request.auth != null
         && request.auth.uid == userId
-        && request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && (
+          (request.resource.contentType.matches('image/.*')
+            && request.resource.size < 10 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*')
+            && request.resource.size < 50 * 1024 * 1024)
+        );
       allow delete: if request.auth != null
         && (request.auth.uid == userId || isElevated());
     }

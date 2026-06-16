@@ -385,6 +385,105 @@ void main() {
     });
   });
 
+  group('createIncomingVideo', () {
+    test('uploads the clip to a sweep_*.mp4 path and stores the URI in videos, '
+        'never photos', () async {
+      final tmp = await Directory.systemTemp.createTemp('sweep_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      final clip = File('${tmp.path}/clip.mp4')..writeAsBytesSync([1, 2, 3, 4]);
+
+      const draft = DraftDevice(brand: '', model: '');
+      final id =
+          await repo.createIncomingVideo(draft, localVideoPath: clip.path);
+
+      expect(id, isNotEmpty);
+      // Exactly one object landed, under captures/{uid}/{id}/sweep_{ts}.mp4.
+      // uid is `user-abc` (the mock signed-in user); the timestamp is wall-clock
+      // so we match its shape, not a literal value.
+      expect(storage.storedFilesMap, hasLength(1));
+      final key = storage.storedFilesMap.keys.single;
+      expect(
+        key,
+        matches(RegExp('^captures/user-abc/$id/sweep_\\d+\\.mp4\$')),
+        reason: 'clip lands at the per-uid sweep path with a timestamped name',
+      );
+
+      // The clip URI is in `videos`, and `photos` stays empty — a video must
+      // never reach the image-thumbnail gallery.
+      final data =
+          (await firestore.collection('incoming').doc(id).get()).data()!;
+      expect((data['videos'] as List), hasLength(1));
+      expect((data['photos'] as List), isEmpty);
+      expect(data['createdBy'], 'user-abc');
+    });
+
+    test('preserves pre-existing draft videos and appends the new clip',
+        () async {
+      final tmp = await Directory.systemTemp.createTemp('sweep_prepend');
+      addTearDown(() => tmp.delete(recursive: true));
+      final clip = File('${tmp.path}/clip.mp4')..writeAsBytesSync([9]);
+
+      const draft =
+          DraftDevice(brand: '', model: '', videos: ['gs://existing/old.mp4']);
+      final id =
+          await repo.createIncomingVideo(draft, localVideoPath: clip.path);
+
+      final videos =
+          ((await firestore.collection('incoming').doc(id).get()).data()!['videos']
+                  as List)
+              .cast<String>();
+      expect(videos.first, 'gs://existing/old.mp4',
+          reason: 'draft.videos must come before the freshly-uploaded clip');
+      expect(videos, hasLength(2));
+    });
+
+    test('throws StateError when no signed-in user', () async {
+      final tmp = await Directory.systemTemp.createTemp('sweep_unauth');
+      addTearDown(() => tmp.delete(recursive: true));
+      final clip = File('${tmp.path}/c.mp4')..writeAsBytesSync([1]);
+      final unauth = IncomingDeviceRepository(
+        firestore: firestore,
+        storage: storage,
+        auth: MockFirebaseAuth(signedIn: false),
+      );
+      expect(
+        () => unauth.createIncomingVideo(
+            const DraftDevice(brand: '', model: ''),
+            localVideoPath: clip.path),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('rolls back the uploaded clip and writes no doc when the Firestore '
+        'write fails', () async {
+      // Symmetric with createIncoming's write-fail rollback: the clip uploads,
+      // then .set throws, and the already-uploaded object must be
+      // compensated-deleted, leaving no orphan and no doc.
+      final tmp = await Directory.systemTemp.createTemp('sweep_rollback');
+      addTearDown(() => tmp.delete(recursive: true));
+      final clip = File('${tmp.path}/c.mp4')..writeAsBytesSync([1, 2]);
+
+      final failingRepo = IncomingDeviceRepository(
+        firestore: _FailingFirestore(firestore),
+        storage: storage,
+        auth: auth,
+      );
+
+      await expectLater(
+        failingRepo.createIncomingVideo(
+            const DraftDevice(brand: '', model: ''),
+            localVideoPath: clip.path),
+        throwsA(
+          isA<FirebaseException>().having((e) => e.code, 'code', 'unavailable'),
+        ),
+      );
+
+      expect(storage.storedFilesMap, isEmpty,
+          reason: 'the uploaded clip must be compensated-deleted on write fail');
+      expect((await firestore.collection('incoming').get()).docs, isEmpty);
+    });
+  });
+
   group('PersistErrorKind.fromCode', () {
     test('maps known Firestore codes to typed kinds', () {
       expect(PersistErrorKind.fromCode('permission-denied'),

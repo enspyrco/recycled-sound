@@ -57,6 +57,22 @@ void main() {
       tester.state(find.byType(CaptureScreen)) as WidgetsBindingObserver;
 
   Future<void> pumpCapture(WidgetTester tester) async {
+    // Once the camera reaches ready the live UI mounts SweepGuide, whose
+    // turntable precaches 24 frames that the headless flutter_test bundle can't
+    // load. Those errors fire across async frames and would otherwise abort
+    // these controller-lifecycle assertions; filter only them at the onError
+    // source (delegating everything else) so real failures still surface.
+    final prior = FlutterError.onError;
+    FlutterError.onError = (details) {
+      final s = details.exceptionAsString();
+      if (s.contains('Unable to load asset') ||
+          s.contains('failed to precache')) {
+        return;
+      }
+      prior?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = prior);
+
     await tester.pumpWidget(
       const ProviderScope(
         child: MaterialApp(home: CaptureScreen()),

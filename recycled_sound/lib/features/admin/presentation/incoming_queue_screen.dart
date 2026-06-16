@@ -251,24 +251,43 @@ class _QueueRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            // Quick-Approve is the no-edits fast path: it calls promoteToDevice
+            // directly, skipping the review screen. That's ONLY safe when the
+            // volunteer flagged nothing — a device with unresolved
+            // needsInputFields must NOT be promotable via this bypass, or the
+            // whole handoff is defeated (a flagged device could land in
+            // devices/ with its flagged fields still undetermined). So when
+            // anything is flagged we suppress Approve and force the row's
+            // tap-through to review, where Pass is a conscious human action.
             SizedBox(
               width: 120,
-              child: FilledButton.icon(
-                onPressed: busy ? null : onApprove,
-                icon: busy
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.check, size: 16),
-                label: Text(busy ? 'Promoting' : 'Approve'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                ),
-              ),
+              child: flagged > 0
+                  ? OutlinedButton.icon(
+                      onPressed: onReview,
+                      icon: const Icon(Icons.rate_review_outlined, size: 16),
+                      label: const Text('Review'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.warning,
+                        side: const BorderSide(color: AppColors.warning),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    )
+                  : FilledButton.icon(
+                      onPressed: busy ? null : onApprove,
+                      icon: busy
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.check, size: 16),
+                      label: Text(busy ? 'Promoting' : 'Approve'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    ),
             ),
           ],
         ),

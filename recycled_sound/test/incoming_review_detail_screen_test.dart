@@ -127,6 +127,28 @@ void main() {
     expect(find.textContaining('All flagged fields resolved'), findsNothing);
   });
 
+  testWidgets('real scan keys map to their audiologist labels in the banner',
+      (tester) async {
+    // 'type' is the scan model's Style field; it must render as "Style", not
+    // the raw key.
+    await _pump(tester, device: _device(needsInputFields: ['type']));
+    expect(find.textContaining('Style'), findsWidgets);
+    expect(find.textContaining('type'), findsNothing);
+  });
+
+  testWidgets(
+      'an identity-field flag (brand) renders as "Make" and stays unresolved',
+      (tester) async {
+    // brand/model/type/batterySize are read-only on this screen, so a flag on
+    // one can never be resolved here — the banner must persist with its
+    // friendly label even though there's no editable affordance for it.
+    await _pump(tester, device: _device(needsInputFields: ['brand']));
+    expect(find.textContaining('Needs your input (1)'), findsOneWidget);
+    expect(find.textContaining('Make'), findsWidgets);
+    // No "all resolved" banner — it can't be resolved here.
+    expect(find.textContaining('All flagged fields resolved'), findsNothing);
+  });
+
   testWidgets('Pass QA persists edits then promotes, navigating to the queue',
       (tester) async {
     final repo = await _pump(tester,

@@ -138,13 +138,16 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
   /// audiologist fills fields in. A key counts resolved once its field holds a
   /// non-empty / non-`unspecified` value.
   Set<String> get _unresolved {
+    // Only the three human-determined fields editable ON THIS SCREEN can be
+    // resolved here. The identity keys (`brand`/`model`/`type`/`batterySize`)
+    // are read-only scanner output on this surface, so they fall through to
+    // `false` and a flag on them STAYS VISIBLE in the banner — the audiologist
+    // sees it and resolves it elsewhere / by overriding, rather than it being
+    // silently treated as done.
     bool resolved(String key) => switch (key) {
           'tubing' => _tubing != Tubing.unspecified,
-          'powerSource' || 'battery' => _powerSource != PowerSource.unspecified,
+          'powerSource' => _powerSource != PowerSource.unspecified,
           'colour' => _colour.text.trim().isNotEmpty,
-          'location' => _location.text.trim().isNotEmpty,
-          // A flagged key with no edit affordance here can't be resolved on
-          // this screen — keep it visible rather than silently dropping it.
           _ => false,
         };
     return widget.device.needsInputFields
@@ -170,6 +173,13 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     );
   }
 
+  /// Pass QA is deliberately NOT hard-gated on `_unresolved.isEmpty`. The
+  /// audiologist is the final human-in-the-loop authority, and the identity
+  /// flags (`brand`/`model`/`type`/`batterySize`) can't be resolved on this
+  /// screen — gating on them would deadlock those devices. The real
+  /// enforcement boundary is in the queue: a flagged device can no longer be
+  /// promoted via the silent quick-Approve bypass, so it MUST route through
+  /// this screen, where Pass is a conscious, banner-informed human action.
   Future<void> _passQa() async {
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
@@ -308,9 +318,7 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                           : (v) => setState(() => _tubing = v),
                     ),
                     const SizedBox(height: 16),
-                    _FieldLabel('Power source',
-                        flagged: _isFlagged('powerSource') ||
-                            _isFlagged('battery')),
+                    _FieldLabel('Power', flagged: _isFlagged('powerSource')),
                     _PowerSourcePicker(
                       value: _powerSource,
                       onChanged: _busy
@@ -359,10 +367,13 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                       enabled: !_busy,
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'[0-9.]')),
-                      ],
+                      // A single-decimal money formatter: the old per-char
+                      // `[0-9.]` allow-filter let `1.2.3` through, which
+                      // `double.tryParse` silently collapsed to 0 — quiet data
+                      // loss on a cost field. This constrains the WHOLE string
+                      // to `digits . up-to-2-digits`, so a second `.` is
+                      // rejected at keystroke time and the parse can't fail.
+                      inputFormatters: const [_CurrencyInputFormatter()],
                       decoration: const InputDecoration(
                         prefixText: r'$ ',
                         hintText: '0.00',
@@ -427,16 +438,18 @@ class _NeedsInputBanner extends StatelessWidget {
   const _NeedsInputBanner({required this.keys});
   final Set<String> keys;
 
+  /// The 7 real scan-model field keys → audiologist-facing labels, matching
+  /// `ScanResult.sevenFields` (scan_result.dart). These are the ONLY keys that
+  /// ever appear in `needsInputFields`; any unknown key falls back to its raw
+  /// string in the banner rather than being mislabelled.
   static const _labels = {
-    'tubing': 'Tubing',
-    'powerSource': 'Power source',
-    'battery': 'Power source',
-    'colour': 'Colour',
-    'location': 'Location',
-    'style': 'Style',
-    'make': 'Make',
+    'brand': 'Make',
     'model': 'Model',
-    'batterySize': 'Battery size',
+    'type': 'Style',
+    'tubing': 'Tubing',
+    'powerSource': 'Power',
+    'batterySize': 'Battery Size',
+    'colour': 'Colour',
   };
 
   @override
@@ -525,6 +538,30 @@ class _FieldLabel extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Constrains a text field to a well-formed decimal amount — digits, an
+/// optional single `.`, and at most two fractional digits. Rejects any edit
+/// that would produce a malformed string (e.g. a second `.`), so the value
+/// always round-trips cleanly through `double.parse` and never silently
+/// collapses to 0.
+class _CurrencyInputFormatter extends TextInputFormatter {
+  const _CurrencyInputFormatter();
+
+  static final _valid = RegExp(r'^\d*\.?\d{0,2}$');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Empty is always allowed (lets the user clear the field).
+    if (newValue.text.isEmpty || _valid.hasMatch(newValue.text)) {
+      return newValue;
+    }
+    // Reject the edit — keep the last valid value.
+    return oldValue;
   }
 }
 

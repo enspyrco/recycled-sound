@@ -427,6 +427,29 @@ describe('Firestore: devices/', () => {
       );
     });
 
+  it('NEGATIVE: Bypass A — whitespace-only value with cleared flag is rejected',
+    async () => {
+      // The UI trims, so '   ' is semantically empty; the rule must agree or a
+      // direct write sneaks a blank value past as "resolved" (Carnot #89).
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/bypassA5'), {
+          ...CLEAN_DEVICE,
+          brand: '   ',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: Bypass A — update to a whitespace-only value without flagging it',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/bypassA6'), { ...CLEAN_DEVICE }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/bypassA6'), {
+          colour: '  \t ',
+        })
+      );
+    });
+
   it('POSITIVE: an empty value IS allowed when properly declared as a blocker '
     + '(consistency, not completeness)', async () => {
       // The rule enforces value↔flag CONSISTENCY, not blanket completeness: an

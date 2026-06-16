@@ -114,13 +114,17 @@ service cloud.firestore {
         return !('needsInputFields' in request.resource.data) ||
           request.resource.data.needsInputFields.size() == 0;
       }
-      // A clinical field is UNRESOLVED when its value is missing, empty, or the
-      // 'Unknown' volunteer-flag sentinel — the same notion the review screen's
-      // _deSentinel + identityResolved use, enforced here at the boundary.
+      // A clinical field is UNRESOLVED when its value is missing, blank, or the
+      // 'Unknown' volunteer-flag sentinel — matching the review screen, which
+      // resolves on `text.trim().isNotEmpty` and persists `.trim()`ed. The
+      // `^[ \t\r\n]*$` match treats whitespace-only (and exact empty) as blank,
+      // so a direct write of `brand: '   '` can't pass as "resolved" while the
+      // UI would have trimmed it to empty (Carnot, PR #89 re-review — Bypass A
+      // in Maxwell's-demon clothing).
       function valueUnresolved(key) {
         return !(key in request.resource.data) ||
           !(request.resource.data[key] is string) ||
-          request.resource.data[key] == '' ||
+          request.resource.data[key].matches('^[ \t\r\n]*$') ||
           request.resource.data[key] == 'Unknown';
       }
       function declaredBlocker(key) {

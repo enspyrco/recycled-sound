@@ -109,25 +109,40 @@ service cloud.firestore {
         return request.auth != null &&
           request.auth.token.role in ['audiologist', 'admin'];
       }
-      // No blocker keys = clean promotion. A missing field is treated as empty.
+      // No blocker keys on the RESULT = clean. A missing field is empty.
       function noBlockers() {
         return !('needsInputFields' in request.resource.data) ||
           request.resource.data.needsInputFields.size() == 0;
       }
-      // A flagged device may only be created with a qaOverride attributed to the
-      // caller — the audit record can't be forged for someone else.
+      // A flagged result carries a qaOverride attributed to the caller — the
+      // audit record can't be forged for someone else.
       function hasSelfAttributedOverride() {
         return 'qaOverride' in request.resource.data &&
           request.resource.data.qaOverride.overriddenBy == request.auth.uid;
       }
+      // The blocker set is identical to what's already stored — an update that
+      // edits OTHER fields (servicing, status) on an already-justified flagged
+      // device, without re-crossing the intake boundary. Guarded so neither
+      // side's missing field throws.
+      function blockersUnchanged() {
+        return ('needsInputFields' in request.resource.data)
+            == ('needsInputFields' in resource.data) &&
+          (!('needsInputFields' in request.resource.data) ||
+            request.resource.data.needsInputFields == resource.data.needsInputFields);
+      }
 
       allow read: if request.auth != null;
-      // Create crosses the trust boundary: clean OR a self-attributed override.
+      // Create crosses the trust boundary: the result must be clean OR carry a
+      // self-attributed override.
       allow create: if isElevated() &&
         (noBlockers() || hasSelfAttributedOverride());
-      // Post-promotion edits (servicing, status, matching) and deletes stay
-      // elevated-only; they don't re-cross the intake boundary.
-      allow update, delete: if isElevated();
+      // Update may NOT introduce/expand blockers without a fresh self-attributed
+      // override — that would smuggle a flagged device in via the side door
+      // (Carnot, PR #87). But an update that leaves the blocker set unchanged
+      // (servicing/status edits on an already-overridden device) is fine.
+      allow update: if isElevated() &&
+        (noBlockers() || hasSelfAttributedOverride() || blockersUnchanged());
+      allow delete: if isElevated();
     }
 
     // Catalog: read-only for all authed users, admin-writable

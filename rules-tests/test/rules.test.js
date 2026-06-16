@@ -218,6 +218,34 @@ describe('Firestore: devices/', () => {
         })
       );
     });
+
+  // The side door (Carnot, PR #87 re-review): create clean, then UPDATE to add
+  // blockers with no override must be rejected — otherwise the create-only gate
+  // is trivially bypassed.
+  it('NEGATIVE: cannot update a clean device to add blockers without override',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev9'), { brand: 'Oticon' }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/dev9'), {
+          needsInputFields: ['tubing'],
+        })
+      );
+    });
+
+  it('POSITIVE: servicing edit on an already-overridden device (blockers '
+    + 'unchanged) is allowed', async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev10'), {
+        brand: 'Oticon',
+        needsInputFields: ['tubing'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['tubing'] },
+      }));
+      // A different elevated user edits servicing notes; blocker set untouched.
+      await assertSucceeds(
+        updateDoc(doc(asAdmin().firestore(), 'devices/dev10'), {
+          servicingNotes: 'Re-tubed',
+        })
+      );
+    });
 });
 
 describe('Firestore: users/ role self-assignment', () => {

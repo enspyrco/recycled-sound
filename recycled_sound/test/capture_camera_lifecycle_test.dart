@@ -65,8 +65,11 @@ void main() {
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
       final s = details.exceptionAsString();
-      if (s.contains('Unable to load asset') ||
-          s.contains('failed to precache')) {
+      // Scoped tightly to the turntable frames — an unrelated missing asset
+      // must still fail the test rather than be silently swallowed.
+      final isAssetError =
+          s.contains('Unable to load asset') || s.contains('failed to precache');
+      if (isAssetError && s.contains('capture_guide/aid_turntable')) {
         return;
       }
       prior?.call(details);

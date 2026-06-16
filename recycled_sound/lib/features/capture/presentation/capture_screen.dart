@@ -267,13 +267,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         !controller.value.isInitialized) {
       return;
     }
+    // Claim the recording state SYNCHRONOUSLY, before the await, so a bouncy
+    // double-tap can't fire two concurrent startVideoRecording calls into the
+    // plugin (a CameraException). The second tap sees `_recording == true` (and
+    // the button has already flipped to Stop) and bails. If the hardware start
+    // throws, release the claim. The SweepGuide ring starts a few hundred ms
+    // before the hardware confirms — negligible against a ~12s sweep.
+    setState(() => _recording = true);
     try {
       await controller.startVideoRecording();
       if (!mounted || _disposed) return;
       HapticFeedback.mediumImpact();
-      setState(() => _recording = true);
     } catch (e) {
       if (mounted) {
+        setState(() => _recording = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Could not start recording: $e'),
@@ -310,6 +317,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       final id =
           await repo.createIncomingVideo(draft, localVideoPath: clip.path);
 
+      // If the volunteer tapped close (`context.go('/')`) while the upload was
+      // in flight, the screen is gone — the clip + doc still persisted (good),
+      // but we must NOT yank navigation back to the device or post a snackbar
+      // on a defunct messenger. Leaving mid-upload = continue silently.
+      if (!mounted || _disposed) return;
       messenger.showSnackBar(
         const SnackBar(
           content: Text('Sweep saved'),
@@ -318,7 +330,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       );
       router.go('/devices/$id');
     } on FirebaseException catch (e) {
-      if (mounted) setState(() => _uploading = false);
+      if (!mounted || _disposed) return;
+      setState(() => _uploading = false);
       messenger.showSnackBar(
         SnackBar(
           content: Text(PersistErrorKind.fromCode(e.code).userMessage),
@@ -326,7 +339,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         ),
       );
     } catch (_) {
-      if (mounted) setState(() => _uploading = false);
+      if (!mounted || _disposed) return;
+      setState(() => _uploading = false);
       messenger.showSnackBar(
         SnackBar(
           content: Text(PersistErrorKind.unknown.userMessage),

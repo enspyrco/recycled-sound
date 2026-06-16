@@ -98,8 +98,11 @@ void ignoreTurntableAssetErrors() {
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
     final s = details.exceptionAsString();
-    if (s.contains('Unable to load asset') ||
-        s.contains('failed to precache')) {
+    // Scope tightly to the turntable frames — an UNRELATED missing asset in
+    // the same widget tree must still fail the test, not be silently swallowed.
+    final isAssetError =
+        s.contains('Unable to load asset') || s.contains('failed to precache');
+    if (isAssetError && s.contains('capture_guide/aid_turntable')) {
       return;
     }
     prior?.call(details);

@@ -40,6 +40,7 @@ void main() {
         'donorId': 'donor-1',
         'scanId': 'scan-1',
         'photos': ['gs://b/p/0.jpg', 'gs://b/p/1.jpg'],
+        'videos': ['gs://b/p/sweep_1.mp4'],
         'createdAt': Timestamp.fromDate(DateTime.utc(2026, 1, 1)),
         'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 2, 1)),
       });
@@ -58,6 +59,7 @@ void main() {
       expect(d.auracast, isFalse);
       expect(d.accessories, ['charger', 'dome kit']);
       expect(d.photos, hasLength(2));
+      expect(d.videos, ['gs://b/p/sweep_1.mp4']);
       expect(d.servicingCost, closeTo(25.5, 1e-6));
       // Timestamp.toDate returns a local-zone DateTime — compare by epoch
       // milliseconds rather than assuming a specific zone.
@@ -78,6 +80,7 @@ void main() {
       expect(d.remoteFT, isFalse);
       expect(d.accessories, isEmpty);
       expect(d.photos, isEmpty);
+      expect(d.videos, isEmpty);
       expect(d.qaStatus, QaStatus.pendingQa);
       expect(d.status, DeviceStatus.donated);
       expect(d.servicingCost, 0);
@@ -115,6 +118,7 @@ void main() {
       expect(map['batterySize'], '13');
       expect(map['accessories'], isEmpty);
       expect(map['photos'], isEmpty);
+      expect(map['videos'], isEmpty);
       expect(map['needsInputFields'], ['tubing']);
       // Enums serialized to their wire form
       expect(map['qaStatus'], 'pending_qa');

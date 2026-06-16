@@ -894,6 +894,22 @@ describe('Storage: captures/{uid}/**', () => {
     const bobRef = ref(asBob().storage(), aliceSweep);
     await assertFails(uploadBytes(bobRef, PNG_1x1, VIDEO_META));
   });
+
+  // Extension ↔ content-type coupling: the `videos` field must stay disjoint
+  // from `photos`, so a video may ONLY live at a `.mp4` path and an image may
+  // NOT. These pin the gate that enforces the invariant on the wire.
+  it('NEGATIVE: a video at a photo (.jpg) path is rejected', async () => {
+    // Smuggling video/mp4 to captures/alice/dev1/0.jpg would land it in the
+    // photos array and 404 the image gallery — the rule must reject it.
+    const ref_ = ref(asAlice().storage(), 'captures/alice/dev1/0.jpg');
+    await assertFails(uploadBytes(ref_, PNG_1x1, VIDEO_META));
+  });
+
+  it('NEGATIVE: an image at a sweep (.mp4) path is rejected', async () => {
+    const ref_ =
+        ref(asAlice().storage(), 'captures/alice/dev1/sweep_123.mp4');
+    await assertFails(uploadBytes(ref_, PNG_1x1, IMG_META));
+  });
 });
 
 // Hardened transient scan-mode bucket: scans/{uid}/**. Same owner-or-elevated

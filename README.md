@@ -275,7 +275,7 @@ Published literature reports ~21% OCR accuracy lift from SR on document images. 
 
 ```bash
 # Repo
-git clone https://github.com/nickmeinhold/recycled-sound.git
+git clone https://github.com/enspyrco/recycled-sound.git
 cd recycled-sound
 
 # Flutter side
@@ -326,13 +326,13 @@ The iOS app's deployment target is iOS 15.5. Object Capture requires iOS 17+ on 
 
 ## Links
 
-- **Wireframes:** https://nickmeinhold.github.io/recycled-sound/
+- **Wireframes:** https://enspyrco.github.io/recycled-sound/
 - **Figma:** https://www.figma.com/design/b86mwNrRnm5lbxawcVZb64/Recycled-Sound
-- **Privacy policy:** https://nickmeinhold.github.io/recycled-sound/privacy.html
+- **Privacy policy:** https://enspyrco.github.io/recycled-sound/privacy.html
 - **Kanban:** https://tasks.xdeca.com/boards/tqy0nch0m8tm
 - **Knowledge base:** https://kb.xdeca.com/collection/recycled-sound-9y9o7u1sZ1
 - **Arches Audiology:** https://www.archesaudiology.com.au/
-- **GitHub:** https://github.com/nickmeinhold/recycled-sound
+- **GitHub:** https://github.com/enspyrco/recycled-sound
 
 ## License
 

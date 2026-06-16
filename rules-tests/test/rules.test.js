@@ -78,6 +78,20 @@ function seedStorage(path) {
   );
 }
 
+// A value↔flag-consistent clean device: all seven clinical fields carry real
+// values and nothing is flagged. The devices/ rules now reject any write where a
+// clinical field is empty/sentinel but not declared in needsInputFields (Bypass
+// A, #89), so a clean write MUST be complete. Spread + override for variants.
+const CLEAN_DEVICE = {
+  brand: 'Oticon',
+  model: 'More 1',
+  type: 'BTE',
+  tubing: 'Slim',
+  powerSource: 'Battery',
+  batterySize: '13',
+  colour: 'Charcoal',
+};
+
 describe('Firestore: incoming/', () => {
   it('NEGATIVE: user A cannot read user B\'s incoming doc', async () => {
     await seed((db) =>
@@ -155,6 +169,39 @@ describe('Firestore: incoming/', () => {
     );
   });
 
+  // #783: the audiologist corrects a scanner-read identity field during review.
+  // They're elevated, so the rules let them update freely (the creator allow-list
+  // ALSO lists brand/model/type/batterySize, so this never needed a rules change
+  // — these assert the editable-identity path is permitted, not blocked).
+  it('POSITIVE: audiologist can correct an identity field on an incoming doc',
+    async () => {
+      await seed((db) =>
+        setDoc(doc(db, 'incoming/inc1'), {
+          createdBy: 'alice',
+          brand: 'Unknown',
+          needsInputFields: ['brand'],
+        })
+      );
+      await assertSucceeds(
+        updateDoc(doc(asAudiologist().firestore(), 'incoming/inc1'), {
+          brand: 'Oticon',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('POSITIVE: creator can also correct an identity field (allow-listed)',
+    async () => {
+      await seed((db) =>
+        setDoc(doc(db, 'incoming/inc1'), { createdBy: 'alice', brand: 'Unknown' })
+      );
+      await assertSucceeds(
+        updateDoc(doc(asAlice().firestore(), 'incoming/inc1'), {
+          brand: 'Oticon',
+        })
+      );
+    });
+
   it('NEGATIVE: create with mismatched createdBy is rejected', async () => {
     await assertFails(
       setDoc(doc(asAlice().firestore(), 'incoming/inc2'), {
@@ -167,31 +214,34 @@ describe('Firestore: incoming/', () => {
 describe('Firestore: devices/', () => {
   it('NEGATIVE: non-audiologist cannot write devices/', async () => {
     await assertFails(
-      setDoc(doc(asAlice().firestore(), 'devices/dev1'), { brand: 'Oticon' })
+      setDoc(doc(asAlice().firestore(), 'devices/dev1'), { ...CLEAN_DEVICE })
     );
   });
 
-  it('POSITIVE: audiologist can write devices/', async () => {
+  it('POSITIVE: audiologist can write a complete (clean) device', async () => {
     await assertSucceeds(
       setDoc(doc(asAudiologist().firestore(), 'devices/dev1'), {
-        brand: 'Oticon',
+        ...CLEAN_DEVICE,
       })
     );
   });
 
   it('POSITIVE: any authed user can read devices/', async () => {
-    await seed((db) => setDoc(doc(db, 'devices/dev1'), { brand: 'Oticon' }));
+    await seed((db) => setDoc(doc(db, 'devices/dev1'), { ...CLEAN_DEVICE }));
     await assertSucceeds(getDoc(doc(asAlice().firestore(), 'devices/dev1')));
   });
 
   // Trust-boundary gate enforced at the backend (PR #87) — a flagged device
   // cannot be created in devices/ without a self-attributed override, even by
   // an audiologist writing directly (bypassing the client promoteToDevice).
+  // The doc is otherwise complete so this isolates the OVERRIDE gate, not the
+  // value↔flag consistency check (#89).
   it('NEGATIVE: audiologist cannot create a flagged device without override',
     async () => {
       await assertFails(
         setDoc(doc(asAudiologist().firestore(), 'devices/flagged'), {
-          brand: 'Oticon',
+          ...CLEAN_DEVICE,
+          tubing: '',
           needsInputFields: ['tubing'],
         })
       );
@@ -201,7 +251,8 @@ describe('Firestore: devices/', () => {
     + 'is rejected', async () => {
       await assertFails(
         setDoc(doc(asAudiologist().firestore(), 'devices/flagged2'), {
-          brand: 'Oticon',
+          ...CLEAN_DEVICE,
+          tubing: '',
           needsInputFields: ['tubing'],
           qaOverride: { overriddenBy: 'someone-else', fields: ['tubing'] },
         })
@@ -212,7 +263,8 @@ describe('Firestore: devices/', () => {
     async () => {
       await assertSucceeds(
         setDoc(doc(asAudiologist().firestore(), 'devices/flagged3'), {
-          brand: 'Oticon',
+          ...CLEAN_DEVICE,
+          tubing: '',
           needsInputFields: ['tubing'],
           qaOverride: { overriddenBy: 'aud1', fields: ['tubing'] },
         })
@@ -224,9 +276,10 @@ describe('Firestore: devices/', () => {
   // is trivially bypassed.
   it('NEGATIVE: cannot update a clean device to add blockers without override',
     async () => {
-      await seed((db) => setDoc(doc(db, 'devices/dev9'), { brand: 'Oticon' }));
+      await seed((db) => setDoc(doc(db, 'devices/dev9'), { ...CLEAN_DEVICE }));
       await assertFails(
         updateDoc(doc(asAudiologist().firestore(), 'devices/dev9'), {
+          tubing: '',
           needsInputFields: ['tubing'],
         })
       );
@@ -235,7 +288,8 @@ describe('Firestore: devices/', () => {
   it('POSITIVE: servicing edit on an already-overridden device (blockers '
     + 'unchanged) is allowed', async () => {
       await seed((db) => setDoc(doc(db, 'devices/dev10'), {
-        brand: 'Oticon',
+        ...CLEAN_DEVICE,
+        tubing: '',
         needsInputFields: ['tubing'],
         qaOverride: { overriddenBy: 'aud1', fields: ['tubing'] },
       }));
@@ -252,13 +306,15 @@ describe('Firestore: devices/', () => {
   it('NEGATIVE: cannot expand blockers reusing the existing override',
     async () => {
       await seed((db) => setDoc(doc(db, 'devices/dev11'), {
-        brand: 'Oticon',
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
         needsInputFields: ['brand'],
         qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
       }));
-      // Same override object, but blockers grow — denied.
+      // Same override object, but blockers grow (colour cleared too) — denied.
       await assertFails(
         updateDoc(doc(asAudiologist().firestore(), 'devices/dev11'), {
+          colour: '',
           needsInputFields: ['brand', 'colour'],
         })
       );
@@ -267,14 +323,143 @@ describe('Firestore: devices/', () => {
   it('POSITIVE: expanding blockers WITH a fresh self-attributed override is '
     + 'allowed', async () => {
       await seed((db) => setDoc(doc(db, 'devices/dev12'), {
-        brand: 'Oticon',
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
         needsInputFields: ['brand'],
         qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
       }));
       await assertSucceeds(
         updateDoc(doc(asAudiologist().firestore(), 'devices/dev12'), {
+          colour: '',
           needsInputFields: ['brand', 'colour'],
           qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+        })
+      );
+    });
+
+  // #783: identity fields (brand/model/type/batterySize) are now editable on the
+  // review screen, so a flagged IDENTITY field can be RESOLVED by correcting its
+  // value (the flag drops out of needsInputFields) — not only overridden. The
+  // boundary gates on the resulting flag set regardless of which field type
+  // produced the flag, so these assert the identity path lands on the same gate.
+  it('POSITIVE: identity-resolved promotion (brand corrected, no flags) is clean',
+    async () => {
+      // The audiologist fixed brand → flag set empty → noBlockers() → clean.
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/id1'), {
+          ...CLEAN_DEVICE,
+          brand: 'Oticon',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: an unresolved IDENTITY flag still needs an override',
+    async () => {
+      // Same gate as a clinical flag — a leftover brand flag without an override
+      // is rejected at the boundary.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/id2'), {
+          ...CLEAN_DEVICE,
+          brand: 'Unknown',
+          needsInputFields: ['brand'],
+        })
+      );
+    });
+
+  it('POSITIVE: an uncorrected IDENTITY flag promotes WITH a self-override',
+    async () => {
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/id3'), {
+          ...CLEAN_DEVICE,
+          brand: 'Unknown',
+          needsInputFields: ['brand'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+        })
+      );
+    });
+
+  // ── Value↔flag consistency: Bypass A, closed (cage-match PR #89) ──────────
+  // The gate trusts the client's needsInputFields. Before #89 a client could
+  // claim a field resolved (drop it from the set) while its VALUE was still
+  // empty/sentinel — sneaking an unresolved field into the register clean, with
+  // no override and no audit. These assert the boundary now rejects that.
+  it('NEGATIVE: Bypass A — empty identity value with cleared flag is rejected',
+    async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/bypassA1'), {
+          ...CLEAN_DEVICE,
+          brand: '', // empty, but NOT declared a blocker → inconsistent
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: Bypass A — sentinel value with cleared flag is rejected',
+    async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/bypassA2'), {
+          ...CLEAN_DEVICE,
+          model: 'Unknown', // sentinel, undeclared → inconsistent
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: Bypass A — a missing clinical field with no flag is rejected',
+    async () => {
+      const { colour, ...withoutColour } = CLEAN_DEVICE;
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/bypassA3'), {
+          ...withoutColour, // colour absent entirely, undeclared → inconsistent
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: Bypass A — update that empties a value without flagging it',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/bypassA4'), { ...CLEAN_DEVICE }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/bypassA4'), {
+          colour: '', // cleared but not flagged → inconsistent
+        })
+      );
+    });
+
+  it('NEGATIVE: Bypass A — whitespace-only value with cleared flag is rejected',
+    async () => {
+      // The UI trims, so '   ' is semantically empty; the rule must agree or a
+      // direct write sneaks a blank value past as "resolved" (Carnot #89).
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/bypassA5'), {
+          ...CLEAN_DEVICE,
+          brand: '   ',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: Bypass A — update to a whitespace-only value without flagging it',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/bypassA6'), { ...CLEAN_DEVICE }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/bypassA6'), {
+          colour: '  \t ',
+        })
+      );
+    });
+
+  it('POSITIVE: an empty value IS allowed when properly declared as a blocker '
+    + '(consistency, not completeness)', async () => {
+      // The rule enforces value↔flag CONSISTENCY, not blanket completeness: an
+      // empty field is fine as long as it is declared + overridden.
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/consistent1'), {
+          ...CLEAN_DEVICE,
+          colour: '',
+          needsInputFields: ['colour'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['colour'] },
         })
       );
     });

@@ -614,6 +614,45 @@ describe('Firestore: devices/', () => {
       );
     });
 
+  it('NEGATIVE: #792 — UPDATE forging qaOverride.overriddenBy onto another uid '
+    + '(coverage intact, blockers unchanged) is rejected', async () => {
+      // Carnot #792 2nd pass: decoupling coverage from attribution left the
+      // blockersUnchanged arm able to REWRITE overriddenBy to a victim uid while
+      // keeping the blocker set + coverage intact — post-hoc audit attribution
+      // forgery. The arm now also requires overrideUnchanged(); a changed override
+      // must go through overrideRenewed() (fresh + SELF-attributed), so attributing
+      // it to someone else is denied.
+      await seed((db) => setDoc(doc(db, 'devices/forge1'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/forge1'), {
+          qaOverride: { overriddenBy: 'victim-uid', fields: ['brand'] },
+        })
+      );
+    });
+
+  it('POSITIVE: #792 — an elevated user re-stamping their OWN override (fresh + '
+    + 'self-attributed + covering, blockers unchanged) is allowed', async () => {
+      // The legitimate counterpart: aud1 restamps its own override (e.g. new
+      // timestamp) on an unchanged blocker set. overrideUnchanged() is false, but
+      // overrideRenewed() (fresh + self-attributed) + coverage admit it.
+      await seed((db) => setDoc(doc(db, 'devices/restamp1'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertSucceeds(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/restamp1'), {
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'], note: 're-reviewed' },
+        })
+      );
+    });
+
   it('NEGATIVE: #792 — needsInputFields as a MAP (not a list) with all valid '
     + 'values is rejected by the coverage gate (Kelvin fail-open case)',
     async () => {

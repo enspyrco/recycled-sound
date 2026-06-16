@@ -164,6 +164,20 @@ service cloud.firestore {
           (!('needsInputFields' in request.resource.data) ||
             request.resource.data.needsInputFields == resource.data.needsInputFields);
       }
+      // The qaOverride is byte-identical to what's already stored (or absent on
+      // both sides). The blockers-unchanged update arm requires this so an elevated
+      // user can edit OTHER fields (servicing, status) on an already-justified
+      // device WITHOUT being able to rewrite the audit record — in particular
+      // forging qaOverride.overriddenBy onto another uid while keeping coverage
+      // intact (Carnot #792 2nd pass). Any change to the override on an unchanged
+      // blocker set must instead go through overrideRenewed() (fresh + SELF-
+      // attributed + covering), which is the only legitimate way to restamp it.
+      function overrideUnchanged() {
+        return ('qaOverride' in request.resource.data)
+            == ('qaOverride' in resource.data) &&
+          (!('qaOverride' in request.resource.data) ||
+            request.resource.data.qaOverride == resource.data.qaOverride);
+      }
       // A self-attributed override that is FRESH this write (not the one already
       // stored). Changing the blocker set requires renewing the override, so an
       // elevated user can't expand blockers while reusing a stale override that
@@ -256,7 +270,9 @@ service cloud.firestore {
       allow update: if isElevated() &&
         valueFlagConsistent() &&
         overrideCoversBlockers() &&
-        (noBlockers() || blockersUnchanged() || overrideRenewed());
+        (noBlockers() ||
+          (blockersUnchanged() && overrideUnchanged()) ||
+          overrideRenewed());
       allow delete: if isElevated();
     }
 

@@ -409,19 +409,37 @@ void main() {
 
     test('fromWire is tolerant: legacy/garbage/Unknown values → unspecified '
         'and never throw (#15)', () {
-      // Existing docs, a future variant, an OCR misread, and the volunteer's
-      // 'Unknown' provenance sentinel must all parse safely — the value is
-      // never the "needs input" signal (that rides on needsInputFields).
-      for (final junk in [null, '', 'Unknown', 'slim', 'BTE', '???']) {
+      // A future variant, an OCR misread, and the volunteer's 'Unknown'
+      // provenance sentinel must all parse safely — the value is never the
+      // "needs input" signal (that rides on needsInputFields). 'BTE'/'10' are
+      // values of OTHER clinical enums, never tubing/power, so they fall back.
+      for (final junk in [null, '', 'Unknown', 'BTE', '10', '???']) {
         expect(Tubing.fromWire(junk), Tubing.unspecified,
             reason: 'tubing "$junk" must fall back, not throw');
         expect(PowerSource.fromWire(junk), PowerSource.unspecified,
             reason: 'powerSource "$junk" must fall back, not throw');
       }
-      // The canonical wire strings parse to their variants and round-trip.
-      expect(Tubing.fromWire('Slim'), Tubing.slim);
-      expect(Tubing.fromWire('None'), Tubing.none);
-      expect(PowerSource.fromWire('Rechargeable'), PowerSource.rechargeable);
+      // Every closed-set value round-trips through its wire string.
+      for (final t in Tubing.values) {
+        expect(Tubing.fromWire(t.wire), t,
+            reason: '${t.name} must round-trip through "${t.wire}"');
+      }
+      for (final p in PowerSource.values) {
+        expect(PowerSource.fromWire(p.wire), p,
+            reason: '${p.name} must round-trip through "${p.wire}"');
+      }
+      // Auto-healing (#801): legacy mixed-case / padded variants recover to
+      // their canonical enum rather than collapsing to unspecified and being
+      // blanked on the next save — mirroring Style/BatterySize (#90). The
+      // confirm flow rewrites these fields on every save, so a case-sensitive
+      // parse of a legacy lowercase value would silently empty it.
+      expect(Tubing.fromWire('slim'), Tubing.slim);
+      expect(Tubing.fromWire(' Standard '), Tubing.standard);
+      expect(Tubing.fromWire('NONE'), Tubing.none);
+      expect(PowerSource.fromWire('battery'), PowerSource.battery);
+      expect(PowerSource.fromWire(' rechargeable '), PowerSource.rechargeable);
+      // Output stays canonical mixed-case so the devices/ rules contract is
+      // untouched (the value↔flag check reads these exact strings).
       expect(Tubing.slim.wire, 'Slim');
       expect(PowerSource.rechargeable.wire, 'Rechargeable');
       expect(Tubing.unspecified.wire, '');

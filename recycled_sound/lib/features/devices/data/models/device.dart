@@ -286,6 +286,7 @@ class Device {
     this.photos = const [],
     this.needsInputFields = const [],
     this.unrecognisedNeedsInput = const [],
+    this.qaOverride,
     this.createdAt,
     this.updatedAt,
   });
@@ -348,6 +349,12 @@ class Device {
   /// Almost always empty for app-written docs (the writer only emits real keys).
   final List<String> unrecognisedNeedsInput;
 
+  /// Set when this device was promoted into `devices/` via a deliberate
+  /// audiologist override of unresolved flags (see [QaOverride]). Null on the
+  /// clean path (promoted with everything resolved) and on every `incoming/`
+  /// doc. Its presence is the audit trail for "promoted despite flags".
+  final QaOverride? qaOverride;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -406,6 +413,7 @@ class Device {
       photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
       needsInputFields: needsInput.known,
       unrecognisedNeedsInput: needsInput.unknown,
+      qaOverride: QaOverride.fromFirestore(d['qaOverride']),
       createdAt: ts(d['createdAt']),
       updatedAt: ts(d['updatedAt']),
     );
@@ -454,6 +462,7 @@ class Device {
     // Typed keys + any retained unrecognised keys — so a tolerant read followed
     // by a write never silently destroys a blocker we couldn't interpret.
     'needsInputFields': [...needsInputFields.toWireList(), ...unrecognisedNeedsInput],
+    if (qaOverride != null) 'qaOverride': qaOverride!.toFirestore(),
     'createdBy': createdBy,
     'createdAt': createdAt == null
         ? FieldValue.serverTimestamp()
@@ -577,4 +586,62 @@ extension Promotion on Device {
           ? Promotable(this)
           : NeedsResolution(needsInputFields,
               unrecognised: unrecognisedNeedsInput);
+}
+
+/// An audited record of an audiologist deliberately promoting a device across
+/// the `incoming/` → `devices/` trust boundary while clinical fields remained
+/// unresolved. The audiologist IS the final human-in-the-loop authority — this
+/// type doesn't *prevent* the override, it makes it explicit, attributable, and
+/// queryable instead of a silently-ungated "Pass QA" button (the exact thing the
+/// PR #85 retro rejected). Its presence on a `devices/` doc answers "who decided
+/// this device was register-ready despite N unresolved flags, when, and which
+/// flags did they accept?"
+class QaOverride {
+  const QaOverride({
+    required this.overriddenBy,
+    required this.overriddenAt,
+    this.fields = const [],
+    this.unrecognised = const [],
+  });
+
+  /// Auth uid of the audiologist/admin who authorised the promotion.
+  final String overriddenBy;
+
+  /// When the override was recorded.
+  final DateTime overriddenAt;
+
+  /// The recognised clinical fields that were still unresolved at override time.
+  final List<ClinicalField> fields;
+
+  /// Unrecognised blocker keys (legacy/typo/future) accepted by the override.
+  final List<String> unrecognised;
+
+  Map<String, dynamic> toFirestore() => {
+    'overriddenBy': overriddenBy,
+    'overriddenAt': Timestamp.fromDate(overriddenAt),
+    'fields': fields.toWireList(),
+    'unrecognised': unrecognised,
+  };
+
+  /// Tolerant parse of a persisted override map. Returns null for a missing or
+  /// malformed record (never throws) — an absent override is the common case.
+  static QaOverride? fromFirestore(Object? raw) {
+    if (raw is! Map) return null;
+    final by = raw['overriddenBy'];
+    if (by is! String || by.isEmpty) return null;
+    final at = raw['overriddenAt'];
+    final partitioned = ClinicalField.partition(raw['fields']);
+    return QaOverride(
+      overriddenBy: by,
+      overriddenAt: at is Timestamp ? at.toDate() : DateTime.fromMillisecondsSinceEpoch(0),
+      fields: partitioned.known,
+      unrecognised: [
+        ...partitioned.unknown,
+        ...switch (raw['unrecognised']) {
+          final List<dynamic> l => l.map((e) => e.toString()),
+          _ => const <String>[],
+        },
+      ],
+    );
+  }
 }

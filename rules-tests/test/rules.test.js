@@ -183,6 +183,101 @@ describe('Firestore: devices/', () => {
     await seed((db) => setDoc(doc(db, 'devices/dev1'), { brand: 'Oticon' }));
     await assertSucceeds(getDoc(doc(asAlice().firestore(), 'devices/dev1')));
   });
+
+  // Trust-boundary gate enforced at the backend (PR #87) — a flagged device
+  // cannot be created in devices/ without a self-attributed override, even by
+  // an audiologist writing directly (bypassing the client promoteToDevice).
+  it('NEGATIVE: audiologist cannot create a flagged device without override',
+    async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/flagged'), {
+          brand: 'Oticon',
+          needsInputFields: ['tubing'],
+        })
+      );
+    });
+
+  it('NEGATIVE: a flagged device with an override attributed to someone ELSE '
+    + 'is rejected', async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/flagged2'), {
+          brand: 'Oticon',
+          needsInputFields: ['tubing'],
+          qaOverride: { overriddenBy: 'someone-else', fields: ['tubing'] },
+        })
+      );
+    });
+
+  it('POSITIVE: a flagged device with a self-attributed override is allowed',
+    async () => {
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/flagged3'), {
+          brand: 'Oticon',
+          needsInputFields: ['tubing'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['tubing'] },
+        })
+      );
+    });
+
+  // The side door (Carnot, PR #87 re-review): create clean, then UPDATE to add
+  // blockers with no override must be rejected — otherwise the create-only gate
+  // is trivially bypassed.
+  it('NEGATIVE: cannot update a clean device to add blockers without override',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev9'), { brand: 'Oticon' }));
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/dev9'), {
+          needsInputFields: ['tubing'],
+        })
+      );
+    });
+
+  it('POSITIVE: servicing edit on an already-overridden device (blockers '
+    + 'unchanged) is allowed', async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev10'), {
+        brand: 'Oticon',
+        needsInputFields: ['tubing'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['tubing'] },
+      }));
+      // A different elevated user edits servicing notes; blocker set untouched.
+      await assertSucceeds(
+        updateDoc(doc(asAdmin().firestore(), 'devices/dev10'), {
+          servicingNotes: 'Re-tubed',
+        })
+      );
+    });
+
+  // Carnot #87 3rd pass: expanding blockers while REUSING the stored override
+  // (so the audit under-describes the new blockers) must be rejected.
+  it('NEGATIVE: cannot expand blockers reusing the existing override',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev11'), {
+        brand: 'Oticon',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      // Same override object, but blockers grow — denied.
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/dev11'), {
+          needsInputFields: ['brand', 'colour'],
+        })
+      );
+    });
+
+  it('POSITIVE: expanding blockers WITH a fresh self-attributed override is '
+    + 'allowed', async () => {
+      await seed((db) => setDoc(doc(db, 'devices/dev12'), {
+        brand: 'Oticon',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      await assertSucceeds(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/dev12'), {
+          needsInputFields: ['brand', 'colour'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+        })
+      );
+    });
 });
 
 describe('Firestore: users/ role self-assignment', () => {

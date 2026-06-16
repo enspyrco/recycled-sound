@@ -345,6 +345,50 @@ void main() {
       },
     );
 
+    test('qaOverride round-trips through Firestore (audit record survives)',
+        () async {
+      final d = Device(
+        id: 'ov',
+        brand: 'Phonak',
+        model: 'P90',
+        needsInputFields: const [ClinicalField.brand],
+        unrecognisedNeedsInput: const ['make'],
+        qaOverride: QaOverride(
+          overriddenBy: 'audiologist-7',
+          overriddenAt: DateTime.utc(2026, 6, 16, 2, 30),
+          fields: const [ClinicalField.brand],
+          unrecognised: const ['make'],
+        ),
+      );
+      await firestore
+          .collection('devices')
+          .doc('ov')
+          .set(d.toFirestore(createdBy: 'audiologist-7'));
+      final back = Device.fromFirestore(
+          await firestore.collection('devices').doc('ov').get());
+
+      expect(back.qaOverride, isNotNull);
+      expect(back.qaOverride!.overriddenBy, 'audiologist-7');
+      expect(back.qaOverride!.overriddenAt.toUtc(),
+          DateTime.utc(2026, 6, 16, 2, 30));
+      expect(back.qaOverride!.fields, [ClinicalField.brand]);
+      expect(back.qaOverride!.unrecognised, ['make']);
+    });
+
+    test('a device with no override has a null qaOverride after round-trip',
+        () async {
+      const d = Device(id: 'plain', brand: 'Phonak', model: 'P90');
+      await firestore
+          .collection('devices')
+          .doc('plain')
+          .set(d.toFirestore(createdBy: 'u'));
+      expect(
+          Device.fromFirestore(
+                  await firestore.collection('devices').doc('plain').get())
+              .qaOverride,
+          isNull);
+    });
+
     test('enum fields default to unspecified when absent from the document',
         () async {
       await firestore.collection('incoming').doc('bare').set({'brand': 'X'});

@@ -464,6 +464,35 @@ void main() {
       expect(BatterySize.unspecified.wire, '');
     });
 
+    test("BatterySize.fromWire('N/A') maps to rechargeable so a rechargeable "
+        "scan persists the canonical wire string (#90 cage-match)", () {
+      // The confirm screen sets battery size to 'N/A' on the Power=Rechargeable
+      // branch. That must translate to BatterySize.rechargeable (not blank), so
+      // toFirestore emits 'Rechargeable' — the unchanged wire contract — rather
+      // than silently emptying the field. (Carnot, PR #90.)
+      expect(BatterySize.fromWire('N/A'), BatterySize.rechargeable);
+      // The confirm screen parses the scanner's 'N/A' through fromWire when
+      // building the DraftDevice; the resulting enum persists 'Rechargeable'.
+      final d = Device(
+        id: 'r',
+        brand: 'GN Resound',
+        model: 'ONE 9',
+        powerSource: PowerSource.rechargeable,
+        batterySize: BatterySize.fromWire('N/A'),
+      );
+      expect(d.batterySize, BatterySize.rechargeable);
+      expect(d.toFirestore(createdBy: 'u')['batterySize'], 'Rechargeable');
+    });
+
+    test('Style/BatterySize.label shows the wire string, or "—" when '
+        'unspecified (DRY display, #90 cage-match)', () {
+      expect(Style.bte.label, 'BTE');
+      expect(Style.unspecified.label, '—');
+      expect(BatterySize.size13.label, '13');
+      expect(BatterySize.rechargeable.label, 'Rechargeable');
+      expect(BatterySize.unspecified.label, '—');
+    });
+
     test('Style/BatterySize survive a toFirestore→fromFirestore round-trip '
         'and emit the unchanged wire strings (#15)', () async {
       const d = Device(

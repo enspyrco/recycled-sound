@@ -90,6 +90,12 @@ enum Style {
     'IIC' => iic,
     _ => unspecified,
   };
+
+  /// Audiologist-facing display string. The wire abbreviation IS the label for
+  /// real values (they're standard clinical abbreviations); [unspecified] shows
+  /// as `'—'`. Single source of truth so display sites don't each re-derive the
+  /// `== unspecified ? '—' : wire` ternary (Kelvin, PR #90 cage-match).
+  String get label => this == unspecified ? '—' : wire;
 }
 
 /// Battery size — Seray's clinical field 6 (10/13/312/675/Rechargeable). Closed
@@ -122,14 +128,27 @@ enum BatterySize {
 
   /// Parse the wire form; any unrecognized/empty/legacy value (including the
   /// `'Unknown'` provenance sentinel) falls back to [unspecified]. Never throws.
+  ///
+  /// `'N/A'` maps to [rechargeable]: it is the confirm screen's established
+  /// sentinel for "rechargeable device, no disposable cell" — set ONLY on the
+  /// Power=Rechargeable branch (confirmation_screen `_ChipSelectorField`), so
+  /// `N/A` battery ≡ rechargeable. Translating it here (rather than blanking it
+  /// to [unspecified]) keeps a rechargeable scan persisting the canonical
+  /// `'Rechargeable'` wire string — the unchanged wire contract — instead of
+  /// silently emptying the field on save (Carnot, PR #90 cage-match).
   static BatterySize fromWire(String? s) => switch (s) {
     '10' => size10,
     '13' => size13,
     '312' => size312,
     '675' => size675,
-    'Rechargeable' => rechargeable,
+    'Rechargeable' || 'N/A' => rechargeable,
     _ => unspecified,
   };
+
+  /// Audiologist-facing display string. The wire value IS the label for real
+  /// values; [unspecified] shows as `'—'`. Single source of truth (Kelvin,
+  /// PR #90 cage-match).
+  String get label => this == unspecified ? '—' : wire;
 }
 
 /// Tubing type — Seray's clinical field 4. Closed set; human-determined at

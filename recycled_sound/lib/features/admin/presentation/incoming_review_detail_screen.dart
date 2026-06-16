@@ -784,10 +784,7 @@ class _StylePicker extends StatelessWidget {
       ),
       items: [
         for (final s in Style.values)
-          DropdownMenuItem(
-            value: s,
-            child: Text(s == Style.unspecified ? '—' : s.wire),
-          ),
+          DropdownMenuItem(value: s, child: Text(s.label)),
       ],
       onChanged:
           onChanged == null ? null : (v) => onChanged!(v ?? Style.unspecified),
@@ -814,10 +811,7 @@ class _BatterySizePicker extends StatelessWidget {
       ),
       items: [
         for (final b in BatterySize.values)
-          DropdownMenuItem(
-            value: b,
-            child: Text(b == BatterySize.unspecified ? '—' : b.wire),
-          ),
+          DropdownMenuItem(value: b, child: Text(b.label)),
       ],
       onChanged: onChanged == null
           ? null

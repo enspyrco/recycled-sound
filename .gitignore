@@ -23,5 +23,12 @@ runs/
 # Firebase deploy cache (local-only)
 .firebase/
 
+# Firebase emulator runtime artifacts (regenerated each `emulators:exec` run)
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+pubsub-debug.log
+database-debug.log
+
 # Local hearing-aid capture data — large binaries, kept local (accidentally committed in #83, untracked in this commit)
 data/photos_nick_aids/

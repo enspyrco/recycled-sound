@@ -173,22 +173,59 @@ service cloud.firestore {
           (!('qaOverride' in resource.data) ||
             request.resource.data.qaOverride != resource.data.qaOverride);
       }
+      // The full set of blocker keys the override accounts for: recognised
+      // clinical fields (qaOverride.fields — wire strings IDENTICAL to the
+      // needsInputFields keys, see ClinicalField.wire) UNION the raw unrecognised
+      // keys. Either list may be absent on a minimal-but-honest override (the app
+      // always stamps both, but a direct write might omit an empty one), so a
+      // missing list defaults to [] — the union never throws on a malformed map.
+      function overrideCovered() {
+        return (('fields' in request.resource.data.qaOverride) ?
+            request.resource.data.qaOverride.fields : [])
+          .concat(('unrecognised' in request.resource.data.qaOverride) ?
+            request.resource.data.qaOverride.unrecognised : []);
+      }
+      // SET-COVER (Carnot, cage-match PR #89 follow-up, claude-tasks #791): self-
+      // ATTRIBUTION is not audit ACCURACY. hasSelfAttributedOverride() only proves
+      // the override names the caller — a direct write could declare
+      // needsInputFields:['brand','colour'] while stamping qaOverride.fields:['brand'],
+      // under-describing what it actually skipped and still passing the gate. Enforce
+      // that EVERY declared blocker is covered by the override
+      // (needsInputFields ⊆ qaOverride.fields ∪ qaOverride.unrecognised), so the
+      // audit record can't silently omit a blocker the promotion waved through. The
+      // app path is already honest (the repository stamps the override FROM the
+      // verdict's own unresolved/unrecognised sets in promoteToDevice); this makes the
+      // backend independently enforce it. Vacuously true on the noBlockers/clean path.
+      // Fails CLOSED on a malicious write: if needsInputFields isn't a list, or no
+      // self-attributed override is present, the .hasAll() arm never evaluates (the
+      // earlier disjuncts short-circuit) so coverage can't be claimed — it just isn't
+      // satisfied, and the caller falls through to the deny.
+      function overrideCoversBlockers() {
+        return !('needsInputFields' in request.resource.data) ||
+          !(request.resource.data.needsInputFields is list) ||
+          request.resource.data.needsInputFields.size() == 0 ||
+          (hasSelfAttributedOverride() &&
+            overrideCovered().hasAll(request.resource.data.needsInputFields));
+      }
 
       allow read: if request.auth != null;
       // Create crosses the trust boundary: the result must be value↔flag
       // consistent (no empty/sentinel clinical field left undeclared — Bypass A,
-      // #89) AND clean OR carrying a self-attributed override.
+      // #89) AND clean OR carrying a self-attributed override that COVERS every
+      // declared blocker (set-cover, #791 — self-attribution isn't audit accuracy).
       allow create: if isElevated() &&
         valueFlagConsistent() &&
-        (noBlockers() || hasSelfAttributedOverride());
+        (noBlockers() || (hasSelfAttributedOverride() && overrideCoversBlockers()));
       // Update may NOT introduce/expand blockers except via a FRESH self-
-      // attributed override (the side door, Carnot #87), and must stay value↔flag
-      // consistent (#89). Editing other fields on an already-justified flagged
-      // device (blocker set unchanged) is fine, and cleaning all blockers off is
+      // attributed override (the side door, Carnot #87) that COVERS the new blocker
+      // set (#791), and must stay value↔flag consistent (#89). Editing other fields
+      // on an already-justified flagged device (blocker set unchanged, override
+      // already validated at write time) is fine, and cleaning all blockers off is
       // fine — provided every now-clean field actually carries a value.
       allow update: if isElevated() &&
         valueFlagConsistent() &&
-        (noBlockers() || blockersUnchanged() || overrideRenewed());
+        (noBlockers() || blockersUnchanged() ||
+          (overrideRenewed() && overrideCoversBlockers()));
       allow delete: if isElevated();
     }
 

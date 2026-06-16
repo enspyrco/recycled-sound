@@ -101,12 +101,16 @@ class _DeviceRow extends StatelessWidget {
           ),
           Expanded(
             flex: 1,
-            child: Text(device.type.isEmpty ? '—' : device.type,
+            child: Text(
+                device.type == Style.unspecified ? '—' : device.type.wire,
                 style: AppTypography.body),
           ),
           Expanded(
             flex: 1,
-            child: Text(device.batterySize.isEmpty ? '—' : device.batterySize,
+            child: Text(
+                device.batterySize == BatterySize.unspecified
+                    ? '—'
+                    : device.batterySize.wire,
                 style: AppTypography.body),
           ),
           Expanded(

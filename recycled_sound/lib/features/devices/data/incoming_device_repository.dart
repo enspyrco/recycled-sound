@@ -95,11 +95,13 @@ class ReviewEdits {
   });
 
   /// The four scanner-read identity fields the audiologist may now correct
-  /// (#783). Carry the AI's read unchanged when the audiologist doesn't edit.
+  /// (#783). brand/model stay free-text; [type] (Style) and [batterySize] are
+  /// typed closed-set pickers (#15). Carry the AI's read unchanged when the
+  /// audiologist doesn't edit.
   final String brand;
   final String model;
-  final String type;
-  final String batterySize;
+  final Style type;
+  final BatterySize batterySize;
 
   final Tubing tubing;
   final PowerSource powerSource;
@@ -385,8 +387,8 @@ class IncomingDeviceRepository {
     String id, {
     required String brand,
     required String model,
-    required String type,
-    required String batterySize,
+    required Style type,
+    required BatterySize batterySize,
     required Tubing tubing,
     required PowerSource powerSource,
     required String colour,
@@ -403,8 +405,8 @@ class IncomingDeviceRepository {
       // is what protects an empty value from crossing into devices/ unflagged.
       'brand': brand,
       'model': model,
-      'type': type,
-      'batterySize': batterySize,
+      'type': type.wire,
+      'batterySize': batterySize.wire,
       'tubing': tubing.wire,
       'powerSource': powerSource.wire,
       'colour': colour,
@@ -474,8 +476,8 @@ class IncomingDeviceRepository {
         // override.
         data['brand'] = edits.brand;
         data['model'] = edits.model;
-        data['type'] = edits.type;
-        data['batterySize'] = edits.batterySize;
+        data['type'] = edits.type.wire;
+        data['batterySize'] = edits.batterySize.wire;
         data['tubing'] = edits.tubing.wire;
         data['powerSource'] = edits.powerSource.wire;
         data['colour'] = edits.colour;

@@ -54,9 +54,9 @@ void main() {
       id: id,
       brand: 'Phonak',
       model: 'Audéo P90',
-      type: 'RIC',
+      type: Style.ric,
       year: '2021',
-      batterySize: '312',
+      batterySize: BatterySize.size312,
       qaStatus: QaStatus.passed,
       status: DeviceStatus.ready,
     );
@@ -119,9 +119,9 @@ void main() {
       id: id,
       brand: 'Oticon',
       model: 'More 1',
-      type: 'RIC',
+      type: Style.ric,
       year: '2021',
-      batterySize: '312',
+      batterySize: BatterySize.size312,
       qaStatus: QaStatus.passed,
       status: DeviceStatus.ready,
     );

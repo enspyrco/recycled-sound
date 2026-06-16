@@ -101,13 +101,16 @@ class _ReviewBody extends ConsumerStatefulWidget {
 }
 
 class _ReviewBodyState extends ConsumerState<_ReviewBody> {
-  // Identity fields — scanner-read but audiologist-correctable (#783). Each
-  // backs an editable TextField in the Identification card; a non-empty value
-  // resolves its flag (see [_unresolved]).
+  // Identity fields — scanner-read but audiologist-correctable (#783).
+  // brand/model are genuinely open sets → free-text TextFields; a non-empty
+  // value resolves the flag. type (Style) and batterySize are closed sets →
+  // typed pickers (#15), mirroring the Tubing/PowerSource pickers below; a
+  // non-`unspecified` value resolves the flag (no `_deSentinel` needed — the
+  // enums' `fromWire` already absorbs the 'Unknown' sentinel to `unspecified`).
   late final TextEditingController _brand;
   late final TextEditingController _model;
-  late final TextEditingController _type;
-  late final TextEditingController _batterySize;
+  late Style _type;
+  late BatterySize _batterySize;
   late Tubing _tubing;
   late PowerSource _powerSource;
   late final TextEditingController _colour;
@@ -135,8 +138,11 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     // uncertainty straight through the gate (fail-open on human confirmation).
     _brand = TextEditingController(text: _deSentinel(d.brand));
     _model = TextEditingController(text: _deSentinel(d.model));
-    _type = TextEditingController(text: _deSentinel(d.type));
-    _batterySize = TextEditingController(text: _deSentinel(d.batterySize));
+    // type/batterySize are already enums — a flagged `'Unknown'` was absorbed to
+    // `unspecified` at parse time, so they start at the picker's "—" segment and
+    // count as unresolved (no _deSentinel needed for these two).
+    _type = d.type;
+    _batterySize = d.batterySize;
     _tubing = d.tubing;
     _powerSource = d.powerSource;
     _colour = TextEditingController(text: d.colour);
@@ -151,8 +157,6 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
   void dispose() {
     _brand.dispose();
     _model.dispose();
-    _type.dispose();
-    _batterySize.dispose();
     _colour.dispose();
     _location.dispose();
     _servicingNotes.dispose();
@@ -184,8 +188,8 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     bool resolved(ClinicalField f) => switch (f) {
           ClinicalField.brand => identityResolved(_brand),
           ClinicalField.model => identityResolved(_model),
-          ClinicalField.type => identityResolved(_type),
-          ClinicalField.batterySize => identityResolved(_batterySize),
+          ClinicalField.type => _type != Style.unspecified,
+          ClinicalField.batterySize => _batterySize != BatterySize.unspecified,
           ClinicalField.tubing => _tubing != Tubing.unspecified,
           ClinicalField.powerSource => _powerSource != PowerSource.unspecified,
           ClinicalField.colour => _colour.text.trim().isNotEmpty,
@@ -218,8 +222,8 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
       widget.device.id,
       brand: _brand.text.trim(),
       model: _model.text.trim(),
-      type: _type.text.trim(),
-      batterySize: _batterySize.text.trim(),
+      type: _type,
+      batterySize: _batterySize,
       tubing: _tubing,
       powerSource: _powerSource,
       colour: _colour.text.trim(),
@@ -270,8 +274,8 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
         edits: ReviewEdits(
           brand: _brand.text.trim(),
           model: _model.text.trim(),
-          type: _type.text.trim(),
-          batterySize: _batterySize.text.trim(),
+          type: _type,
+          batterySize: _batterySize,
           tubing: _tubing,
           powerSource: _powerSource,
           colour: _colour.text.trim(),
@@ -411,22 +415,29 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                       onChanged: () => setState(() {}),
                     ),
                     const SizedBox(height: 16),
-                    _IdentityField(
-                      label: 'Type',
-                      controller: _type,
-                      hintText: 'e.g. BTE, RIC, ITE, CIC',
-                      enabled: !_busy,
-                      flagged: _isFlagged(ClinicalField.type),
-                      onChanged: () => setState(() {}),
+                    // Style is a closed clinical set (#15) → typed dropdown, not
+                    // free text. A DropdownButtonFormField (rather than a
+                    // SegmentedButton) keeps the six options from overflowing the
+                    // row; selecting a real value resolves the flag.
+                    _FieldLabel('Type (Style)',
+                        flagged: _isFlagged(ClinicalField.type)),
+                    _StylePicker(
+                      value: _type,
+                      onChanged: _busy
+                          ? null
+                          : (v) => setState(() => _type = v),
                     ),
                     const SizedBox(height: 16),
-                    _IdentityField(
-                      label: 'Battery',
-                      controller: _batterySize,
-                      hintText: 'e.g. 10, 13, 312, 675',
-                      enabled: !_busy,
-                      flagged: _isFlagged(ClinicalField.batterySize),
-                      onChanged: () => setState(() {}),
+                    // Battery size is a closed clinical set (#15) → typed
+                    // dropdown. 'Rechargeable' lives here too, mirroring the
+                    // legacy free-text data (it is NOT derived from Power below).
+                    _FieldLabel('Battery',
+                        flagged: _isFlagged(ClinicalField.batterySize)),
+                    _BatterySizePicker(
+                      value: _batterySize,
+                      onChanged: _busy
+                          ? null
+                          : (v) => setState(() => _batterySize = v),
                     ),
                     const SizedBox(height: 16),
                     // Year is scanner metadata, not a clinical field — read-only.
@@ -749,6 +760,69 @@ class _CurrencyInputFormatter extends TextInputFormatter {
     }
     // Reject the edit — keep the last valid value.
     return oldValue;
+  }
+}
+
+/// Closed-set Style picker (#15). A dropdown rather than a SegmentedButton: six
+/// options (`BTE`/`RIC`/`ITE`/`CIC`/`ITC`/`IIC`) plus the "—" unspecified state
+/// would overflow a segmented control on a phone. The wire string IS the
+/// display label (they're standard clinical abbreviations); `unspecified` shows
+/// as "—". `null` [onChanged] disables it while a QA action is in flight.
+class _StylePicker extends StatelessWidget {
+  const _StylePicker({required this.value, required this.onChanged});
+  final Style value;
+  final ValueChanged<Style>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<Style>(
+      initialValue: value,
+      isDense: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      items: [
+        for (final s in Style.values)
+          DropdownMenuItem(
+            value: s,
+            child: Text(s == Style.unspecified ? '—' : s.wire),
+          ),
+      ],
+      onChanged:
+          onChanged == null ? null : (v) => onChanged!(v ?? Style.unspecified),
+    );
+  }
+}
+
+/// Closed-set Battery-size picker (#15). Dropdown over
+/// `10`/`13`/`312`/`675`/`Rechargeable` plus the "—" unspecified state. The wire
+/// string is the display label; `unspecified` shows as "—".
+class _BatterySizePicker extends StatelessWidget {
+  const _BatterySizePicker({required this.value, required this.onChanged});
+  final BatterySize value;
+  final ValueChanged<BatterySize>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<BatterySize>(
+      initialValue: value,
+      isDense: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      items: [
+        for (final b in BatterySize.values)
+          DropdownMenuItem(
+            value: b,
+            child: Text(b == BatterySize.unspecified ? '—' : b.wire),
+          ),
+      ],
+      onChanged: onChanged == null
+          ? null
+          : (v) => onChanged!(v ?? BatterySize.unspecified),
+    );
   }
 }
 

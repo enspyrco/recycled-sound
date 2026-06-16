@@ -186,8 +186,8 @@ void main() {
       const draft = DraftDevice(
         brand: 'Oticon',
         model: 'More 1',
-        type: 'BTE',
-        batterySize: '13',
+        type: Style.bte,
+        batterySize: BatterySize.size13,
         photos: ['gs://existing/scan.jpg'],
       );
       final id = await repo.createIncoming(draft);
@@ -622,8 +622,8 @@ void main() {
         ReviewEdits(
           brand: brand,
           model: 'More 1',
-          type: '',
-          batterySize: '',
+          type: Style.unspecified,
+          batterySize: BatterySize.unspecified,
           tubing: Tubing.unspecified,
           powerSource: PowerSource.unspecified,
           colour: '',

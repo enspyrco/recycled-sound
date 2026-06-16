@@ -17,7 +17,7 @@ void main() {
     id: 'p1',
     brand: 'Oticon',
     model: 'Nera2 Pro',
-    type: 'BTE',
+    type: Style.bte,
     qaStatus: QaStatus.pendingQa,
     status: DeviceStatus.donated,
   );
@@ -26,7 +26,7 @@ void main() {
     id: 'c1',
     brand: 'Phonak',
     model: 'Audéo P90',
-    type: 'RIC',
+    type: Style.ric,
     qaStatus: QaStatus.passed,
     status: DeviceStatus.ready,
   );

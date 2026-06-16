@@ -29,8 +29,8 @@ class _RecordingRepository extends IncomingDeviceRepository {
   // Captured edits from the last updateIncoming call.
   String? lastBrand;
   String? lastModel;
-  String? lastType;
-  String? lastBatterySize;
+  Style? lastType;
+  BatterySize? lastBatterySize;
   Tubing? lastTubing;
   PowerSource? lastPowerSource;
   String? lastColour;
@@ -45,8 +45,8 @@ class _RecordingRepository extends IncomingDeviceRepository {
     String id, {
     required String brand,
     required String model,
-    required String type,
-    required String batterySize,
+    required Style type,
+    required BatterySize batterySize,
     required Tubing tubing,
     required PowerSource powerSource,
     required String colour,
@@ -96,7 +96,8 @@ Finder _fieldByHint(String hint) => find.byWidgetPredicate(
 
 Device _device({
   String brand = 'Oticon',
-  String type = 'BTE',
+  Style type = Style.bte,
+  BatterySize batterySize = BatterySize.size13,
   Tubing tubing = Tubing.unspecified,
   PowerSource powerSource = PowerSource.unspecified,
   String colour = '',
@@ -109,7 +110,7 @@ Device _device({
       model: 'More 1',
       type: type,
       year: '2022',
-      batterySize: '13',
+      batterySize: batterySize,
       tubing: tubing,
       powerSource: powerSource,
       colour: colour,
@@ -172,12 +173,12 @@ void main() {
   testWidgets('real scan keys map to their audiologist labels in the banner',
       (tester) async {
     // 'type' is the scan model's Style field; it must render as "Style", not
-    // the raw key. A genuinely flagged field arrives as the sentinel, so give it
-    // the sentinel value — otherwise a real value would resolve it and clear the
-    // banner this test inspects.
+    // the raw key. Leave the Style picker unspecified so the flag stays
+    // unresolved and the banner this test inspects is present.
     await _pump(tester,
         device: _device(
-            type: kUnknownValue, needsInputFields: [ClinicalField.type]));
+            type: Style.unspecified,
+            needsInputFields: [ClinicalField.type]));
     expect(find.textContaining('Style'), findsWidgets);
     expect(find.textContaining('type'), findsNothing);
   });
@@ -349,6 +350,55 @@ void main() {
 
     expect(repo.lastTubing, Tubing.slim);
     expect(repo.lastPowerSource, PowerSource.battery);
+  });
+
+  testWidgets(
+      'a flagged Style resolves by picking a dropdown value, and is captured '
+      '(#15)', (tester) async {
+    // Style is a closed-set dropdown now (not a free-text field). A flagged
+    // Style starts unspecified → unresolved; selecting a real value resolves it.
+    final repo = await _pump(tester,
+        device: _device(
+            type: Style.unspecified,
+            needsInputFields: [ClinicalField.type]));
+    expect(find.textContaining('Override & pass'), findsOneWidget);
+
+    // Open the Style dropdown and pick RIC. (The Type dropdown is the first
+    // DropdownButtonFormField on the screen.)
+    await tester.tap(find.byType(DropdownButtonFormField<Style>));
+    await tester.pumpAndSettle();
+    // The selected-item 'RIC' may also paint behind the menu, so tap the menu
+    // entry (the last 'RIC' in the overlay).
+    await tester.tap(find.text('RIC').last);
+    await tester.pumpAndSettle();
+
+    // Flag resolved → clean Pass QA.
+    expect(find.textContaining('Override & pass'), findsNothing);
+    final pass = find.widgetWithText(FilledButton, 'Pass QA');
+    await tester.ensureVisible(pass);
+    await tester.tap(pass);
+    await tester.pumpAndSettle();
+
+    expect(repo.promoteCalls, 1);
+    expect(repo.lastAllowOverride, isFalse);
+    expect(repo.lastEdits!.type, Style.ric);
+    expect(repo.lastEdits!.needsInputFields, isEmpty);
+  });
+
+  testWidgets('a picked BatterySize is captured on save (#15)', (tester) async {
+    final repo = await _pump(tester, device: _device());
+
+    await tester.tap(find.byType(DropdownButtonFormField<BatterySize>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('675').last);
+    await tester.pumpAndSettle();
+
+    final fail = find.widgetWithText(OutlinedButton, 'Fail QA');
+    await tester.ensureVisible(fail);
+    await tester.tap(fail);
+    await tester.pumpAndSettle();
+
+    expect(repo.lastBatterySize, BatterySize.size675);
   });
 
   testWidgets('permission-denied shows the lock UI, not a crash',

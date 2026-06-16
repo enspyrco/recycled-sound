@@ -252,10 +252,10 @@ class _DeviceCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     [
-                      if (device.type.isNotEmpty) device.type,
+                      if (device.type != Style.unspecified) device.type.wire,
                       if (device.year.isNotEmpty) device.year,
-                      if (device.batterySize.isNotEmpty)
-                        'Battery ${device.batterySize}',
+                      if (device.batterySize != BatterySize.unspecified)
+                        'Battery ${device.batterySize.wire}',
                       // Physical storage box/bag (issue #766) — helps a
                       // volunteer or audiologist physically locate the device.
                       if (device.location.isNotEmpty) 'Box ${device.location}',

@@ -50,9 +50,9 @@ void main() {
       expect(d.id, 'abc');
       expect(d.brand, 'Phonak');
       expect(d.model, 'Audéo P90');
-      expect(d.type, 'RIC');
+      expect(d.type, Style.ric);
       expect(d.year, '2021');
-      expect(d.batterySize, '312');
+      expect(d.batterySize, BatterySize.size312);
       expect(d.remoteFT, isTrue);
       expect(d.appCompatible, isTrue);
       expect(d.auracast, isFalse);
@@ -73,7 +73,8 @@ void main() {
       expect(d.id, 'empty');
       expect(d.brand, '');
       expect(d.model, '');
-      expect(d.type, '');
+      expect(d.type, Style.unspecified);
+      expect(d.batterySize, BatterySize.unspecified);
       expect(d.remoteFT, isFalse);
       expect(d.accessories, isEmpty);
       expect(d.photos, isEmpty);
@@ -101,14 +102,15 @@ void main() {
         id: 'x',
         brand: 'Oticon',
         model: 'More 1',
-        type: 'BTE',
-        batterySize: '13',
+        type: Style.bte,
+        batterySize: BatterySize.size13,
         needsInputFields: [ClinicalField.tubing],
       );
       final map = d.toFirestore(createdBy: 'user-1');
 
       expect(map['brand'], 'Oticon');
       expect(map['model'], 'More 1');
+      // Style/BatterySize serialize to their unchanged wire strings (#15).
       expect(map['type'], 'BTE');
       expect(map['batterySize'], '13');
       expect(map['accessories'], isEmpty);
@@ -184,7 +186,8 @@ void main() {
 
   group('Device.unknownFieldCount', () {
     test('is zero when no fields were flagged', () {
-      const d = Device(id: 'x', brand: 'Phonak', model: 'P90', type: 'RIC');
+      const d =
+          Device(id: 'x', brand: 'Phonak', model: 'P90', type: Style.ric);
       expect(d.unknownFieldCount, 0);
     });
 
@@ -201,17 +204,20 @@ void main() {
     test('does NOT flag AI-default "Unknown" values (collision guard)', () {
       // scan_fusion emits 'Unknown' for fields the AI couldn't read. Those are
       // NOT volunteer handoffs — only the persisted needsInputFields set is.
+      // Since #15, Style/BatterySize absorb the 'Unknown' sentinel to
+      // `unspecified` at parse time, so an unread field carries no value AND no
+      // flag — unknownFieldCount stays 0.
       const d = Device(
         id: 'x',
         brand: 'Phonak',
         model: 'P90',
-        type: 'Unknown',
-        batterySize: 'Unknown',
+        type: Style.unspecified,
+        batterySize: BatterySize.unspecified,
       );
       expect(
         d.unknownFieldCount,
         0,
-        reason: 'value=="Unknown" must not be mistaken for a volunteer flag',
+        reason: 'an unspecified value must not be mistaken for a volunteer flag',
       );
     });
   });
@@ -221,8 +227,8 @@ void main() {
       const draft = DraftDevice(
         brand: 'Oticon',
         model: 'More 1',
-        type: 'BTE',
-        batterySize: '13',
+        type: Style.bte,
+        batterySize: BatterySize.size13,
         qaStatus: QaStatus.pendingQa,
         status: DeviceStatus.donated,
         photos: ['gs://b/scan.jpg'],
@@ -233,8 +239,8 @@ void main() {
       expect(device.id, 'doc-123');
       expect(device.brand, 'Oticon');
       expect(device.model, 'More 1');
-      expect(device.type, 'BTE');
-      expect(device.batterySize, '13');
+      expect(device.type, Style.bte);
+      expect(device.batterySize, BatterySize.size13);
       expect(device.qaStatus, QaStatus.pendingQa);
       expect(device.status, DeviceStatus.donated);
       // photos default to the draft's when not overridden
@@ -420,6 +426,83 @@ void main() {
       expect(PowerSource.rechargeable.wire, 'Rechargeable');
       expect(Tubing.unspecified.wire, '');
       expect(PowerSource.unspecified.wire, '');
+    });
+
+    test('Style.fromWire is tolerant: legacy/garbage/Unknown → unspecified, '
+        'and round-trips its canonical wire (#15)', () {
+      // Every closed-set value round-trips through its wire string.
+      for (final s in Style.values) {
+        expect(Style.fromWire(s.wire), s,
+            reason: '${s.name} must round-trip through "${s.wire}"');
+      }
+      // The 'Unknown' provenance sentinel and any garbage/legacy/empty value
+      // fall back to unspecified — the value is never the "needs input" signal.
+      for (final junk in [null, '', 'Unknown', 'ric', 'BTE2', '???', '10']) {
+        expect(Style.fromWire(junk), Style.unspecified,
+            reason: 'Style "$junk" must fall back, not throw');
+      }
+      // Spot-check the exact wire strings the Firestore rules read.
+      expect(Style.bte.wire, 'BTE');
+      expect(Style.iic.wire, 'IIC');
+      expect(Style.unspecified.wire, '');
+    });
+
+    test('BatterySize.fromWire is tolerant: legacy/garbage/Unknown → '
+        'unspecified, and round-trips its canonical wire (#15)', () {
+      for (final b in BatterySize.values) {
+        expect(BatterySize.fromWire(b.wire), b,
+            reason: '${b.name} must round-trip through "${b.wire}"');
+      }
+      for (final junk in [null, '', 'Unknown', 'AAA', '11', 'BTE', '???']) {
+        expect(BatterySize.fromWire(junk), BatterySize.unspecified,
+            reason: 'BatterySize "$junk" must fall back, not throw');
+      }
+      // 'Rechargeable' overlaps PowerSource deliberately — it is a valid
+      // battery-size value, not derived from the power field.
+      expect(BatterySize.fromWire('Rechargeable'), BatterySize.rechargeable);
+      expect(BatterySize.size312.wire, '312');
+      expect(BatterySize.unspecified.wire, '');
+    });
+
+    test('Style/BatterySize survive a toFirestore→fromFirestore round-trip '
+        'and emit the unchanged wire strings (#15)', () async {
+      const d = Device(
+        id: 'sb',
+        brand: 'Phonak',
+        model: 'P90',
+        type: Style.cic,
+        batterySize: BatterySize.rechargeable,
+      );
+      final map = d.toFirestore(createdBy: 'u');
+      // Wire format unchanged — what the devices/ rules' emptiness/sentinel
+      // check reads.
+      expect(map['type'], 'CIC');
+      expect(map['batterySize'], 'Rechargeable');
+
+      await firestore.collection('incoming').doc('sb').set(map);
+      final back = Device.fromFirestore(
+          await firestore.collection('incoming').doc('sb').get());
+      expect(back.type, Style.cic);
+      expect(back.batterySize, BatterySize.rechargeable);
+    });
+
+    test("a flagged type/batterySize:'Unknown' parses to unspecified (#15)",
+        () async {
+      // The volunteer flag sentinel persisted on the value field must read back
+      // as unspecified — the review screen treats it as unresolved.
+      await firestore.collection('incoming').doc('flagged').set({
+        'brand': 'Phonak',
+        'type': 'Unknown',
+        'batterySize': 'Unknown',
+        'needsInputFields': ['type', 'batterySize'],
+      });
+      final d = Device.fromFirestore(
+          await firestore.collection('incoming').doc('flagged').get());
+      expect(d.type, Style.unspecified);
+      expect(d.batterySize, BatterySize.unspecified);
+      // The flags ride on needsInputFields, not on the value.
+      expect(d.needsInputFields,
+          containsAll([ClinicalField.type, ClinicalField.batterySize]));
     });
 
     test('location is normalised (trim + uppercase) the way the confirm '

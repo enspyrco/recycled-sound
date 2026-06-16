@@ -246,9 +246,15 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     final draft = DraftDevice(
       brand: result.brand.value,
       model: result.model.value,
-      type: result.type.value,
+      // Style (clinical field 3) and batterySize (field 6) are closed-set enums
+      // at the model boundary (#15). The scanner works in catalog STRING space
+      // (fuzzy OCR/CLIP against catalog strings like 'BTE'), so parse into the
+      // typed enums here; an untouched field or the volunteer's 'Unknown' flag
+      // resolves to `unspecified` (the "needs input" signal rides on
+      // needsInputFields below, not on the value).
+      type: Style.fromWire(result.type.value),
       year: result.year.value,
-      batterySize: result.batterySize.value,
+      batterySize: BatterySize.fromWire(result.batterySize.value),
       // Clinical fields 4/5/7 — previously dropped at persist (issue #751).
       // ScanResult holds these as optional String SpecFields; parse into the
       // typed enums at this boundary (#15). An untouched field or the volunteer's

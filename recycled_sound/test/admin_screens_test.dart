@@ -100,7 +100,7 @@ void main() {
         overrides: [
           allIncomingDevicesProvider.overrideWith(
             (_) => Stream.value(const [
-              Device(id: 'd1', brand: 'Phonak', model: 'P90', type: 'RIC'),
+              Device(id: 'd1', brand: 'Phonak', model: 'P90', type: Style.ric),
             ]),
           ),
         ],
@@ -126,11 +126,11 @@ void main() {
                 id: 'flagged',
                 brand: 'Oticon',
                 model: 'More 1',
-                type: 'BTE',
+                type: Style.bte,
                 needsInputFields: [ClinicalField.tubing],
               ),
               // Clean → quick-Approve still offered.
-              Device(id: 'clean', brand: 'Phonak', model: 'P90', type: 'RIC'),
+              Device(id: 'clean', brand: 'Phonak', model: 'P90', type: Style.ric),
             ]),
           ),
         ],
@@ -236,8 +236,8 @@ void main() {
                 id: 'd1',
                 brand: 'Phonak',
                 model: 'P90',
-                type: 'RIC',
-                batterySize: '312',
+                type: Style.ric,
+                batterySize: BatterySize.size312,
                 qaStatus: QaStatus.passed,
                 status: DeviceStatus.ready,
               ),

@@ -223,7 +223,7 @@ class _DetailViewState extends ConsumerState<_DetailView> {
                 children: [
                   RsSpecRow(label: 'Brand', value: device.brand),
                   RsSpecRow(label: 'Model', value: device.model),
-                  RsSpecRow(label: 'Type', value: device.type),
+                  RsSpecRow(label: 'Type', value: device.type.wire),
                   RsSpecRow(label: 'Year', value: device.year),
                 ],
               ),
@@ -234,7 +234,7 @@ class _DetailViewState extends ConsumerState<_DetailView> {
             RsCard(
               child: Column(
                 children: [
-                  RsSpecRow(label: 'Battery', value: device.batterySize),
+                  RsSpecRow(label: 'Battery', value: device.batterySize.wire),
                   RsSpecRow(label: 'Dome', value: device.domeType),
                   RsSpecRow(label: 'Wax Filter', value: device.waxFilter),
                   RsSpecRow(label: 'Receiver', value: device.receiver),

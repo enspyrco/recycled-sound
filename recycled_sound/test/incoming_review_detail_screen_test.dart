@@ -9,6 +9,8 @@ import 'package:recycled_sound/features/admin/presentation/incoming_review_detai
 import 'package:recycled_sound/features/devices/data/incoming_device_repository.dart';
 import 'package:recycled_sound/features/devices/data/models/device.dart';
 import 'package:recycled_sound/features/devices/providers/device_providers.dart';
+import 'package:recycled_sound/features/scanner/data/models/scan_result.dart'
+    show kUnknownValue;
 
 /// Repository double that records the review-flow calls without touching a real
 /// backend. Extends the real repo (constructed with the standard Firebase
@@ -25,6 +27,10 @@ class _RecordingRepository extends IncomingDeviceRepository {
   int updateCalls = 0;
   final List<QaStatus?> updateQaStatuses = [];
   // Captured edits from the last updateIncoming call.
+  String? lastBrand;
+  String? lastModel;
+  String? lastType;
+  String? lastBatterySize;
   Tubing? lastTubing;
   PowerSource? lastPowerSource;
   String? lastColour;
@@ -37,6 +43,10 @@ class _RecordingRepository extends IncomingDeviceRepository {
   @override
   Future<void> updateIncoming(
     String id, {
+    required String brand,
+    required String model,
+    required String type,
+    required String batterySize,
     required Tubing tubing,
     required PowerSource powerSource,
     required String colour,
@@ -49,6 +59,10 @@ class _RecordingRepository extends IncomingDeviceRepository {
   }) async {
     updateCalls++;
     updateQaStatuses.add(qaStatus);
+    lastBrand = brand;
+    lastModel = model;
+    lastType = type;
+    lastBatterySize = batterySize;
     lastTubing = tubing;
     lastPowerSource = powerSource;
     lastColour = colour;
@@ -70,7 +84,19 @@ class _RecordingRepository extends IncomingDeviceRepository {
 
 const _id = 'dev1';
 
+// Hint texts are the stable handle for each TextField now that the form carries
+// eight of them (brand/model/type/battery/colour/location/notes/cost) — a
+// positional `.first`/`.last` would silently target the wrong field.
+const _brandHint = 'e.g. Oticon, Phonak';
+const _colourHint = 'e.g. Charcoal, Beige';
+
+Finder _fieldByHint(String hint) => find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == hint,
+    );
+
 Device _device({
+  String brand = 'Oticon',
+  String type = 'BTE',
   Tubing tubing = Tubing.unspecified,
   PowerSource powerSource = PowerSource.unspecified,
   String colour = '',
@@ -79,9 +105,9 @@ Device _device({
 }) =>
     Device(
       id: _id,
-      brand: 'Oticon',
+      brand: brand,
       model: 'More 1',
-      type: 'BTE',
+      type: type,
       year: '2022',
       batterySize: '13',
       tubing: tubing,
@@ -146,23 +172,37 @@ void main() {
   testWidgets('real scan keys map to their audiologist labels in the banner',
       (tester) async {
     // 'type' is the scan model's Style field; it must render as "Style", not
-    // the raw key.
-    await _pump(tester, device: _device(needsInputFields: [ClinicalField.type]));
+    // the raw key. A genuinely flagged field arrives as the sentinel, so give it
+    // the sentinel value — otherwise a real value would resolve it and clear the
+    // banner this test inspects.
+    await _pump(tester,
+        device: _device(
+            type: kUnknownValue, needsInputFields: [ClinicalField.type]));
     expect(find.textContaining('Style'), findsWidgets);
     expect(find.textContaining('type'), findsNothing);
   });
 
   testWidgets(
-      'an identity-field flag (brand) renders as "Make" and stays unresolved',
+      'a flagged identity field (brand) is editable and resolves on input (#783)',
       (tester) async {
-    // brand/model/type/batterySize are read-only on this screen, so a flag on
-    // one can never be resolved here — the banner must persist with its
-    // friendly label even though there's no editable affordance for it.
-    await _pump(tester, device: _device(needsInputFields: [ClinicalField.brand]));
+    // A volunteer-flagged brand arrives as the `'Unknown'` sentinel; the screen
+    // normalizes it to an empty, editable field that starts UNRESOLVED.
+    await _pump(tester,
+        device: _device(
+            brand: kUnknownValue, needsInputFields: [ClinicalField.brand]));
+    // Sentinel normalized away — the field shows blank, not "Unknown".
+    expect(find.text('Unknown'), findsNothing);
     expect(find.textContaining('Needs your input (1)'), findsOneWidget);
     expect(find.textContaining('Make'), findsWidgets);
-    // No "all resolved" banner — it can't be resolved here.
     expect(find.textContaining('All flagged fields resolved'), findsNothing);
+
+    // Correcting the brand resolves the flag — the real resolution path #783
+    // adds (previously override was the only way past an identity flag).
+    await tester.enterText(_fieldByHint(_brandHint), 'Oticon');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Needs your input'), findsNothing);
+    expect(find.textContaining('All flagged fields resolved'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Pass QA'), findsOneWidget);
   });
 
   testWidgets('Pass QA persists edits then promotes, navigating to the queue',
@@ -171,7 +211,7 @@ void main() {
         device: _device(needsInputFields: [ClinicalField.colour]));
 
     // Resolve the flagged colour field.
-    await tester.enterText(find.byType(TextField).first, 'Charcoal');
+    await tester.enterText(_fieldByHint(_colourHint), 'Charcoal');
     await tester.pumpAndSettle();
 
     final pass = find.widgetWithText(FilledButton, 'Pass QA');
@@ -194,21 +234,48 @@ void main() {
   });
 
   testWidgets(
-      'an unresolved identity flag makes Pass an explicit "Override & pass"',
+      'correcting a flagged brand promotes CLEAN, carrying the edit (#783)',
+      (tester) async {
+    final repo = await _pump(tester,
+        device: _device(
+            brand: kUnknownValue, needsInputFields: [ClinicalField.brand]));
+
+    await tester.enterText(_fieldByHint(_brandHint), 'Oticon');
+    await tester.pumpAndSettle();
+
+    final pass = find.widgetWithText(FilledButton, 'Pass QA');
+    await tester.ensureVisible(pass);
+    await tester.tap(pass);
+    await tester.pumpAndSettle();
+
+    expect(repo.promoteCalls, 1);
+    // Clean promotion — NOT an override — because the brand flag was resolved by
+    // editing, and the corrected value rides in the edits + the flag set shrank
+    // to empty so the gate sees it Promotable.
+    expect(repo.lastAllowOverride, isFalse);
+    expect(repo.lastEdits!.brand, 'Oticon');
+    expect(repo.lastEdits!.needsInputFields, isEmpty);
+    expect(find.text('QUEUE'), findsOneWidget);
+  });
+
+  testWidgets(
+      'an identity flag left uncorrected makes Pass an explicit "Override & pass"',
       (tester) async {
     await _pump(tester,
-        device: _device(needsInputFields: [ClinicalField.brand]));
-    // brand is read-only here, so it stays unresolved — the action is an
-    // override, not a clean pass.
+        device: _device(
+            brand: kUnknownValue, needsInputFields: [ClinicalField.brand]));
+    // brand normalizes to empty and the audiologist leaves it — so it stays
+    // unresolved and the action is an override, not a clean pass.
     expect(find.widgetWithText(FilledButton, 'Pass QA'), findsNothing);
     expect(find.textContaining('Override & pass (1 unresolved)'),
         findsOneWidget);
   });
 
-  testWidgets('Override & pass records the unresolved fields as an override',
+  testWidgets('Override & pass records the still-unresolved fields as override',
       (tester) async {
     final repo = await _pump(tester,
-        device: _device(needsInputFields: [ClinicalField.brand]));
+        device: _device(
+            brand: kUnknownValue, needsInputFields: [ClinicalField.brand]));
 
     final btn = find.textContaining('Override & pass');
     await tester.ensureVisible(btn);
@@ -216,10 +283,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.promoteCalls, 1);
-    // The UI authorises the override; the still-unresolved (read-only identity)
-    // flag rides in the edits so the gate stamps it from the verdict.
+    // The UI authorises the override; the uncorrected brand flag rides in the
+    // edits so the gate stamps it from the verdict. The brand value carried is
+    // the de-sentineled empty string (provenance lives in the flag, not the
+    // value — feedback_provenance_not_value).
     expect(repo.lastAllowOverride, isTrue);
     expect(repo.lastEdits!.needsInputFields, [ClinicalField.brand]);
+    expect(repo.lastEdits!.brand, '');
     expect(find.text('QUEUE'), findsOneWidget);
   });
 
@@ -230,7 +300,7 @@ void main() {
     // Colour starts empty → unresolved → override label.
     expect(find.textContaining('Override & pass'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).first, 'Charcoal');
+    await tester.enterText(_fieldByHint(_colourHint), 'Charcoal');
     await tester.pumpAndSettle();
 
     // Now resolved → clean pass.

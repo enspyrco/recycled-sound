@@ -611,6 +611,69 @@ void main() {
       expect(dst.data()!.containsKey('qaOverride'), isFalse);
     });
 
+    // ── Identity-field resolution via review edits (#783) ─────────────────
+    // The gate evaluates [reviewForPromotion] on the MERGED state, so an
+    // audiologist correcting a flagged identity field resolves it cleanly —
+    // not via override. These prove the merge-then-gate order on identity.
+    ReviewEdits editsResolvingBrand({
+      String brand = 'Oticon',
+      List<ClinicalField> needsInputFields = const [],
+    }) =>
+        ReviewEdits(
+          brand: brand,
+          model: 'More 1',
+          type: '',
+          batterySize: '',
+          tubing: Tubing.unspecified,
+          powerSource: PowerSource.unspecified,
+          colour: '',
+          location: '',
+          servicingNotes: '',
+          servicingCost: 0,
+          needsInputFields: needsInputFields,
+        );
+
+    test('identity edit resolves a flagged brand → CLEAN promotion (#783)',
+        () async {
+      await firestore.collection('incoming').doc('idedit').set({
+        'brand': 'Unknown', // the volunteer-flag sentinel
+        'model': 'More 1',
+        'createdBy': 'u1',
+        'needsInputFields': ['brand'],
+      });
+      // Audiologist corrects brand; the shrunk flag set is empty.
+      await repo.promoteToDevice('idedit', edits: editsResolvingBrand());
+
+      final dst = await firestore.collection('devices').doc('idedit').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!['brand'], 'Oticon',
+          reason: 'corrected identity value is persisted across the boundary');
+      expect(dst.data()!['needsInputFields'], isEmpty);
+      expect(dst.data()!.containsKey('qaOverride'), isFalse,
+          reason: 'resolved by edit, not by override — no audit record');
+    });
+
+    test('identity edit resolving SOME blockers still fails closed on the rest',
+        () async {
+      await firestore.collection('incoming').doc('partial').set({
+        'brand': 'Unknown',
+        'model': 'More 1',
+        'createdBy': 'u1',
+        'needsInputFields': ['brand', 'colour'],
+      });
+      // brand fixed, colour still blank → colour still blocks; no override.
+      await expectLater(
+        repo.promoteToDevice('partial',
+            edits: editsResolvingBrand(
+                needsInputFields: const [ClinicalField.colour])),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+          (await firestore.collection('devices').doc('partial').get()).exists,
+          isFalse,
+          reason: 'partial resolution must not cross the boundary');
+    });
+
     test('signed-out caller fails closed (no unattributable override)',
         () async {
       await firestore.collection('incoming').doc('anon').set({

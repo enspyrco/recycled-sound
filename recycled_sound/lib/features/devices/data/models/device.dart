@@ -578,9 +578,11 @@ extension Promotion on Device {
   ///
   /// Note: this reads the *persisted* blocker set. A field counts as resolved
   /// once the audiologist's edit removes it from that set on the incoming doc —
-  /// which the review screen does not yet do for identity fields (that
-  /// resolution path is #777). Until #777 wires this into the repository, the
-  /// gate is defined and tested but not yet enforced.
+  /// which the review screen now does for BOTH the clinical fields and the
+  /// identity fields brand/model/type/batterySize (#783). This Dart gate is the
+  /// UX/representation layer; the authoritative trust boundary is the `devices/`
+  /// Firestore rule, which independently enforces both the override invariant
+  /// (#87) and value↔flag consistency (#89) — see functions/src/firestore.rules.
   PromotionVerdict reviewForPromotion() =>
       needsInputFields.isEmpty && unrecognisedNeedsInput.isEmpty
           ? Promotable(this)

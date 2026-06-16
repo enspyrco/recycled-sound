@@ -155,6 +155,39 @@ describe('Firestore: incoming/', () => {
     );
   });
 
+  // #783: the audiologist corrects a scanner-read identity field during review.
+  // They're elevated, so the rules let them update freely (the creator allow-list
+  // ALSO lists brand/model/type/batterySize, so this never needed a rules change
+  // — these assert the editable-identity path is permitted, not blocked).
+  it('POSITIVE: audiologist can correct an identity field on an incoming doc',
+    async () => {
+      await seed((db) =>
+        setDoc(doc(db, 'incoming/inc1'), {
+          createdBy: 'alice',
+          brand: 'Unknown',
+          needsInputFields: ['brand'],
+        })
+      );
+      await assertSucceeds(
+        updateDoc(doc(asAudiologist().firestore(), 'incoming/inc1'), {
+          brand: 'Oticon',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('POSITIVE: creator can also correct an identity field (allow-listed)',
+    async () => {
+      await seed((db) =>
+        setDoc(doc(db, 'incoming/inc1'), { createdBy: 'alice', brand: 'Unknown' })
+      );
+      await assertSucceeds(
+        updateDoc(doc(asAlice().firestore(), 'incoming/inc1'), {
+          brand: 'Oticon',
+        })
+      );
+    });
+
   it('NEGATIVE: create with mismatched createdBy is rejected', async () => {
     await assertFails(
       setDoc(doc(asAlice().firestore(), 'incoming/inc2'), {
@@ -275,6 +308,45 @@ describe('Firestore: devices/', () => {
         updateDoc(doc(asAudiologist().firestore(), 'devices/dev12'), {
           needsInputFields: ['brand', 'colour'],
           qaOverride: { overriddenBy: 'aud1', fields: ['brand', 'colour'] },
+        })
+      );
+    });
+
+  // #783: identity fields (brand/model/type/batterySize) are now editable on the
+  // review screen, so a flagged IDENTITY field can be RESOLVED by correcting its
+  // value (the flag drops out of needsInputFields) — not only overridden. The
+  // boundary gates on the resulting flag set regardless of which field type
+  // produced the flag, so these assert the identity path lands on the same gate.
+  it('POSITIVE: identity-resolved promotion (brand corrected, no flags) is clean',
+    async () => {
+      // The audiologist fixed brand → flag set empty → noBlockers() → clean.
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/id1'), {
+          brand: 'Oticon',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: an unresolved IDENTITY flag still needs an override',
+    async () => {
+      // Same gate as a clinical flag — a leftover brand flag without an override
+      // is rejected at the boundary.
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/id2'), {
+          brand: 'Unknown',
+          needsInputFields: ['brand'],
+        })
+      );
+    });
+
+  it('POSITIVE: an uncorrected IDENTITY flag promotes WITH a self-override',
+    async () => {
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/id3'), {
+          brand: 'Unknown',
+          needsInputFields: ['brand'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
         })
       );
     });

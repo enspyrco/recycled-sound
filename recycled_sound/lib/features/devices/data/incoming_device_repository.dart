@@ -71,8 +71,19 @@ enum PersistErrorKind {
 /// (and the write commits) one consistent result. [needsInputFields] is the
 /// still-unresolved recognised set — the review screen shrinks it as fields are
 /// resolved; [unrecognisedNeedsInput] preserves blocker keys we couldn't type.
+///
+/// **Identity fields (brand/model/type/batterySize) are editable here (#783).**
+/// Before #783 the audiologist could only *override* a flagged identity field —
+/// assert authority to promote a known-wrong AI read, never correct it. These
+/// four carry the audiologist's corrected value so a flagged identity field has
+/// a real *resolution* path: the corrected value is persisted AND the flag drops
+/// out of [needsInputFields], so the gate sees it resolved rather than overridden.
 class ReviewEdits {
   const ReviewEdits({
+    required this.brand,
+    required this.model,
+    required this.type,
+    required this.batterySize,
     required this.tubing,
     required this.powerSource,
     required this.colour,
@@ -82,6 +93,13 @@ class ReviewEdits {
     this.needsInputFields = const [],
     this.unrecognisedNeedsInput = const [],
   });
+
+  /// The four scanner-read identity fields the audiologist may now correct
+  /// (#783). Carry the AI's read unchanged when the audiologist doesn't edit.
+  final String brand;
+  final String model;
+  final String type;
+  final String batterySize;
 
   final Tubing tubing;
   final PowerSource powerSource;
@@ -335,12 +353,20 @@ class IncomingDeviceRepository {
 
   /// Persist the audiologist's review edits onto an `incoming/{id}` doc.
   ///
-  /// A focused partial update — only the fields the review screen lets the
-  /// audiologist set (the human-determined clinical fields, location,
-  /// servicing notes/cost) plus an optional [qaStatus] flip. Deliberately does
-  /// NOT touch scanner-owned identity fields (brand/model/type/year/battery):
-  /// those round-trip untouched from the scan, so a partial write keeps the
-  /// audiologist edit from ever clobbering the AI's read.
+  /// A focused partial update — the human-determined clinical fields, location,
+  /// servicing notes/cost, an optional [qaStatus] flip, and (since #783) the
+  /// audiologist's corrections to the scanner-read identity fields.
+  ///
+  /// **Identity fields: intentional, gated reversal of the old "never touch the
+  /// AI read" rule (#783).** This call historically excluded
+  /// brand/model/type/batterySize so a partial write could never clobber the
+  /// scanner's read. #783 reverses that *deliberately and narrowly*: each of
+  /// [brand]/[model]/[type]/[batterySize] is nullable and written ONLY when the
+  /// caller passes a non-null value — i.e. when the audiologist actually edited
+  /// it. A null leaves the persisted AI read untouched, preserving the original
+  /// guarantee for every field the audiologist didn't correct. `year` remains
+  /// read-only — it is not one of the seven [ClinicalField]s and never gates
+  /// promotion.
   ///
   /// Enums serialize via their `.wire` form so the stored strings match the
   /// model's `fromWire` parse and the scanner/confirm-screen contract.
@@ -355,6 +381,10 @@ class IncomingDeviceRepository {
   /// Omit [needsInputFields] (null) to leave the persisted set untouched.
   Future<void> updateIncoming(
     String id, {
+    String? brand,
+    String? model,
+    String? type,
+    String? batterySize,
     required Tubing tubing,
     required PowerSource powerSource,
     required String colour,
@@ -366,6 +396,12 @@ class IncomingDeviceRepository {
     List<String> unrecognisedNeedsInput = const [],
   }) async {
     final data = <String, dynamic>{
+      // Identity edits: written only when the audiologist actually changed them
+      // (non-null), so an unedited field's AI read is never clobbered (#783).
+      'brand': ?brand,
+      'model': ?model,
+      'type': ?type,
+      'batterySize': ?batterySize,
       'tubing': tubing.wire,
       'powerSource': powerSource.wire,
       'colour': colour,
@@ -428,6 +464,15 @@ class IncomingDeviceRepository {
       }
       final data = Map<String, dynamic>.from(src.data() ?? const {});
       if (edits != null) {
+        // Identity corrections (#783) merge in alongside the clinical fields, so
+        // the gate below evaluates [reviewForPromotion] on the value the
+        // audiologist actually corrected to — a brand the audiologist fixed is
+        // resolved (dropped from needsInputFields) and promotes clean, not via
+        // override.
+        data['brand'] = edits.brand;
+        data['model'] = edits.model;
+        data['type'] = edits.type;
+        data['batterySize'] = edits.batterySize;
         data['tubing'] = edits.tubing.wire;
         data['powerSource'] = edits.powerSource.wire;
         data['colour'] = edits.colour;

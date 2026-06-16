@@ -12,6 +12,7 @@ import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
 import '../../devices/presentation/widgets/storage_image.dart';
 import '../../devices/providers/device_providers.dart';
+import '../../scanner/data/models/scan_result.dart' show kUnknownValue;
 
 /// Audiologist review surface (Wireframe Flow 2, "Review Detail").
 ///
@@ -100,6 +101,13 @@ class _ReviewBody extends ConsumerStatefulWidget {
 }
 
 class _ReviewBodyState extends ConsumerState<_ReviewBody> {
+  // Identity fields — scanner-read but audiologist-correctable (#783). Each
+  // backs an editable TextField in the Identification card; a non-empty value
+  // resolves its flag (see [_unresolved]).
+  late final TextEditingController _brand;
+  late final TextEditingController _model;
+  late final TextEditingController _type;
+  late final TextEditingController _batterySize;
   late Tubing _tubing;
   late PowerSource _powerSource;
   late final TextEditingController _colour;
@@ -111,10 +119,24 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
   /// can't fire two promotes/fails against the same doc.
   bool _busy = false;
 
+  /// Map the `'Unknown'` volunteer-flag sentinel to the empty string so a
+  /// flagged identity value never displays (or resolves) as a real value.
+  static String _deSentinel(String v) => v == kUnknownValue ? '' : v;
+
   @override
   void initState() {
     super.initState();
     final d = widget.device;
+    // Normalize the `'Unknown'` volunteer-flag sentinel to empty so a flagged
+    // identity field starts BLANK (showing its hint) and counts as unresolved —
+    // not as a confident value. This mirrors how [Tubing]/[PowerSource] absorb
+    // the same sentinel to `unspecified`. Without it, a flagged `brand:'Unknown'`
+    // would read as non-empty and silently auto-resolve, waving the AI's
+    // uncertainty straight through the gate (fail-open on human confirmation).
+    _brand = TextEditingController(text: _deSentinel(d.brand));
+    _model = TextEditingController(text: _deSentinel(d.model));
+    _type = TextEditingController(text: _deSentinel(d.type));
+    _batterySize = TextEditingController(text: _deSentinel(d.batterySize));
     _tubing = d.tubing;
     _powerSource = d.powerSource;
     _colour = TextEditingController(text: d.colour);
@@ -127,6 +149,10 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
 
   @override
   void dispose() {
+    _brand.dispose();
+    _model.dispose();
+    _type.dispose();
+    _batterySize.dispose();
     _colour.dispose();
     _location.dispose();
     _servicingNotes.dispose();
@@ -139,22 +165,30 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
   /// audiologist fills fields in. A key counts resolved once its field holds a
   /// non-empty / non-`unspecified` value.
   Set<ClinicalField> get _unresolved {
-    // Only the three human-determined fields editable ON THIS SCREEN can be
-    // resolved here. The identity fields (brand/model/type/batterySize) are
-    // read-only scanner output on this surface, so they resolve to `false` and
-    // a flag on them STAYS VISIBLE in the banner — the audiologist sees it and
-    // resolves it elsewhere / by overriding, rather than it being silently
-    // treated as done. The typed switch is exhaustive: a future [ClinicalField]
-    // forces a compile error here until its resolution rule is decided (#777).
+    // A flagged field resolves once its editable value on THIS screen is
+    // non-empty / non-`unspecified`. Since #783 the four identity fields are
+    // editable here too (not read-only scanner output), so a flagged brand the
+    // audiologist corrects drops off the banner and out of the gate's blocker
+    // set — a real resolution path, not just override. The typed switch is
+    // exhaustive: a future [ClinicalField] forces a compile error here until its
+    // resolution rule is decided.
+    // An identity field resolves when it holds a real, non-sentinel value. The
+    // `!= kUnknownValue` guard defends the rare case of the sentinel being typed
+    // back in literally; load-time normalization ([_deSentinel]) covers the
+    // common case.
+    bool identityResolved(TextEditingController c) {
+      final v = c.text.trim();
+      return v.isNotEmpty && v != kUnknownValue;
+    }
+
     bool resolved(ClinicalField f) => switch (f) {
+          ClinicalField.brand => identityResolved(_brand),
+          ClinicalField.model => identityResolved(_model),
+          ClinicalField.type => identityResolved(_type),
+          ClinicalField.batterySize => identityResolved(_batterySize),
           ClinicalField.tubing => _tubing != Tubing.unspecified,
           ClinicalField.powerSource => _powerSource != PowerSource.unspecified,
           ClinicalField.colour => _colour.text.trim().isNotEmpty,
-          ClinicalField.brand ||
-          ClinicalField.model ||
-          ClinicalField.type ||
-          ClinicalField.batterySize =>
-            false,
         };
     return widget.device.needsInputFields
         .where((k) => !resolved(k))
@@ -182,6 +216,10 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     final repo = ref.read(incomingDeviceRepositoryProvider);
     return repo.updateIncoming(
       widget.device.id,
+      brand: _brand.text.trim(),
+      model: _model.text.trim(),
+      type: _type.text.trim(),
+      batterySize: _batterySize.text.trim(),
       tubing: _tubing,
       powerSource: _powerSource,
       colour: _colour.text.trim(),
@@ -215,6 +253,10 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     final isOverride = _requiresOverride;
     final overrideCount =
         _unresolved.length + d.unrecognisedNeedsInput.length;
+    // Reflect the audiologist's corrected identity in the confirmation, not the
+    // stale AI read (#783).
+    final displayName =
+        '${_brand.text.trim()} ${_model.text.trim()}'.trim();
     setState(() => _busy = true);
     try {
       // Single transactional promote: the audiologist's edits (incl. the shrunk
@@ -226,6 +268,10 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
         d.id,
         allowOverride: isOverride,
         edits: ReviewEdits(
+          brand: _brand.text.trim(),
+          model: _model.text.trim(),
+          type: _type.text.trim(),
+          batterySize: _batterySize.text.trim(),
           tubing: _tubing,
           powerSource: _powerSource,
           colour: _colour.text.trim(),
@@ -240,9 +286,9 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(isOverride
-              ? 'Override recorded — ${d.brand} ${d.model} promoted with '
+              ? 'Override recorded — $displayName promoted with '
                   '$overrideCount unresolved field(s).'
-              : 'Passed QA — ${d.brand} ${d.model} added to register.'),
+              : 'Passed QA — $displayName added to register.'),
           backgroundColor: isOverride ? AppColors.warning : AppColors.success,
         ),
       );
@@ -287,7 +333,9 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
   @override
   Widget build(BuildContext context) {
     final d = widget.device;
-    final title = '${d.brand} ${d.model}'.trim();
+    // Live, de-sentineled identity in the header — updates as the audiologist
+    // corrects a flagged brand/model, and never shows the 'Unknown' sentinel.
+    final title = '${_brand.text.trim()} ${_model.text.trim()}'.trim();
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Center(
@@ -333,17 +381,56 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                 const SizedBox(height: 20),
               ],
 
-              // ── Identification (read-only, scanner-owned) ──────────
+              // ── Identification (scanner-read, audiologist-correctable) ──
+              // The AI pre-fills these from OCR; the audiologist confirms or
+              // corrects them (#783). A flagged identity field resolves when its
+              // value is non-empty — the same shrink-on-resolve as the clinical
+              // fields below. `year` stays read-only: it is not a clinical field
+              // and never gates promotion.
               Text('Identification', style: AppTypography.h3),
               const SizedBox(height: 8),
               RsCard(
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    RsSpecRow(label: 'Brand', value: d.brand),
-                    RsSpecRow(label: 'Model', value: d.model),
-                    RsSpecRow(label: 'Type', value: d.type),
+                    _IdentityField(
+                      label: 'Brand',
+                      controller: _brand,
+                      hintText: 'e.g. Oticon, Phonak',
+                      enabled: !_busy,
+                      flagged: _isFlagged(ClinicalField.brand),
+                      onChanged: () => setState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    _IdentityField(
+                      label: 'Model',
+                      controller: _model,
+                      hintText: 'e.g. Nera2 Pro, Audéo P90',
+                      enabled: !_busy,
+                      flagged: _isFlagged(ClinicalField.model),
+                      onChanged: () => setState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    _IdentityField(
+                      label: 'Type',
+                      controller: _type,
+                      hintText: 'e.g. BTE, RIC, ITE, CIC',
+                      enabled: !_busy,
+                      flagged: _isFlagged(ClinicalField.type),
+                      onChanged: () => setState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    _IdentityField(
+                      label: 'Battery',
+                      controller: _batterySize,
+                      hintText: 'e.g. 10, 13, 312, 675',
+                      enabled: !_busy,
+                      flagged: _isFlagged(ClinicalField.batterySize),
+                      onChanged: () => setState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    // Year is scanner metadata, not a clinical field — read-only.
                     RsSpecRow(label: 'Year', value: d.year),
-                    RsSpecRow(label: 'Battery', value: d.batterySize),
                   ],
                 ),
               ),
@@ -592,6 +679,49 @@ class _FieldLabel extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// An editable identity field (Brand/Model/Type/Battery) — a flagged [_FieldLabel]
+/// over a [TextField]. The audiologist confirms or corrects the scanner's OCR
+/// read here (#783); a non-empty value resolves the field's flag. [onChanged]
+/// re-runs the parent's resolution computation so the amber banner and the
+/// Override/Pass button update live as the value is typed.
+class _IdentityField extends StatelessWidget {
+  const _IdentityField({
+    required this.label,
+    required this.controller,
+    required this.hintText,
+    required this.enabled,
+    required this.flagged,
+    required this.onChanged,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String hintText;
+  final bool enabled;
+  final bool flagged;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _FieldLabel(label, flagged: flagged),
+        TextField(
+          controller: controller,
+          enabled: enabled,
+          decoration: InputDecoration(
+            hintText: hintText,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+          onChanged: (_) => onChanged(),
+        ),
+      ],
     );
   }
 }

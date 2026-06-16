@@ -263,16 +263,16 @@ void main() {
       const draft = DraftDevice(
         brand: 'Phonak',
         model: 'P90',
-        tubing: 'Slim',
-        powerSource: 'Rechargeable',
+        tubing: Tubing.slim,
+        powerSource: PowerSource.rechargeable,
         colour: 'Champagne',
         location: 'B07',
       );
 
       final device = draft.toDevice(id: 'x');
 
-      expect(device.tubing, 'Slim');
-      expect(device.powerSource, 'Rechargeable');
+      expect(device.tubing, Tubing.slim);
+      expect(device.powerSource, PowerSource.rechargeable);
       expect(device.colour, 'Champagne');
       expect(device.location, 'B07');
     });
@@ -291,14 +291,15 @@ void main() {
           id: 'rt',
           brand: 'Phonak',
           model: 'P90',
-          tubing: 'Standard',
-          powerSource: 'Battery',
+          tubing: Tubing.standard,
+          powerSource: PowerSource.battery,
           colour: 'Graphite',
           location: 'C10',
         );
 
         final map = d.toFirestore(createdBy: 'user-1');
-        // The wire form carries each value as a plain String.
+        // The wire form carries each enum as its human-readable String — the
+        // exact value already in Firestore, so existing docs round-trip (#15).
         expect(map['tubing'], 'Standard');
         expect(map['powerSource'], 'Battery');
         expect(map['colour'], 'Graphite');
@@ -308,23 +309,44 @@ void main() {
         final snap = await firestore.collection('incoming').doc('rt').get();
         final back = Device.fromFirestore(snap);
 
-        expect(back.tubing, 'Standard');
-        expect(back.powerSource, 'Battery');
+        expect(back.tubing, Tubing.standard);
+        expect(back.powerSource, PowerSource.battery);
         expect(back.colour, 'Graphite');
         expect(back.location, 'C10');
       },
     );
 
-    test('fields default to empty string when absent from the document',
+    test('enum fields default to unspecified when absent from the document',
         () async {
       await firestore.collection('incoming').doc('bare').set({'brand': 'X'});
       final snap = await firestore.collection('incoming').doc('bare').get();
       final d = Device.fromFirestore(snap);
 
-      expect(d.tubing, '');
-      expect(d.powerSource, '');
+      expect(d.tubing, Tubing.unspecified);
+      expect(d.powerSource, PowerSource.unspecified);
       expect(d.colour, '');
       expect(d.location, '');
+    });
+
+    test('fromWire is tolerant: legacy/garbage/Unknown values → unspecified '
+        'and never throw (#15)', () {
+      // Existing docs, a future variant, an OCR misread, and the volunteer's
+      // 'Unknown' provenance sentinel must all parse safely — the value is
+      // never the "needs input" signal (that rides on needsInputFields).
+      for (final junk in [null, '', 'Unknown', 'slim', 'BTE', '???']) {
+        expect(Tubing.fromWire(junk), Tubing.unspecified,
+            reason: 'tubing "$junk" must fall back, not throw');
+        expect(PowerSource.fromWire(junk), PowerSource.unspecified,
+            reason: 'powerSource "$junk" must fall back, not throw');
+      }
+      // The canonical wire strings parse to their variants and round-trip.
+      expect(Tubing.fromWire('Slim'), Tubing.slim);
+      expect(Tubing.fromWire('None'), Tubing.none);
+      expect(PowerSource.fromWire('Rechargeable'), PowerSource.rechargeable);
+      expect(Tubing.slim.wire, 'Slim');
+      expect(PowerSource.rechargeable.wire, 'Rechargeable');
+      expect(Tubing.unspecified.wire, '');
+      expect(PowerSource.unspecified.wire, '');
     });
 
     test('location is normalised (trim + uppercase) the way the confirm '

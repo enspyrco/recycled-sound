@@ -250,10 +250,12 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       year: result.year.value,
       batterySize: result.batterySize.value,
       // Clinical fields 4/5/7 — previously dropped at persist (issue #751).
-      // ScanResult holds these as optional SpecFields; fall back to '' when
-      // the volunteer never touched them, matching the model's empty default.
-      tubing: result.tubing?.value ?? '',
-      powerSource: result.powerSource?.value ?? '',
+      // ScanResult holds these as optional String SpecFields; parse into the
+      // typed enums at this boundary (#15). An untouched field or the volunteer's
+      // 'Unknown' provenance flag both resolve to `unspecified` — the "needs
+      // input" signal rides on needsInputFields below, not on the value.
+      tubing: Tubing.fromWire(result.tubing?.value),
+      powerSource: PowerSource.fromWire(result.powerSource?.value),
       colour: result.colour?.value ?? '',
       domeType: result.domeType.value,
       waxFilter: result.waxFilter.value,

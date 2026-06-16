@@ -48,6 +48,57 @@ enum DeviceStatus {
   };
 }
 
+/// Tubing type — Seray's clinical field 4. Closed set; human-determined at
+/// confirm time. [unspecified] is the "not yet determined" state and serializes
+/// to the empty string, preserving the model's empty-default convention (and
+/// absorbing the legacy `'Unknown'` provenance flag, which was never a real
+/// tubing value — the "needs input" signal lives in [Device.needsInputFields],
+/// not in this value. See feedback_provenance_not_value).
+enum Tubing {
+  unspecified(''),
+  slim('Slim'),
+  standard('Standard'),
+  none('None');
+
+  const Tubing(this.wire);
+
+  /// The on-the-wire string — the exact values the confirm-screen chip selector
+  /// and DeviceIndex already emit (`'Slim'`/`'Standard'`/`'None'`), so existing
+  /// Firestore docs and the scanner contract round-trip unchanged.
+  final String wire;
+
+  /// Parse the wire form; any unrecognized/empty/legacy value (including the
+  /// `'Unknown'` provenance sentinel) falls back to [unspecified]. Never throws.
+  static Tubing fromWire(String? s) => switch (s) {
+    'Slim' => slim,
+    'Standard' => standard,
+    'None' => none,
+    _ => unspecified,
+  };
+}
+
+/// Power source — Seray's clinical field 5. Closed set; human-confirmed.
+/// [unspecified] is the "not yet determined" state and serializes to the empty
+/// string (same empty-default convention as [Tubing]).
+enum PowerSource {
+  unspecified(''),
+  battery('Battery'),
+  rechargeable('Rechargeable');
+
+  const PowerSource(this.wire);
+
+  /// The on-the-wire string — matches the confirm-screen chip values and
+  /// DeviceIndex's derived `'Battery'`/`'Rechargeable'`.
+  final String wire;
+
+  /// Parse the wire form; unrecognized/empty/legacy → [unspecified]. Never throws.
+  static PowerSource fromWire(String? s) => switch (s) {
+    'Battery' => battery,
+    'Rechargeable' => rechargeable,
+    _ => unspecified,
+  };
+}
+
 /// An as-yet-unpersisted device — the scanner's confirmation output before it
 /// has a Firestore document id.
 ///
@@ -71,8 +122,8 @@ class DraftDevice {
     this.serialLeft = '',
     this.serialRight = '',
     this.batterySize = '',
-    this.tubing = '',
-    this.powerSource = '',
+    this.tubing = Tubing.unspecified,
+    this.powerSource = PowerSource.unspecified,
     this.colour = '',
     this.domeType = '',
     this.waxFilter = '',
@@ -106,12 +157,12 @@ class DraftDevice {
   final String serialRight;
   final String batterySize;
 
-  /// Tubing type (slim/standard/none) — Seray's field 4. Human-determined at
-  /// confirm time; empty until acknowledged.
-  final String tubing;
+  /// Tubing type — Seray's clinical field 4. Human-determined at confirm time;
+  /// [Tubing.unspecified] until acknowledged.
+  final Tubing tubing;
 
-  /// Power source (Battery/Rechargeable) — Seray's field 5. Human-confirmed.
-  final String powerSource;
+  /// Power source — Seray's clinical field 5. Human-confirmed.
+  final PowerSource powerSource;
 
   /// Device colour — Seray's field 7. Confirmed against brand/generic swatches.
   final String colour;
@@ -205,8 +256,8 @@ class Device {
     this.serialLeft = '',
     this.serialRight = '',
     this.batterySize = '',
-    this.tubing = '',
-    this.powerSource = '',
+    this.tubing = Tubing.unspecified,
+    this.powerSource = PowerSource.unspecified,
     this.colour = '',
     this.domeType = '',
     this.waxFilter = '',
@@ -243,11 +294,11 @@ class Device {
   final String serialRight;
   final String batterySize;
 
-  /// Tubing type (slim/standard/none) — Seray's field 4. Human-determined.
-  final String tubing;
+  /// Tubing type — Seray's clinical field 4. Human-determined.
+  final Tubing tubing;
 
-  /// Power source (Battery/Rechargeable) — Seray's field 5. Human-confirmed.
-  final String powerSource;
+  /// Power source — Seray's clinical field 5. Human-confirmed.
+  final PowerSource powerSource;
 
   /// Device colour — Seray's field 7. Confirmed against brand/generic swatches.
   final String colour;
@@ -311,8 +362,8 @@ class Device {
       serialLeft: (d['serialLeft'] as String?) ?? '',
       serialRight: (d['serialRight'] as String?) ?? '',
       batterySize: (d['batterySize'] as String?) ?? '',
-      tubing: (d['tubing'] as String?) ?? '',
-      powerSource: (d['powerSource'] as String?) ?? '',
+      tubing: Tubing.fromWire(d['tubing'] as String?),
+      powerSource: PowerSource.fromWire(d['powerSource'] as String?),
       colour: (d['colour'] as String?) ?? '',
       domeType: (d['domeType'] as String?) ?? '',
       waxFilter: (d['waxFilter'] as String?) ?? '',
@@ -360,8 +411,8 @@ class Device {
     'serialLeft': serialLeft,
     'serialRight': serialRight,
     'batterySize': batterySize,
-    'tubing': tubing,
-    'powerSource': powerSource,
+    'tubing': tubing.wire,
+    'powerSource': powerSource.wire,
     'colour': colour,
     'domeType': domeType,
     'waxFilter': waxFilter,

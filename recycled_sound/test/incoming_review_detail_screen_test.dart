@@ -30,9 +30,9 @@ class _RecordingRepository extends IncomingDeviceRepository {
   String? lastColour;
   double? lastServicingCost;
   List<ClinicalField>? lastNeedsInputFields;
-  // Captured override args from the last promoteToDevice call.
-  List<ClinicalField> lastOverrideFields = const [];
-  List<String> lastOverrideUnrecognised = const [];
+  // Captured args from the last promoteToDevice call.
+  ReviewEdits? lastEdits;
+  bool lastAllowOverride = false;
 
   @override
   Future<void> updateIncoming(
@@ -59,12 +59,12 @@ class _RecordingRepository extends IncomingDeviceRepository {
   @override
   Future<void> promoteToDevice(
     String incomingId, {
-    List<ClinicalField> overrideFields = const [],
-    List<String> overrideUnrecognised = const [],
+    ReviewEdits? edits,
+    bool allowOverride = false,
   }) async {
     promoteCalls++;
-    lastOverrideFields = overrideFields;
-    lastOverrideUnrecognised = overrideUnrecognised;
+    lastEdits = edits;
+    lastAllowOverride = allowOverride;
   }
 }
 
@@ -179,15 +179,16 @@ void main() {
     await tester.tap(pass);
     await tester.pumpAndSettle();
 
-    expect(repo.updateCalls, 1);
+    // Pass is now a SINGLE transactional promote (edits merged + gated + written
+    // atomically) — no separate updateIncoming on this path.
+    expect(repo.updateCalls, 0);
     expect(repo.promoteCalls, 1);
-    // Pass leaves qaStatus to promoteToDevice — update is called without it.
-    expect(repo.updateQaStatuses.single, isNull);
-    expect(repo.lastColour, 'Charcoal');
-    // Resolved → clean pass, no override fields, and the shrunk flag set
-    // (colour resolved) is persisted as empty.
-    expect(repo.lastOverrideFields, isEmpty);
-    expect(repo.lastNeedsInputFields, isEmpty);
+    expect(repo.lastEdits, isNotNull);
+    expect(repo.lastEdits!.colour, 'Charcoal');
+    // Resolved → clean pass: not an override, and the shrunk flag set (colour
+    // resolved) is empty.
+    expect(repo.lastAllowOverride, isFalse);
+    expect(repo.lastEdits!.needsInputFields, isEmpty);
     // Navigated back to the queue.
     expect(find.text('QUEUE'), findsOneWidget);
   });
@@ -215,10 +216,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.promoteCalls, 1);
-    expect(repo.lastOverrideFields, [ClinicalField.brand]);
-    // The flag persists (read-only identity can't be resolved here) so the
-    // override is self-describing on the promoted record.
-    expect(repo.lastNeedsInputFields, [ClinicalField.brand]);
+    // The UI authorises the override; the still-unresolved (read-only identity)
+    // flag rides in the edits so the gate stamps it from the verdict.
+    expect(repo.lastAllowOverride, isTrue);
+    expect(repo.lastEdits!.needsInputFields, [ClinicalField.brand]);
     expect(find.text('QUEUE'), findsOneWidget);
   });
 

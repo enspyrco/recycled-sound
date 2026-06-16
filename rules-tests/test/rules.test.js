@@ -183,6 +183,41 @@ describe('Firestore: devices/', () => {
     await seed((db) => setDoc(doc(db, 'devices/dev1'), { brand: 'Oticon' }));
     await assertSucceeds(getDoc(doc(asAlice().firestore(), 'devices/dev1')));
   });
+
+  // Trust-boundary gate enforced at the backend (PR #87) — a flagged device
+  // cannot be created in devices/ without a self-attributed override, even by
+  // an audiologist writing directly (bypassing the client promoteToDevice).
+  it('NEGATIVE: audiologist cannot create a flagged device without override',
+    async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/flagged'), {
+          brand: 'Oticon',
+          needsInputFields: ['tubing'],
+        })
+      );
+    });
+
+  it('NEGATIVE: a flagged device with an override attributed to someone ELSE '
+    + 'is rejected', async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/flagged2'), {
+          brand: 'Oticon',
+          needsInputFields: ['tubing'],
+          qaOverride: { overriddenBy: 'someone-else', fields: ['tubing'] },
+        })
+      );
+    });
+
+  it('POSITIVE: a flagged device with a self-attributed override is allowed',
+    async () => {
+      await assertSucceeds(
+        setDoc(doc(asAudiologist().firestore(), 'devices/flagged3'), {
+          brand: 'Oticon',
+          needsInputFields: ['tubing'],
+          qaOverride: { overriddenBy: 'aud1', fields: ['tubing'] },
+        })
+      );
+    });
 });
 
 describe('Firestore: users/ role self-assignment', () => {

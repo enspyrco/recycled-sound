@@ -66,6 +66,33 @@ enum PersistErrorKind {
       };
 }
 
+/// The audiologist's review-screen edits, merged onto an incoming doc inside
+/// [IncomingDeviceRepository.promoteToDevice]'s transaction so the gate sees
+/// (and the write commits) one consistent result. [needsInputFields] is the
+/// still-unresolved recognised set — the review screen shrinks it as fields are
+/// resolved; [unrecognisedNeedsInput] preserves blocker keys we couldn't type.
+class ReviewEdits {
+  const ReviewEdits({
+    required this.tubing,
+    required this.powerSource,
+    required this.colour,
+    required this.location,
+    required this.servicingNotes,
+    required this.servicingCost,
+    this.needsInputFields = const [],
+    this.unrecognisedNeedsInput = const [],
+  });
+
+  final Tubing tubing;
+  final PowerSource powerSource;
+  final String colour;
+  final String location;
+  final String servicingNotes;
+  final double servicingCost;
+  final List<ClinicalField> needsInputFields;
+  final List<String> unrecognisedNeedsInput;
+}
+
 /// Read/write access to the `incoming/` collection — the scanner's write-target
 /// for newly-identified devices awaiting audiologist triage.
 ///
@@ -360,65 +387,97 @@ class IncomingDeviceRepository {
   /// `qaStatus` flipped to passed) and delete the original. Runs as a
   /// batched write so the two sides land atomically.
   ///
-  /// Only audiologists/admins have write access to `devices/`; the rule
-  /// layer rejects this call for any other caller.
+  /// Only audiologists/admins have write access to `devices/`; the rules layer
+  /// rejects this call for any other caller AND independently enforces the gate
+  /// (a flagged `devices/` doc requires a self-attributed `qaOverride`).
   ///
-  /// **GATE-ENFORCED TRUST BOUNDARY.** The freshly-read doc is parsed into a
-  /// [Device] and run through [Device.reviewForPromotion]. A [Promotable]
-  /// verdict (no flags) promotes cleanly. A [NeedsResolution] verdict promotes
-  /// ONLY when the caller supplies an override (non-empty [overrideFields] or
-  /// [overrideUnrecognised]) — and then the decision is stamped onto the
-  /// `devices/` doc as a [QaOverride] audit record (who/when/which). With
-  /// unresolved flags and NO override this **throws** rather than silently
-  /// promoting: there is no path from scanner/volunteer uncertainty into the
-  /// curated register without either resolved fields or a recorded, attributable
-  /// human decision. Re-reading (rather than trusting a passed-in model) means
-  /// the gate runs against exactly what will be written.
+  /// **GATE-ENFORCED TRUST BOUNDARY — runs in a single transaction.** Within one
+  /// [FirebaseFirestore.runTransaction] the doc is read, the audiologist's
+  /// [edits] are merged onto it, and [Device.reviewForPromotion] is computed on
+  /// that MERGED result — so the verdict, the audit record, and the bytes
+  /// written all agree (no detached `update()`→`get()` window that could clobber
+  /// edits or gate against a stale read; the earlier split-call shape had both
+  /// failure modes — Kelvin/Carnot, PR #87 cage-match).
   ///
-  /// The caller (the review screen) passes the live-unresolved fields it is
-  /// about to override; identity callers that pass nothing get the clean-path
-  /// behaviour and a fail-closed throw if the doc is still flagged.
+  /// A [Promotable] verdict promotes cleanly. A [NeedsResolution] verdict
+  /// promotes ONLY when [allowOverride] is true — and then a [QaOverride] is
+  /// stamped from the VERDICT'S OWN `unresolved`/`unrecognised` sets (never
+  /// caller-supplied field lists), so the audit trail cannot misdescribe what
+  /// was actually overridden. With blockers and no override this throws: there
+  /// is no path from scanner/volunteer uncertainty into the curated register
+  /// without either resolved fields or a recorded, attributable human decision.
+  ///
+  /// [edits] is null for the queue's clean quick-Approve (no review edits to
+  /// merge); the gate still runs and a still-flagged doc fails closed.
   Future<void> promoteToDevice(
     String incomingId, {
-    List<ClinicalField> overrideFields = const [],
-    List<String> overrideUnrecognised = const [],
+    ReviewEdits? edits,
+    bool allowOverride = false,
   }) async {
-    final src = await _col.doc(incomingId).get();
-    if (!src.exists) {
-      throw StateError('No incoming/$incomingId to promote');
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      // 'unknown' is not an attribution for a clinical audit record — fail
+      // closed rather than stamp an unattributable override (Carnot, #87).
+      throw StateError('Must be signed in to promote a device');
     }
-    final device = Device.fromFirestore(src);
-    final verdict = device.reviewForPromotion();
-    final hasOverride =
-        overrideFields.isNotEmpty || overrideUnrecognised.isNotEmpty;
+    await _firestore.runTransaction((tx) async {
+      final ref = _col.doc(incomingId);
+      final src = await tx.get(ref);
+      if (!src.exists) {
+        throw StateError('No incoming/$incomingId to promote');
+      }
+      final data = Map<String, dynamic>.from(src.data() ?? const {});
+      if (edits != null) {
+        data['tubing'] = edits.tubing.wire;
+        data['powerSource'] = edits.powerSource.wire;
+        data['colour'] = edits.colour;
+        data['location'] = edits.location;
+        data['servicingNotes'] = edits.servicingNotes;
+        data['servicingCost'] = edits.servicingCost;
+        data['needsInputFields'] = [
+          ...edits.needsInputFields.toWireList(),
+          ...edits.unrecognisedNeedsInput,
+        ];
+      }
 
-    final data = Map<String, dynamic>.from(src.data() ?? const {});
-    switch (verdict) {
-      case Promotable():
-        // Clean path — every flag resolved. An override passed here would be
-        // spurious, so we ignore it and record nothing.
-        break;
-      case NeedsResolution(:final unresolved, :final unrecognised):
-        if (!hasOverride) {
-          throw StateError(
-            'Refusing to promote incoming/$incomingId: '
-            '${unresolved.map((f) => f.wire).toList()} + $unrecognised '
-            'unresolved and no override supplied.',
-          );
-        }
-        data['qaOverride'] = QaOverride(
-          overriddenBy: _auth.currentUser?.uid ?? 'unknown',
-          overriddenAt: DateTime.now(),
-          fields: overrideFields,
-          unrecognised: overrideUnrecognised,
-        ).toFirestore();
-    }
-    data['qaStatus'] = QaStatus.passed.wire;
-    data['updatedAt'] = FieldValue.serverTimestamp();
-    final batch = _firestore.batch();
-    batch.set(_firestore.collection('devices').doc(incomingId), data);
-    batch.delete(_col.doc(incomingId));
-    await batch.commit();
+      // Gate on the MERGED result via the same partition the model uses, so the
+      // verdict reflects exactly what is about to be written.
+      final blockers = ClinicalField.partition(data['needsInputFields']);
+      final verdict = Device(
+        id: incomingId,
+        brand: '',
+        model: '',
+        needsInputFields: blockers.known,
+        unrecognisedNeedsInput: blockers.unknown,
+      ).reviewForPromotion();
+
+      switch (verdict) {
+        case Promotable():
+          // Every flag resolved — clean promotion, no override record even if
+          // allowOverride was passed.
+          break;
+        case NeedsResolution(:final unresolved, :final unrecognised):
+          if (!allowOverride) {
+            throw StateError(
+              'Refusing to promote incoming/$incomingId: '
+              '${unresolved.map((f) => f.wire).toList()} + $unrecognised '
+              'unresolved and override not authorised.',
+            );
+          }
+          // Stamp the VERDICT's own sets — the source of truth — not anything
+          // the caller passed.
+          data['qaOverride'] = QaOverride(
+            overriddenBy: uid,
+            overriddenAt: DateTime.now(),
+            fields: unresolved,
+            unrecognised: unrecognised,
+          ).toFirestore();
+      }
+      data['qaStatus'] = QaStatus.passed.wire;
+      data['updatedAt'] = FieldValue.serverTimestamp();
+      tx.set(_devicesCol.doc(incomingId), data);
+      tx.delete(ref);
+    });
   }
 
   /// Stream of a single incoming record. Emits `null` if the doc doesn't

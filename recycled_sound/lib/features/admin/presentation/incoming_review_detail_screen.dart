@@ -8,6 +8,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/rs_card.dart';
 import '../../../core/widgets/rs_chip.dart';
 import '../../../core/widgets/rs_spec_row.dart';
+import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
 import '../../devices/presentation/widgets/storage_image.dart';
 import '../../devices/providers/device_providers.dart';
@@ -211,29 +212,36 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
     final d = widget.device;
-    // Capture the override content from the live edit state BEFORE persisting.
-    final overrideFields = _unresolved.toList();
-    final overrideUnrecognised = d.unrecognisedNeedsInput;
     final isOverride = _requiresOverride;
+    final overrideCount =
+        _unresolved.length + d.unrecognisedNeedsInput.length;
     setState(() => _busy = true);
     try {
-      // Persist edits FIRST: promoteToDevice re-reads the doc and copies it
-      // into devices/, so the audiologist's corrections (and the shrunk
-      // needsInputFields) must already be on the incoming doc before the batch
-      // runs. promoteToDevice flips qaStatus to passed itself.
-      await _persist();
+      // Single transactional promote: the audiologist's edits (incl. the shrunk
+      // needsInputFields) are merged + gated + written atomically inside the
+      // repository, so there's no detached update→get window that could clobber
+      // edits or gate against a stale read. The override record is stamped from
+      // the gate's own verdict, not from anything passed here.
       await repo.promoteToDevice(
         d.id,
-        overrideFields: overrideFields,
-        overrideUnrecognised: overrideUnrecognised,
+        allowOverride: isOverride,
+        edits: ReviewEdits(
+          tubing: _tubing,
+          powerSource: _powerSource,
+          colour: _colour.text.trim(),
+          location: _location.text.trim(),
+          servicingNotes: _servicingNotes.text.trim(),
+          servicingCost: _parsedCost,
+          needsInputFields: _unresolved.toList(),
+          unrecognisedNeedsInput: d.unrecognisedNeedsInput,
+        ),
       );
       router.go('/incoming');
       messenger.showSnackBar(
         SnackBar(
           content: Text(isOverride
               ? 'Override recorded — ${d.brand} ${d.model} promoted with '
-                  '${overrideFields.length + overrideUnrecognised.length} '
-                  'unresolved field(s).'
+                  '$overrideCount unresolved field(s).'
               : 'Passed QA — ${d.brand} ${d.model} added to register.'),
           backgroundColor: isOverride ? AppColors.warning : AppColors.success,
         ),

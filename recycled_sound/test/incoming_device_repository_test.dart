@@ -585,9 +585,7 @@ void main() {
         'createdBy': 'u1',
         'needsInputFields': ['brand', 'make'], // one real, one unrecognised
       });
-      await repo.promoteToDevice('ovr',
-          overrideFields: [ClinicalField.brand],
-          overrideUnrecognised: ['make']);
+      await repo.promoteToDevice('ovr', allowOverride: true);
 
       final dst = await firestore.collection('devices').doc('ovr').get();
       expect(dst.exists, isTrue);
@@ -596,6 +594,8 @@ void main() {
       final ov = promoted.qaOverride;
       expect(ov, isNotNull, reason: 'override must leave an audit trail');
       expect(ov!.overriddenBy, 'user-abc'); // the signed-in mock uid
+      // Fields come from the gate's VERDICT (the re-read blockers), not from
+      // anything the caller passed — so the audit can't be falsified.
       expect(ov.fields, [ClinicalField.brand]);
       expect(ov.unrecognised, ['make']);
     });
@@ -606,9 +606,25 @@ void main() {
         'model': 'P90',
         'createdBy': 'u1',
       });
-      await repo.promoteToDevice('cln', overrideFields: [ClinicalField.tubing]);
+      await repo.promoteToDevice('cln', allowOverride: true);
       final dst = await firestore.collection('devices').doc('cln').get();
       expect(dst.data()!.containsKey('qaOverride'), isFalse);
+    });
+
+    test('signed-out caller fails closed (no unattributable override)',
+        () async {
+      await firestore.collection('incoming').doc('anon').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+      });
+      final signedOut = IncomingDeviceRepository(
+        firestore: firestore,
+        storage: storage,
+        auth: MockFirebaseAuth(signedIn: false),
+      );
+      await expectLater(
+          signedOut.promoteToDevice('anon'), throwsA(isA<StateError>()));
     });
   });
 

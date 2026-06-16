@@ -100,12 +100,34 @@ service cloud.firestore {
     }
 
     // Devices: post-triage register. Anyone authed can read; only
-    // audiologists/admins write (creation happens via triage promotion
-    // from incoming/, not direct scanner write).
+    // audiologists/admins write. Promotion happens via triage from incoming/,
+    // and the trust-boundary invariant is enforced HERE at the backend — not
+    // only in the client's promoteToDevice — so a direct client write can't
+    // smuggle a flagged device into the curated register (Carnot, PR #87).
     match /devices/{deviceId} {
+      function isElevated() {
+        return request.auth != null &&
+          request.auth.token.role in ['audiologist', 'admin'];
+      }
+      // No blocker keys = clean promotion. A missing field is treated as empty.
+      function noBlockers() {
+        return !('needsInputFields' in request.resource.data) ||
+          request.resource.data.needsInputFields.size() == 0;
+      }
+      // A flagged device may only be created with a qaOverride attributed to the
+      // caller — the audit record can't be forged for someone else.
+      function hasSelfAttributedOverride() {
+        return 'qaOverride' in request.resource.data &&
+          request.resource.data.qaOverride.overriddenBy == request.auth.uid;
+      }
+
       allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        request.auth.token.role in ['audiologist', 'admin'];
+      // Create crosses the trust boundary: clean OR a self-attributed override.
+      allow create: if isElevated() &&
+        (noBlockers() || hasSelfAttributedOverride());
+      // Post-promotion edits (servicing, status, matching) and deletes stay
+      // elevated-only; they don't re-cross the intake boundary.
+      allow update, delete: if isElevated();
     }
 
     // Catalog: read-only for all authed users, admin-writable

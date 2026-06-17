@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import 'package:recycled_sound/core/clinical_field.dart';
+
 import 'models/device.dart';
 
 /// Known [FirebaseException] states a persist call can surface to the UI.
@@ -62,6 +64,53 @@ enum PersistErrorKind {
           'The register is at capacity right now. Contact an admin.',
         unknown => 'Failed to save. Please try again.',
       };
+}
+
+/// The audiologist's review-screen edits, merged onto an incoming doc inside
+/// [IncomingDeviceRepository.promoteToDevice]'s transaction so the gate sees
+/// (and the write commits) one consistent result. [needsInputFields] is the
+/// still-unresolved recognised set — the review screen shrinks it as fields are
+/// resolved; [unrecognisedNeedsInput] preserves blocker keys we couldn't type.
+///
+/// **Identity fields (brand/model/type/batterySize) are editable here (#783).**
+/// Before #783 the audiologist could only *override* a flagged identity field —
+/// assert authority to promote a known-wrong AI read, never correct it. These
+/// four carry the audiologist's corrected value so a flagged identity field has
+/// a real *resolution* path: the corrected value is persisted AND the flag drops
+/// out of [needsInputFields], so the gate sees it resolved rather than overridden.
+class ReviewEdits {
+  const ReviewEdits({
+    required this.brand,
+    required this.model,
+    required this.type,
+    required this.batterySize,
+    required this.tubing,
+    required this.powerSource,
+    required this.colour,
+    required this.location,
+    required this.servicingNotes,
+    required this.servicingCost,
+    this.needsInputFields = const [],
+    this.unrecognisedNeedsInput = const [],
+  });
+
+  /// The four scanner-read identity fields the audiologist may now correct
+  /// (#783). brand/model stay free-text; [type] (Style) and [batterySize] are
+  /// typed closed-set pickers (#15). Carry the AI's read unchanged when the
+  /// audiologist doesn't edit.
+  final String brand;
+  final String model;
+  final Style type;
+  final BatterySize batterySize;
+
+  final Tubing tubing;
+  final PowerSource powerSource;
+  final String colour;
+  final String location;
+  final String servicingNotes;
+  final double servicingCost;
+  final List<ClinicalField> needsInputFields;
+  final List<String> unrecognisedNeedsInput;
 }
 
 /// Read/write access to the `incoming/` collection — the scanner's write-target
@@ -304,24 +353,181 @@ class IncomingDeviceRepository {
       .snapshots()
       .map((q) => q.docs.map(Device.fromFirestore).toList());
 
+  /// Persist the audiologist's review edits onto an `incoming/{id}` doc.
+  ///
+  /// A focused review update — the scanner-read identity fields (since #783), the
+  /// human-determined clinical fields, location, servicing notes/cost, and an
+  /// optional [qaStatus] flip.
+  ///
+  /// **Identity fields are always rewritten from the review screen (#783).** This
+  /// call historically excluded brand/model/type/batterySize to avoid clobbering
+  /// the scanner's read. #783 reverses that: the review screen IS the audiologist's
+  /// authority over these fields, so it writes all four every time. An unedited
+  /// field round-trips its existing value (a no-op write); a corrected field
+  /// persists the new value; a flagged-but-uncorrected field persists the empty
+  /// string ([IncomingReviewDetailScreen] de-sentinels `'Unknown'` → `''`) while
+  /// its flag stays in [needsInputFields]. Integrity is enforced at the BACKEND:
+  /// the `devices/` rules reject any promotion where a clinical field is
+  /// empty/sentinel but not declared a blocker (value↔flag consistency, #89), so
+  /// an empty identity value can only cross the boundary as a declared+overridden
+  /// blocker. `year` stays read-only — not a [ClinicalField], never gates.
+  ///
+  /// Enums serialize via their `.wire` form so the stored strings match the
+  /// model's `fromWire` parse and the scanner/confirm-screen contract.
+  /// `updatedAt` is bumped server-side. Only audiologists/admins may write the
+  /// `incoming/` doc's review fields; the rules layer rejects other callers.
+  ///
+  /// When [needsInputFields] is provided it OVERWRITES the doc's flag set — the
+  /// review screen passes the shrunk set as the audiologist resolves fields, so
+  /// a resolved flag drops out of the "needs input" list (and the promotion gate
+  /// sees it as resolved). [unrecognisedNeedsInput] is re-appended verbatim so a
+  /// tolerant read→write never destroys a blocker key we couldn't interpret.
+  /// Omit [needsInputFields] (null) to leave the persisted set untouched.
+  Future<void> updateIncoming(
+    String id, {
+    required String brand,
+    required String model,
+    required Style type,
+    required BatterySize batterySize,
+    required Tubing tubing,
+    required PowerSource powerSource,
+    required String colour,
+    required String location,
+    required String servicingNotes,
+    required double servicingCost,
+    QaStatus? qaStatus,
+    List<ClinicalField>? needsInputFields,
+    List<String> unrecognisedNeedsInput = const [],
+  }) async {
+    final data = <String, dynamic>{
+      // Identity fields are always rewritten — the review screen is the
+      // audiologist's authority over them. Backend value↔flag consistency (#89)
+      // is what protects an empty value from crossing into devices/ unflagged.
+      'brand': brand,
+      'model': model,
+      'type': type.wire,
+      'batterySize': batterySize.wire,
+      'tubing': tubing.wire,
+      'powerSource': powerSource.wire,
+      'colour': colour,
+      'location': location,
+      'servicingNotes': servicingNotes,
+      'servicingCost': servicingCost,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (qaStatus != null) 'qaStatus': qaStatus.wire,
+      if (needsInputFields != null)
+        'needsInputFields': [
+          ...needsInputFields.toWireList(),
+          ...unrecognisedNeedsInput,
+        ],
+    };
+    await _col.doc(id).update(data);
+  }
+
   /// Triage promotion: copy an incoming doc into `devices/{id}` (with
   /// `qaStatus` flipped to passed) and delete the original. Runs as a
   /// batched write so the two sides land atomically.
   ///
-  /// Only audiologists/admins have write access to `devices/`; the rule
-  /// layer rejects this call for any other caller.
-  Future<void> promoteToDevice(String incomingId) async {
-    final src = await _col.doc(incomingId).get();
-    if (!src.exists) {
-      throw StateError('No incoming/$incomingId to promote');
+  /// Only audiologists/admins have write access to `devices/`; the rules layer
+  /// rejects this call for any other caller AND independently enforces the gate
+  /// (a flagged `devices/` doc requires a self-attributed `qaOverride`).
+  ///
+  /// **GATE-ENFORCED TRUST BOUNDARY — runs in a single transaction.** Within one
+  /// [FirebaseFirestore.runTransaction] the doc is read, the audiologist's
+  /// [edits] are merged onto it, and [Device.reviewForPromotion] is computed on
+  /// that MERGED result — so the verdict, the audit record, and the bytes
+  /// written all agree (no detached `update()`→`get()` window that could clobber
+  /// edits or gate against a stale read; the earlier split-call shape had both
+  /// failure modes — Kelvin/Carnot, PR #87 cage-match).
+  ///
+  /// A [Promotable] verdict promotes cleanly. A [NeedsResolution] verdict
+  /// promotes ONLY when [allowOverride] is true — and then a [QaOverride] is
+  /// stamped from the VERDICT'S OWN `unresolved`/`unrecognised` sets (never
+  /// caller-supplied field lists), so the audit trail cannot misdescribe what
+  /// was actually overridden. With blockers and no override this throws: there
+  /// is no path from scanner/volunteer uncertainty into the curated register
+  /// without either resolved fields or a recorded, attributable human decision.
+  ///
+  /// [edits] is null for the queue's clean quick-Approve (no review edits to
+  /// merge); the gate still runs and a still-flagged doc fails closed.
+  Future<void> promoteToDevice(
+    String incomingId, {
+    ReviewEdits? edits,
+    bool allowOverride = false,
+  }) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      // 'unknown' is not an attribution for a clinical audit record — fail
+      // closed rather than stamp an unattributable override (Carnot, #87).
+      throw StateError('Must be signed in to promote a device');
     }
-    final data = Map<String, dynamic>.from(src.data() ?? const {});
-    data['qaStatus'] = QaStatus.passed.wire;
-    data['updatedAt'] = FieldValue.serverTimestamp();
-    final batch = _firestore.batch();
-    batch.set(_firestore.collection('devices').doc(incomingId), data);
-    batch.delete(_col.doc(incomingId));
-    await batch.commit();
+    await _firestore.runTransaction((tx) async {
+      final ref = _col.doc(incomingId);
+      final src = await tx.get(ref);
+      if (!src.exists) {
+        throw StateError('No incoming/$incomingId to promote');
+      }
+      final data = Map<String, dynamic>.from(src.data() ?? const {});
+      if (edits != null) {
+        // Identity corrections (#783) merge in alongside the clinical fields, so
+        // the gate below evaluates [reviewForPromotion] on the value the
+        // audiologist actually corrected to — a brand the audiologist fixed is
+        // resolved (dropped from needsInputFields) and promotes clean, not via
+        // override.
+        data['brand'] = edits.brand;
+        data['model'] = edits.model;
+        data['type'] = edits.type.wire;
+        data['batterySize'] = edits.batterySize.wire;
+        data['tubing'] = edits.tubing.wire;
+        data['powerSource'] = edits.powerSource.wire;
+        data['colour'] = edits.colour;
+        data['location'] = edits.location;
+        data['servicingNotes'] = edits.servicingNotes;
+        data['servicingCost'] = edits.servicingCost;
+        data['needsInputFields'] = [
+          ...edits.needsInputFields.toWireList(),
+          ...edits.unrecognisedNeedsInput,
+        ];
+      }
+
+      // Gate on the MERGED result via the same partition the model uses, so the
+      // verdict reflects exactly what is about to be written.
+      final blockers = ClinicalField.partition(data['needsInputFields']);
+      final verdict = Device(
+        id: incomingId,
+        brand: '',
+        model: '',
+        needsInputFields: blockers.known,
+        unrecognisedNeedsInput: blockers.unknown,
+      ).reviewForPromotion();
+
+      switch (verdict) {
+        case Promotable():
+          // Every flag resolved — clean promotion, no override record even if
+          // allowOverride was passed.
+          break;
+        case NeedsResolution(:final unresolved, :final unrecognised):
+          if (!allowOverride) {
+            throw StateError(
+              'Refusing to promote incoming/$incomingId: '
+              '${unresolved.map((f) => f.wire).toList()} + $unrecognised '
+              'unresolved and override not authorised.',
+            );
+          }
+          // Stamp the VERDICT's own sets — the source of truth — not anything
+          // the caller passed.
+          data['qaOverride'] = QaOverride(
+            overriddenBy: uid,
+            overriddenAt: DateTime.now(),
+            fields: unresolved,
+            unrecognised: unrecognised,
+          ).toFirestore();
+      }
+      data['qaStatus'] = QaStatus.passed.wire;
+      data['updatedAt'] = FieldValue.serverTimestamp();
+      tx.set(_devicesCol.doc(incomingId), data);
+      tx.delete(ref);
+    });
   }
 
   /// Stream of a single incoming record. Emits `null` if the doc doesn't

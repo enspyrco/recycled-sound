@@ -100,12 +100,213 @@ service cloud.firestore {
     }
 
     // Devices: post-triage register. Anyone authed can read; only
-    // audiologists/admins write (creation happens via triage promotion
-    // from incoming/, not direct scanner write).
+    // audiologists/admins write. Promotion happens via triage from incoming/,
+    // and the trust-boundary invariant is enforced HERE at the backend — not
+    // only in the client's promoteToDevice — so a direct client write can't
+    // smuggle a flagged device into the curated register (Carnot, PR #87).
     match /devices/{deviceId} {
+      function isElevated() {
+        return request.auth != null &&
+          request.auth.token.role in ['audiologist', 'admin'];
+      }
+      // No blocker keys on the RESULT = clean. A missing field is empty.
+      function noBlockers() {
+        return !('needsInputFields' in request.resource.data) ||
+          request.resource.data.needsInputFields.size() == 0;
+      }
+      // A clinical field is UNRESOLVED when its value is missing, blank, or the
+      // 'Unknown' volunteer-flag sentinel — matching the review screen, which
+      // resolves on `text.trim().isNotEmpty` and persists `.trim()`ed. The
+      // `^[ \t\r\n]*$` match treats whitespace-only (and exact empty) as blank,
+      // so a direct write of `brand: '   '` can't pass as "resolved" while the
+      // UI would have trimmed it to empty (Carnot, PR #89 re-review — Bypass A
+      // in Maxwell's-demon clothing).
+      function valueUnresolved(key) {
+        return !(key in request.resource.data) ||
+          !(request.resource.data[key] is string) ||
+          request.resource.data[key].matches('^[ \t\r\n]*$') ||
+          request.resource.data[key] == 'Unknown';
+      }
+      function declaredBlocker(key) {
+        return 'needsInputFields' in request.resource.data &&
+          key in request.resource.data.needsInputFields;
+      }
+      // VALUE↔FLAG CONSISTENCY (Bypass A, cage-match PR #89): the gate trusts the
+      // client's needsInputFields, so the client could claim a field resolved
+      // (drop it from the set) while its value is still empty/sentinel — sneaking
+      // an unresolved field into the curated register with no override + no audit.
+      // Close it on request.resource.data ALONE (no cross-doc get): every clinical
+      // field with an unresolved VALUE must be DECLARED as a blocker. Then
+      // noBlockers() (nothing flagged) genuinely implies every clinical field
+      // carries a real value, and the override path still describes what it skips.
+      function valueFlagConsistent() {
+        return (!valueUnresolved('brand') || declaredBlocker('brand')) &&
+          (!valueUnresolved('model') || declaredBlocker('model')) &&
+          (!valueUnresolved('type') || declaredBlocker('type')) &&
+          (!valueUnresolved('tubing') || declaredBlocker('tubing')) &&
+          (!valueUnresolved('powerSource') || declaredBlocker('powerSource')) &&
+          (!valueUnresolved('batterySize') || declaredBlocker('batterySize')) &&
+          (!valueUnresolved('colour') || declaredBlocker('colour'));
+      }
+      // A flagged result carries a qaOverride attributed to the caller — the
+      // audit record can't be forged for someone else.
+      function hasSelfAttributedOverride() {
+        return 'qaOverride' in request.resource.data &&
+          request.resource.data.qaOverride.overriddenBy == request.auth.uid;
+      }
+      // The blocker set is identical to what's already stored — an update that
+      // edits OTHER fields (servicing, status) on an already-justified flagged
+      // device, without re-crossing the intake boundary. Guarded so neither
+      // side's missing field throws.
+      function blockersUnchanged() {
+        return ('needsInputFields' in request.resource.data)
+            == ('needsInputFields' in resource.data) &&
+          (!('needsInputFields' in request.resource.data) ||
+            request.resource.data.needsInputFields == resource.data.needsInputFields);
+      }
+      // The qaOverride is byte-identical to what's already stored (or absent on
+      // both sides). The blockers-unchanged update arm requires this so an elevated
+      // user can edit OTHER fields (servicing, status) on an already-justified
+      // device WITHOUT being able to rewrite the audit record — in particular
+      // forging qaOverride.overriddenBy onto another uid while keeping coverage
+      // intact (Carnot #792 2nd pass). Any change to the override on an unchanged
+      // blocker set must instead go through overrideRenewed() (fresh + SELF-
+      // attributed + covering), which is the only legitimate way to restamp it.
+      function overrideUnchanged() {
+        return ('qaOverride' in request.resource.data)
+            == ('qaOverride' in resource.data) &&
+          (!('qaOverride' in request.resource.data) ||
+            request.resource.data.qaOverride == resource.data.qaOverride);
+      }
+      // A self-attributed override that is FRESH this write (not the one already
+      // stored). Changing the blocker set requires renewing the override, so an
+      // elevated user can't expand blockers while reusing a stale override that
+      // under-describes them (Carnot, PR #87 3rd pass).
+      function overrideRenewed() {
+        return hasSelfAttributedOverride() &&
+          (!('qaOverride' in resource.data) ||
+            request.resource.data.qaOverride != resource.data.qaOverride);
+      }
+      // The full set of blocker keys the override accounts for: recognised
+      // clinical fields (qaOverride.fields — wire strings IDENTICAL to the
+      // needsInputFields keys, see ClinicalField.wire) UNION the raw unrecognised
+      // keys. Each list is taken ONLY when present AND actually a list — a missing
+      // OR wrong-typed list contributes [] rather than throwing inside .concat()
+      // (Carnot #792 finding #3: don't lean on throw-implies-deny; fail closed
+      // explicitly). The app always stamps both as real lists; a malicious write
+      // that omits or mistypes one just shrinks the covered set, never errors.
+      function overrideFields() {
+        return ('fields' in request.resource.data.qaOverride) &&
+            (request.resource.data.qaOverride.fields is list) ?
+          request.resource.data.qaOverride.fields : [];
+      }
+      function overrideUnrecognised() {
+        return ('unrecognised' in request.resource.data.qaOverride) &&
+            (request.resource.data.qaOverride.unrecognised is list) ?
+          request.resource.data.qaOverride.unrecognised : [];
+      }
+      function overrideCovered() {
+        return overrideFields().concat(overrideUnrecognised());
+      }
+      // SET-COVER (Carnot, cage-match PR #89 follow-up, claude-tasks #791): self-
+      // ATTRIBUTION is not audit ACCURACY. hasSelfAttributedOverride() only proves
+      // the override names the caller — a direct write could declare
+      // needsInputFields:['brand','colour'] while stamping qaOverride.fields:['brand'],
+      // under-describing what it actually skipped and still passing the gate. Enforce
+      // that EVERY declared blocker is covered by the override
+      // (needsInputFields ⊆ qaOverride.fields ∪ qaOverride.unrecognised), so the
+      // audit record can't silently omit a blocker the promotion waved through. The
+      // app path is already honest (the repository stamps the override FROM the
+      // verdict's own unresolved/unrecognised sets in promoteToDevice); this makes the
+      // backend independently enforce it.
+      //
+      // FAIL CLOSED, EXPLICITLY (Carnot #792 review). Structure: coverage holds iff
+      // there are no blockers to cover — which means needsInputFields is ABSENT, or
+      // is a genuine EMPTY LIST. A needsInputFields that is PRESENT but NOT a list is
+      // NOT "no blockers": an earlier draft returned true for it (wrong polarity —
+      // fail-open: a string `needsInputFields:'brand'` slipped through whenever the
+      // values happened to be valid). Now a non-list, non-empty blocker field can
+      // ONLY be satisfied by a present qaOverride whose union COVERS it via .hasAll()
+      // — and .hasAll() over a non-list argument fails, so it denies.
+      //
+      // Coverage is DECOUPLED from attribution. Self-attribution is enforced
+      // separately — by hasSelfAttributedOverride() on create and by overrideRenewed()
+      // when the blocker set grows — so requiring it HERE too would wrongly reject a
+      // legitimate servicing edit by a DIFFERENT elevated user on an already-justified
+      // device (the override is attributed to whoever first promoted it, not the later
+      // editor). This predicate answers only "does the present override's union cover
+      // every declared blocker?" It is a top-level conjunct on BOTH create and update,
+      // so it also closes the blockersUnchanged update arm — an elevated user can no
+      // longer DEGRADE the stored override into an under-covering one (Carnot #792
+      // finding #1) because the post-state override must still cover the blockers.
+      function overrideCoversBlockers() {
+        return !('needsInputFields' in request.resource.data) ||
+          (request.resource.data.needsInputFields is list &&
+            request.resource.data.needsInputFields.size() == 0) ||
+          ('qaOverride' in request.resource.data &&
+            overrideCovered().hasAll(request.resource.data.needsInputFields));
+      }
+      // CLEAN-WRITE OVERRIDE HYGIENE (Carnot, PR #92 set-cover 3rd-pass scope
+      // note; claude-tasks #821). The flagged path already requires a self-
+      // attributed, covering override — but the noBlockers() arm on create/update
+      // admits a CLEAN device with NO constraint on qaOverride at all, so a direct
+      // write could plant an ARBITRARY override (e.g. overriddenBy: someone-else)
+      // on a clean doc. Not a flagged-device bypass (clean ⇒ nothing to cover,
+      // value↔flag vacuous) and not introduced by #92 — but it pollutes any
+      // "every device an override touched" audit with a clean device carrying a
+      // forged/foreign override. Require a clean write's qaOverride to be ABSENT,
+      // SELF-attributed, or UNCHANGED from what's already stored.
+      //
+      // The `overrideUnchanged()` escape is the SAME principle the flagged path
+      // already uses (blockersUnchanged() && overrideUnchanged()): a DIFFERENT
+      // elevated user may edit a doc carrying someone else's override as long as
+      // the override is byte-identical — unchanged ≠ forged (Kelvin + Carnot,
+      // PR #98 cage-match). Without it, a clean doc that legitimately carries a
+      // self-attributed override (e.g. one placed by its promoter) would be
+      // FROZEN: a second audiologist editing servicing/status would fail the
+      // self-attribution check against the original promoter's uid. It is guarded
+      // `resource != null` so it applies ONLY on update — on create there is no
+      // legitimate pre-existing override, so the create invariant stays the
+      // strict "absent or self-attributed" (and `resource.data` would null-deref
+      // on create otherwise). Vacuously true for a flagged write (the disjunct
+      // arms below govern its override), so it composes as a top-level conjunct
+      // on both create and update — the same shape as overrideCoversBlockers().
+      function cleanWriteOverrideOk() {
+        return !noBlockers() ||
+          !('qaOverride' in request.resource.data) ||
+          hasSelfAttributedOverride() ||
+          (resource != null && overrideUnchanged());
+      }
+
       allow read: if request.auth != null;
-      allow write: if request.auth != null &&
-        request.auth.token.role in ['audiologist', 'admin'];
+      // Create crosses the trust boundary: the result must be value↔flag
+      // consistent (no empty/sentinel clinical field left undeclared — Bypass A,
+      // #89), the blocker set must be COVERED by a self-attributed override
+      // (set-cover, #791/#792 — coverage is a top-level invariant, vacuous when
+      // clean), AND the doc is either clean or carries that self-attributed override.
+      allow create: if isElevated() &&
+        valueFlagConsistent() &&
+        overrideCoversBlockers() &&
+        cleanWriteOverrideOk() &&
+        (noBlockers() || hasSelfAttributedOverride());
+      // Update may NOT introduce/expand blockers except via a FRESH self-
+      // attributed override (the side door, Carnot #87), must stay value↔flag
+      // consistent (#89), AND every declared blocker must be covered by the override
+      // (#791/#792 finding #1 — coverage is hoisted to a top-level conjunct so it
+      // ALSO gates the blockersUnchanged arm: an elevated user can no longer mutate
+      // an already-justified override into an under-covering one while leaving the
+      // blocker set unchanged). Editing other fields on an already-justified flagged
+      // device is fine, and cleaning all blockers off is fine — provided every
+      // now-clean field actually carries a value and any surviving blocker stays
+      // covered.
+      allow update: if isElevated() &&
+        valueFlagConsistent() &&
+        overrideCoversBlockers() &&
+        cleanWriteOverrideOk() &&
+        (noBlockers() ||
+          (blockersUnchanged() && overrideUnchanged()) ||
+          overrideRenewed());
+      allow delete: if isElevated();
     }
 
     // Catalog: read-only for all authed users, admin-writable

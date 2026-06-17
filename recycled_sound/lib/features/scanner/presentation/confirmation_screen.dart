@@ -46,6 +46,10 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   late final AnimationController _completionController;
   bool _completionFired = false;
 
+  /// Free-text physical storage location (box/bag, e.g. B07). Metadata, not a
+  /// clinical field — never gates the "Add to Register" completion button.
+  final TextEditingController _locationController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -64,16 +68,22 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   void dispose() {
     _pulseController.dispose();
     _completionController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
   void _checkCompletion(ScanResult result) {
-    if (result.isComplete && !_completionFired) {
+    // The completion ceremony (heavy haptic + green flash) fires only on
+    // FULL verification — every field confirmed, none left as a volunteer
+    // "Unknown". A record that's complete-but-flagged is registrable but not
+    // a clean win, so it gets the calm amber header, not the victory party.
+    if (result.isFullyVerified && !_completionFired) {
       _completionFired = true;
       HapticFeedback.heavyImpact();
       _completionController.forward();
-    } else if (!result.isComplete && _completionFired) {
-      // User un-filled a field — reset so the ceremony can fire again.
+    } else if (!result.isFullyVerified && _completionFired) {
+      // A field was un-filled or flagged Unknown — reset so the ceremony can
+      // fire again once the record is fully verified.
       _completionFired = false;
       _completionController.reset();
     }
@@ -102,6 +112,8 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
               filled: filled,
               total: 7,
               isComplete: result.isComplete,
+              isFullyVerified: result.isFullyVerified,
+              unknownCount: result.unknownFieldCount,
               completionAnimation: _completionController,
               // Back to CaptureCamera when entering from the capture flow so
               // the volunteer can retake a slot; otherwise close to home.
@@ -142,14 +154,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                   _ChipSelectorField(
                     label: 'STYLE',
                     field: result.type,
-                    options: const [
-                      'BTE',
-                      'RIC',
-                      'ITE',
-                      'ITC',
-                      'CIC',
-                      'IIC',
-                    ],
+                    options: const ['BTE', 'RIC', 'ITE', 'ITC', 'CIC', 'IIC'],
                     pulseController: _pulseController,
                     aiConfidence: result.type.confidence,
                     onSelect: (v) => ref
@@ -168,15 +173,17 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .updateField(ScanField.tubing, v),
                   ),
 
-                  // 5. POWER — toggle (battery vs rechargeable)
+                  // 5. POWER — toggle (battery vs rechargeable). No Unknown
+                  // chip: power source is almost always visually determinable,
+                  // so an Unknown here would mean "didn't look", not "ambiguous".
                   _ChipSelectorField(
                     label: 'POWER',
                     field: result.powerSource,
                     options: const ['Battery', 'Rechargeable'],
+                    allowUnknown: false,
                     pulseController: _pulseController,
                     onSelect: (v) {
-                      final notifier =
-                          ref.read(scanResultProvider.notifier);
+                      final notifier = ref.read(scanResultProvider.notifier);
                       notifier.updateField(ScanField.powerSource, v);
                       // Clear battery size when switching to rechargeable,
                       // set N/A so the field counts as filled.
@@ -209,6 +216,11 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .read(scanResultProvider.notifier)
                         .updateField(ScanField.colour, v),
                   ),
+
+                  // LOCATION — physical storage box/bag (metadata, optional).
+                  // Not one of the 7 clinical fields and not counted toward the
+                  // completion gate; purely "where does this device live".
+                  _LocationField(controller: _locationController),
                 ],
               ),
             ),
@@ -216,6 +228,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
             // ── Bottom action ─────────────────────────────────────────
             _BottomAction(
               isComplete: result.isComplete,
+              unknownCount: result.unknownFieldCount,
               completionAnimation: _completionController,
               onConfirm: () => _confirmAndPersist(result),
               onScanAnother: () => context.pushReplacement('/scan'),
@@ -246,14 +259,36 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     final draft = DraftDevice(
       brand: result.brand.value,
       model: result.model.value,
-      type: result.type.value,
+      // Style (clinical field 3) and batterySize (field 6) are closed-set enums
+      // at the model boundary (#15). The scanner works in catalog STRING space
+      // (fuzzy OCR/CLIP against catalog strings like 'BTE'), so parse into the
+      // typed enums here; an untouched field or the volunteer's 'Unknown' flag
+      // resolves to `unspecified` (the "needs input" signal rides on
+      // needsInputFields below, not on the value).
+      type: Style.fromWire(result.type.value),
       year: result.year.value,
-      batterySize: result.batterySize.value,
+      batterySize: BatterySize.fromWire(result.batterySize.value),
+      // Clinical fields 4/5/7 — previously dropped at persist (issue #751).
+      // ScanResult holds these as optional String SpecFields; parse into the
+      // typed enums at this boundary (#15). An untouched field or the volunteer's
+      // 'Unknown' provenance flag both resolve to `unspecified` — the "needs
+      // input" signal rides on needsInputFields below, not on the value.
+      tubing: Tubing.fromWire(result.tubing?.value),
+      powerSource: PowerSource.fromWire(result.powerSource?.value),
+      colour: result.colour?.value ?? '',
       domeType: result.domeType.value,
       waxFilter: result.waxFilter.value,
       receiver: result.receiver.value,
       scanId: result.scanId,
+      // Physical storage location (issue #766) — trimmed + uppercased so
+      // `b07` and ` B07 ` both persist as `B07`. Empty when left blank.
+      location: _locationController.text.trim().toUpperCase(),
       photos: [if (result.imageUrl.isNotEmpty) result.imageUrl],
+      // The volunteer→audiologist handoff: which fields the human deliberately
+      // flagged undetermined. Persisted as a structured set so the register's
+      // "NEEDS INPUT" flag is driven by intent, not by string-matching the
+      // AI pipeline's own 'Unknown' default.
+      needsInputFields: result.volunteerUnknownFields,
     );
 
     try {
@@ -327,13 +362,23 @@ class _HeaderStrip extends StatelessWidget {
     required this.filled,
     required this.total,
     required this.isComplete,
+    required this.isFullyVerified,
+    required this.unknownCount,
     required this.completionAnimation,
     required this.onClose,
   });
 
   final int filled;
   final int total;
+
+  /// Every field acknowledged (gate is open) — but some may be volunteer
+  /// "Unknown" flags awaiting the audiologist.
   final bool isComplete;
+
+  /// Every field confirmed with a real value — the only state that earns the
+  /// green "IDENTIFICATION COMPLETE" celebration.
+  final bool isFullyVerified;
+  final int unknownCount;
   final AnimationController completionAnimation;
   final VoidCallback onClose;
 
@@ -353,8 +398,10 @@ class _HeaderStrip extends StatelessWidget {
             ),
             border: Border(
               bottom: BorderSide(
-                color: isComplete
+                color: isFullyVerified
                     ? AppColors.success.withValues(alpha: 0.3 + 0.4 * glow)
+                    : isComplete
+                    ? AppColors.warning.withValues(alpha: 0.4)
                     : const Color(0xFF333333),
                 width: 1,
               ),
@@ -376,11 +423,10 @@ class _HeaderStrip extends StatelessWidget {
                       color: isFilled
                           ? AppColors.success
                           : const Color(0xFF444444),
-                      boxShadow: isFilled && isComplete
+                      boxShadow: isFilled && isFullyVerified
                           ? [
                               BoxShadow(
-                                color:
-                                    AppColors.success.withValues(alpha: 0.5),
+                                color: AppColors.success.withValues(alpha: 0.5),
                                 blurRadius: 4 + 4 * glow,
                               ),
                             ]
@@ -392,12 +438,19 @@ class _HeaderStrip extends StatelessWidget {
 
               const SizedBox(width: 12),
 
-              // Counter text
+              // Counter text — three states: counting up, complete-but-flagged
+              // (amber), and fully verified (green celebration).
               Text(
-                isComplete ? 'IDENTIFICATION COMPLETE' : '$filled OF $total',
+                isFullyVerified
+                    ? 'IDENTIFICATION COMPLETE'
+                    : isComplete
+                    ? 'READY · $unknownCount NEED INPUT'
+                    : '$filled OF $total',
                 style: AppTypography.monoStatus.copyWith(
-                  color: isComplete
+                  color: isFullyVerified
                       ? AppColors.success
+                      : isComplete
+                      ? AppColors.warning
                       : const Color(0xFF888888),
                 ),
               ),
@@ -537,6 +590,7 @@ class _ChipSelectorField extends StatelessWidget {
     required this.onSelect,
     this.aiConfidence,
     this.enabled = true,
+    this.allowUnknown = true,
   });
 
   final String label;
@@ -547,10 +601,24 @@ class _ChipSelectorField extends StatelessWidget {
   final int? aiConfidence;
   final bool enabled;
 
+  /// Appends an amber "Unknown" chip so a volunteer who genuinely can't
+  /// determine a constrained field can flag it for the audiologist rather than
+  /// guessing or stalling the completion gate. Disabled for fields that are
+  /// almost always visually determinable (e.g. Power), where an `Unknown`
+  /// tends to mean "didn't look" more than "ambiguous".
+  final bool allowUnknown;
+
   @override
   Widget build(BuildContext context) {
     final current = field?.value ?? '';
     final hasFill = current.isNotEmpty && current != '—';
+
+    // The real options plus the Unknown escape valve, de-duplicated in case a
+    // caller already lists it explicitly.
+    final chips = [
+      ...options,
+      if (allowUnknown && !options.contains(kUnknownValue)) kUnknownValue,
+    ];
 
     return _FieldContainer(
       hasFill: hasFill,
@@ -567,7 +635,7 @@ class _ChipSelectorField extends StatelessWidget {
                   child: _ConfidenceBadge(confidence: aiConfidence!),
                 ),
               if (!enabled)
-              Padding(
+                Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: Text(
                     'N/A',
@@ -582,8 +650,14 @@ class _ChipSelectorField extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: options.map((option) {
+            children: chips.map((option) {
               final isSelected = current == option;
+              final isUnknown = option == kUnknownValue;
+              // The Unknown chip reads as amber — a flag, not a confident
+              // value — so a selected Unknown is visually distinct from a
+              // confirmed (green) answer both here and in the audiologist's
+              // mental model when they later review the record.
+              final accent = isUnknown ? AppColors.warning : AppColors.success;
               return GestureDetector(
                 onTap: enabled
                     ? () {
@@ -599,30 +673,35 @@ class _ChipSelectorField extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? AppColors.success.withValues(alpha: 0.15)
+                        ? accent.withValues(alpha: 0.15)
                         : enabled
-                            ? const Color(0xFF222222)
-                            : const Color(0xFF1A1A1A),
+                        ? const Color(0xFF222222)
+                        : const Color(0xFF1A1A1A),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: isSelected
-                          ? AppColors.success.withValues(alpha: 0.6)
+                          ? accent.withValues(alpha: 0.6)
+                          : isUnknown && enabled
+                          ? AppColors.warning.withValues(alpha: 0.4)
                           : enabled
-                              ? const Color(0xFF444444)
-                              : const Color(0xFF333333),
+                          ? const Color(0xFF444444)
+                          : const Color(0xFF333333),
                       width: isSelected ? 1.5 : 1,
                     ),
                   ),
                   child: Text(
                     option,
                     style: AppTypography.monoValue.copyWith(
-                      fontWeight:
-                          isSelected ? FontWeight.w600 : FontWeight.w400,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.w400,
                       color: isSelected
-                          ? AppColors.success
+                          ? accent
+                          : isUnknown && enabled
+                          ? AppColors.warning.withValues(alpha: 0.8)
                           : enabled
-                              ? const Color(0xFFAAAAAA)
-                              : const Color(0xFF555555),
+                          ? const Color(0xFFAAAAAA)
+                          : const Color(0xFF555555),
                     ),
                   ),
                 ),
@@ -662,10 +741,9 @@ class _ColourSwatchField extends StatelessWidget {
     final hasFill = current.isNotEmpty;
 
     // Use brand palette if available, otherwise generic
-    final swatches = brandPalette ??
-        genericPalette
-            .map((c) => BrandColour(c.name, c.color))
-            .toList();
+    final swatches =
+        brandPalette ??
+        genericPalette.map((c) => BrandColour(c.name, c.color)).toList();
 
     return _FieldContainer(
       hasFill: hasFill,
@@ -683,8 +761,10 @@ class _ColourSwatchField extends StatelessWidget {
               if (brandPalette != null) ...[
                 const Spacer(),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(4),
                     color: AppColors.primary.withValues(alpha: 0.15),
@@ -729,16 +809,20 @@ class _ColourSwatchField extends StatelessWidget {
                         boxShadow: isSelected
                             ? [
                                 BoxShadow(
-                                  color:
-                                      AppColors.success.withValues(alpha: 0.3),
+                                  color: AppColors.success.withValues(
+                                    alpha: 0.3,
+                                  ),
                                   blurRadius: 8,
                                 ),
                               ]
                             : null,
                       ),
                       child: isSelected
-                          ? const Icon(Icons.check,
-                              size: 18, color: Colors.white)
+                          ? const Icon(
+                              Icons.check,
+                              size: 18,
+                              color: Colors.white,
+                            )
                           : null,
                     ),
                     const SizedBox(height: 4),
@@ -772,6 +856,73 @@ class _ColourSwatchField extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Location Field — free-text physical storage box/bag (metadata)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A single labelled free-text field for the physical storage Location ID
+/// (box/bag number, e.g. `B07`, `C10`). Deliberately NOT a chip selector: the
+/// storage layout is open-ended and not a clinical spec. It does not count
+/// toward the 7-field completion gate — purely "where does this device live".
+///
+/// Uppercasing happens at persist time (see `_confirmAndPersist`), so the
+/// raw text is shown as typed and normalised only on save.
+class _LocationField extends StatelessWidget {
+  const _LocationField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          color: const Color(0xFF151515),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(width: 3, color: const Color(0xFF3A3A3A)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        const _FieldLabel(label: 'BOX'),
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            textCapitalization:
+                                TextCapitalization.characters,
+                            style: _valueStyle(true),
+                            cursorColor: AppColors.success,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              hintText: 'Location ID — e.g. B07 (optional)',
+                              hintStyle: TextStyle(
+                                color: Color(0xFF555555),
+                                fontSize: 14,
+                              ),
+                              contentPadding: EdgeInsets.symmetric(vertical: 4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Bottom Action Bar
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -781,9 +932,15 @@ class _BottomAction extends StatelessWidget {
     required this.completionAnimation,
     required this.onConfirm,
     required this.onScanAnother,
+    this.unknownCount = 0,
   });
 
   final bool isComplete;
+
+  /// How many of the 7 fields were flagged `Unknown`. When non-zero the bar
+  /// shows an amber note so the volunteer (and later the audiologist) know the
+  /// record is complete-but-unverified, not fully confirmed.
+  final int unknownCount;
   final AnimationController completionAnimation;
   final VoidCallback onConfirm;
   final VoidCallback onScanAnother;
@@ -807,72 +964,104 @@ class _BottomAction extends StatelessWidget {
               ),
             ),
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Scan Another (always available)
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onScanAnother,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF888888),
-                    side: const BorderSide(color: Color(0xFF444444)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              // Complete-but-unverified: some fields were flagged Unknown, so
+              // the record can be registered but still needs the audiologist.
+              if (isComplete && unknownCount > 0) ...[
+                Row(
+                  children: [
+                    Icon(
+                      Icons.flag_outlined,
+                      size: 14,
+                      color: AppColors.warning.withValues(alpha: 0.9),
                     ),
-                  ),
-                  child: Text(
-                    'Scan Another',
-                    style: AppTypography.monoButton,
-                  ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '$unknownCount field${unknownCount == 1 ? '' : 's'} '
+                        'flagged for audiologist',
+                        style: AppTypography.monoStatus.copyWith(
+                          color: AppColors.warning.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-
-              const SizedBox(width: 12),
-
-              // Add to Register (enabled when complete)
-              Expanded(
-                flex: 2,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  decoration: isComplete
-                      ? BoxDecoration(
+                const SizedBox(height: 10),
+              ],
+              Row(
+                children: [
+                  // Scan Another (always available)
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onScanAnother,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF888888),
+                        side: const BorderSide(color: Color(0xFF444444)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
-                          boxShadow: [
-                            BoxShadow(
-                              color:
-                                  AppColors.success.withValues(alpha: 0.3 * glow),
-                              blurRadius: 12,
-                            ),
-                          ],
-                        )
-                      : null,
-                  child: FilledButton.icon(
-                    onPressed: isComplete ? onConfirm : null,
-                    icon: Icon(
-                      isComplete ? Icons.check_circle : Icons.pending,
-                      size: 18,
-                    ),
-                    label: Text(
-                      isComplete ? 'Add to Register' : 'Complete All Fields',
-                      style: AppTypography.monoValue,
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: isComplete
-                          ? AppColors.success
-                          : const Color(0xFF333333),
-                      foregroundColor: isComplete
-                          ? Colors.white
-                          : const Color(0xFF666666),
-                      disabledBackgroundColor: const Color(0xFF333333),
-                      disabledForegroundColor: const Color(0xFF666666),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        'Scan Another',
+                        style: AppTypography.monoButton,
                       ),
                     ),
                   ),
-                ),
+
+                  const SizedBox(width: 12),
+
+                  // Add to Register (enabled when complete)
+                  Expanded(
+                    flex: 2,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      decoration: isComplete
+                          ? BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.success.withValues(
+                                    alpha: 0.3 * glow,
+                                  ),
+                                  blurRadius: 12,
+                                ),
+                              ],
+                            )
+                          : null,
+                      child: FilledButton.icon(
+                        onPressed: isComplete ? onConfirm : null,
+                        icon: Icon(
+                          isComplete ? Icons.check_circle : Icons.pending,
+                          size: 18,
+                        ),
+                        label: Text(
+                          isComplete
+                              ? 'Add to Register'
+                              : 'Complete All Fields',
+                          style: AppTypography.monoValue,
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: isComplete
+                              ? AppColors.success
+                              : const Color(0xFF333333),
+                          foregroundColor: isComplete
+                              ? Colors.white
+                              : const Color(0xFF666666),
+                          disabledBackgroundColor: const Color(0xFF333333),
+                          disabledForegroundColor: const Color(0xFF666666),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1054,13 +1243,13 @@ class _ConfidenceBadge extends StatelessWidget {
     final color = confidence >= 90
         ? _greenColor
         : confidence >= 70
-            ? _amberColor
-            : AppColors.error;
+        ? _amberColor
+        : AppColors.error;
     final label = confidence >= 90
         ? 'HIGH'
         : confidence >= 70
-            ? 'MED'
-            : 'LOW';
+        ? 'MED'
+        : 'LOW';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
@@ -1108,6 +1297,6 @@ class _ActionButton extends StatelessWidget {
 }
 
 TextStyle _valueStyle(bool hasFill) => AppTypography.monoValueLarge.copyWith(
-      fontWeight: hasFill ? FontWeight.w600 : FontWeight.w400,
-      color: hasFill ? Colors.white : const Color(0xFF555555),
-    );
+  fontWeight: hasFill ? FontWeight.w600 : FontWeight.w400,
+  color: hasFill ? Colors.white : const Color(0xFF555555),
+);

@@ -120,6 +120,47 @@ void main() {
       expect(result.framesToModelLock, 5);
     });
 
+    test('F: stray model-word wrong-locks brand FROM MODEL early, then '
+        'repeated clean labels recover the correct ID (ratchet broken, '
+        '#733)', () {
+      // THE RATCHET PATHOLOGY, end to end through the real matcher.
+      //
+      // Frame 1 reads only "slim" — a real Phonak model pattern, but also a
+      // plain English word that turns up as OCR junk off "SLIM TUBE"
+      // packaging and slim-tube domes. matchModelAnyBrand claims it: model
+      // "slim", brand Phonak FROM MODEL (rank 70). The device is actually an
+      // Oticon Nera.
+      //
+      // A clean "Oticon" reading is an EXACT brand match — but EXACT carries
+      // confidence rank 10, far BELOW the FROM-MODEL 70. Under the old
+      // one-way override guard, "Oticon" was rejected forever and the scan
+      // froze on Phonak — a permanent wrong brand from one transient misread.
+      //
+      // Contradiction-aware re-open breaks it: the SAME "Oticon" reading,
+      // arriving twice, is steady evidence (not flapping noise), so on the
+      // second rejection the brand field re-opens and Oticon narrows in. The
+      // repeated "nera" reading then re-opens the wrong "slim" model lock the
+      // same way, landing the correct Oticon Nera.
+      //
+      // This fixture FAILS on the pre-#733 code (final brand stays Phonak,
+      // model stays slim) and PASSES after the fix.
+      final result = engine.run([
+        ['slim'], // stray model-word → Phonak FROM MODEL (wrong), model=slim
+        ['Oticon'], // EXACT brand (rank 10) — rejected once (1/2)
+        ['Oticon'], // 2nd consistent contradiction → brand re-opens → Oticon
+        ['nera'], // model "nera" vs locked "slim" — rejected once (1/2)
+        ['nera'], // 2nd consistent contradiction → model re-opens → Nera
+      ]);
+
+      expect(result.finalBrand, 'Oticon',
+          reason: 'persistent clean brand signal must break the FROM-MODEL '
+              'ratchet, not be rejected forever');
+      expect(result.finalModel, isNotNull,
+          reason: 'the wrong "slim" model lock must also re-open');
+      expect(result.finalModel!.toLowerCase(), contains('nera'),
+          reason: 'recovery lands the correct Oticon Nera model');
+    });
+
     test('E: label never readable → no lock, reported honestly', () {
       final result = engine.run([
         ['CE'],

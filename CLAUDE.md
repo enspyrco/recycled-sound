@@ -90,11 +90,11 @@ See detailed plan in memory: `plan_scanner_forward.md`
 - UI components: Button (3 variants), Chip (5 variants), Input Field, Spec Row, Toggle, Confidence Row, List Item, Annotation, Nav Bar, Tab Bar, Progress Dots
 
 ### Deliverables
-- **HTML wireframes**: https://nickmeinhold.github.io/recycled-sound/
+- **HTML wireframes**: https://enspyrco.github.io/recycled-sound/
 - **Privacy policy**: `docs/privacy.html` (also at project root)
 - **Figma file**: https://www.figma.com/design/b86mwNrRnm5lbxawcVZb64/Recycled-Sound
 - **Figma plugin**: `figma-plugin/` — run in Figma Desktop to regenerate all screens
-- **GitHub repo**: https://github.com/nickmeinhold/recycled-sound
+- **GitHub repo**: https://github.com/enspyrco/recycled-sound
 
 ## Sprint Roadmap
 

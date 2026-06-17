@@ -186,8 +186,8 @@ void main() {
       const draft = DraftDevice(
         brand: 'Oticon',
         model: 'More 1',
-        type: 'BTE',
-        batterySize: '13',
+        type: Style.bte,
+        batterySize: BatterySize.size13,
         photos: ['gs://existing/scan.jpg'],
       );
       final id = await repo.createIncoming(draft);
@@ -531,6 +531,163 @@ void main() {
     test('throws StateError when no such incoming doc', () async {
       expect(() => repo.promoteToDevice('does-not-exist'),
           throwsA(isA<StateError>()));
+    });
+
+    // ── Gate enforcement (PR #777 / #13) ──────────────────────────────────
+    test('clean device promotes with NO override audit record', () async {
+      await firestore.collection('incoming').doc('clean').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+      });
+      await repo.promoteToDevice('clean');
+      final dst = await firestore.collection('devices').doc('clean').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!.containsKey('qaOverride'), isFalse);
+    });
+
+    test('FAILS CLOSED: unresolved flags + no override → throws, no write',
+        () async {
+      await firestore.collection('incoming').doc('flagged').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+        'needsInputFields': ['tubing', 'colour'],
+      });
+      await expectLater(
+          repo.promoteToDevice('flagged'), throwsA(isA<StateError>()));
+      // Nothing crossed the boundary; incoming source untouched.
+      expect((await firestore.collection('devices').doc('flagged').get()).exists,
+          isFalse);
+      expect(
+          (await firestore.collection('incoming').doc('flagged').get()).exists,
+          isTrue);
+    });
+
+    test('unrecognised-only blocker also fails closed without override',
+        () async {
+      await firestore.collection('incoming').doc('legacy').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+        'needsInputFields': ['make'], // not a real ClinicalField wire key
+      });
+      await expectLater(
+          repo.promoteToDevice('legacy'), throwsA(isA<StateError>()));
+      expect((await firestore.collection('devices').doc('legacy').get()).exists,
+          isFalse);
+    });
+
+    test('override promotes AND stamps an audit record (who/which)', () async {
+      await firestore.collection('incoming').doc('ovr').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+        'needsInputFields': ['brand', 'make'], // one real, one unrecognised
+      });
+      await repo.promoteToDevice('ovr', allowOverride: true);
+
+      final dst = await firestore.collection('devices').doc('ovr').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!['qaStatus'], 'passed');
+      final promoted = Device.fromFirestore(dst);
+      final ov = promoted.qaOverride;
+      expect(ov, isNotNull, reason: 'override must leave an audit trail');
+      expect(ov!.overriddenBy, 'user-abc'); // the signed-in mock uid
+      // Fields come from the gate's VERDICT (the re-read blockers), not from
+      // anything the caller passed — so the audit can't be falsified.
+      expect(ov.fields, [ClinicalField.brand]);
+      expect(ov.unrecognised, ['make']);
+    });
+
+    test('a spurious override on a clean device records nothing', () async {
+      await firestore.collection('incoming').doc('cln').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+      });
+      await repo.promoteToDevice('cln', allowOverride: true);
+      final dst = await firestore.collection('devices').doc('cln').get();
+      expect(dst.data()!.containsKey('qaOverride'), isFalse);
+    });
+
+    // ── Identity-field resolution via review edits (#783) ─────────────────
+    // The gate evaluates [reviewForPromotion] on the MERGED state, so an
+    // audiologist correcting a flagged identity field resolves it cleanly —
+    // not via override. These prove the merge-then-gate order on identity.
+    ReviewEdits editsResolvingBrand({
+      String brand = 'Oticon',
+      List<ClinicalField> needsInputFields = const [],
+    }) =>
+        ReviewEdits(
+          brand: brand,
+          model: 'More 1',
+          type: Style.unspecified,
+          batterySize: BatterySize.unspecified,
+          tubing: Tubing.unspecified,
+          powerSource: PowerSource.unspecified,
+          colour: '',
+          location: '',
+          servicingNotes: '',
+          servicingCost: 0,
+          needsInputFields: needsInputFields,
+        );
+
+    test('identity edit resolves a flagged brand → CLEAN promotion (#783)',
+        () async {
+      await firestore.collection('incoming').doc('idedit').set({
+        'brand': 'Unknown', // the volunteer-flag sentinel
+        'model': 'More 1',
+        'createdBy': 'u1',
+        'needsInputFields': ['brand'],
+      });
+      // Audiologist corrects brand; the shrunk flag set is empty.
+      await repo.promoteToDevice('idedit', edits: editsResolvingBrand());
+
+      final dst = await firestore.collection('devices').doc('idedit').get();
+      expect(dst.exists, isTrue);
+      expect(dst.data()!['brand'], 'Oticon',
+          reason: 'corrected identity value is persisted across the boundary');
+      expect(dst.data()!['needsInputFields'], isEmpty);
+      expect(dst.data()!.containsKey('qaOverride'), isFalse,
+          reason: 'resolved by edit, not by override — no audit record');
+    });
+
+    test('identity edit resolving SOME blockers still fails closed on the rest',
+        () async {
+      await firestore.collection('incoming').doc('partial').set({
+        'brand': 'Unknown',
+        'model': 'More 1',
+        'createdBy': 'u1',
+        'needsInputFields': ['brand', 'colour'],
+      });
+      // brand fixed, colour still blank → colour still blocks; no override.
+      await expectLater(
+        repo.promoteToDevice('partial',
+            edits: editsResolvingBrand(
+                needsInputFields: const [ClinicalField.colour])),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+          (await firestore.collection('devices').doc('partial').get()).exists,
+          isFalse,
+          reason: 'partial resolution must not cross the boundary');
+    });
+
+    test('signed-out caller fails closed (no unattributable override)',
+        () async {
+      await firestore.collection('incoming').doc('anon').set({
+        'brand': 'Phonak',
+        'model': 'P90',
+        'createdBy': 'u1',
+      });
+      final signedOut = IncomingDeviceRepository(
+        firestore: firestore,
+        storage: storage,
+        auth: MockFirebaseAuth(signedIn: false),
+      );
+      await expectLater(
+          signedOut.promoteToDevice('anon'), throwsA(isA<StateError>()));
     });
   });
 

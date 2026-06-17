@@ -144,6 +144,74 @@ class DeviceIndex {
   final _contradictions = <ContradictionRecord>[];
   static const int _kMaxContradictions = 200;
 
+  /// Live tally of how many times a *specific* alternative value has been
+  /// rejected **consecutively** for a still-locked field, keyed by
+  /// "field|rejectedValue" (lowercased). This is the lever the contradiction-
+  /// aware re-open uses: it counts a CONSECUTIVE run of the same alternative
+  /// arriving (the fingerprint of a wrong early lock), and resets that run
+  /// the moment a *different* alternative is rejected for the same field —
+  /// which is the exact opposite of frame-to-frame flapping (oscillation
+  /// between values, where each value's run is broken every frame so neither
+  /// ever accumulates ≥ 2). Reset on reset() and cleared per-field when that
+  /// field re-opens or relocks.
+  final _rejectedValueCounts = <String, int>{};
+
+  /// How many times the SAME alternative value must be rejected against a
+  /// locked field before the override guard re-opens that field for
+  /// re-narrowing. Must be > 1 so a single weaker reading (the common,
+  /// genuinely-noisy case the guard was built to suppress on 2026-05-07)
+  /// is still rejected — only a *persistent* contradiction breaks the lock.
+  ///
+  /// ## Why a COUNT (and the assumption it rests on)
+  ///
+  /// This is a count threshold, not a time threshold, and that choice carries
+  /// an explicit, currently-unverified assumption: that the OCR signal-to-
+  /// noise ratio per *frame* is roughly stable. The guarantee the count
+  /// actually buys is **shape-based, not magnitude-based** and is frame-rate
+  /// invariant:
+  ///
+  ///   - Frame-to-frame FLAPPING oscillates between competing values, so the
+  ///     consecutive run for any *single* value is broken every frame and
+  ///     never reaches ≥ 2 — it can never trip this path, at ANY frame rate.
+  ///     This part is proven (see `_rejectedValueCounts` consecutive-run reset
+  ///     + the anti-flap regression test `oscillating contradictions never
+  ///     trip the re-open` in device_index_test.dart). Raising fps does NOT
+  ///     erode it.
+  ///
+  ///   - A WRONG early lock produces the *same* contradicting value on
+  ///     consecutive readable frames, so it accumulates and (correctly)
+  ///     re-opens.
+  ///
+  /// What the count does NOT pin down is the MAGNITUDE. "2" means "two frames
+  /// in which the contradicting value was read." At ~2 fps that is ~1 second
+  /// of corroboration; if the capture loop ever speeds up materially (more
+  /// readable frames per second), two frames becomes a shorter real-world
+  /// dwell, weakening the corroboration window toward the threshold-1 limit
+  /// the guard was specifically built to avoid. The reverse (slower fps /
+  /// heavier hand-shake) makes "2" harder to reach and re-open laggier.
+  ///
+  /// ## Frame-rate dependency — the named tradeoff
+  ///
+  /// Count=2 is therefore correct *for the current scan loop's frame rate*
+  /// (~2 fps, the FramePreprocessor cadence as of 2026-04), not unconditionally.
+  /// We keep it count-based because the only honest alternative — a time-based
+  /// threshold (re-open after the value persists for N ms) — needs a principled
+  /// N, and N can only come from real on-device data we do not yet have:
+  /// actual scan fps and the inter-arrival time of contradicting reads. Picking
+  /// an N now would just swap this magic number for a less-testable one (the
+  /// replay harness is deliberately clock-free; see scan_replay_engine.dart).
+  ///
+  /// Follow-up (device-data gate): once a real scan's per-frame OCR
+  /// is captured with timestamps, measure (a) effective readable-frame rate and
+  /// (b) contradiction inter-arrival, then EITHER confirm count=2 spans the
+  /// intended ~1s window across the device fleet, OR migrate to a time-based
+  /// threshold (which would require threading frame timestamps through
+  /// [narrow] and the replay harness). Do not migrate before that data exists.
+  static const int _kReopenThreshold = 2;
+
+  String _rejKey(DeviceField field, String value) =>
+      '${field.name}|${value.toLowerCase().trim()}';
+
   /// Read-only view of contradictions from the current scan session.
   List<ContradictionRecord> get contradictions =>
       List.unmodifiable(_contradictions);
@@ -258,7 +326,63 @@ class DeviceIndex {
     _candidates = Set.from(_allDeviceIds);
     _locked.clear();
     _contradictions.clear();
+    _rejectedValueCounts.clear();
     _emitState();
+  }
+
+  /// Re-open a wrong-locked [field] (contradiction-aware re-open, #733).
+  ///
+  /// Drops the field's lock and any fields derived from it, then rebuilds
+  /// the candidate set from the *surviving* locks alone — so the candidates
+  /// the bad lock wrongly eliminated come back into play. The caller then
+  /// re-narrows with the persistently-contradicting value. The rejected-
+  /// value tally for this field is cleared so the freshly-applied value
+  /// starts from a clean slate (no immediate re-trigger).
+  void _reopenField(DeviceField field) {
+    // Remove the field and its derived children so a stale cascade can't
+    // pin the candidate set back to the wrong narrowing.
+    _locked.remove(field);
+    for (final derived in _derivedOf(field)) {
+      // Only drop derived locks that were auto-filled, never a manual one.
+      final lf = _locked[derived];
+      if (lf != null && lf.source != DetectionSource.manual) {
+        _locked.remove(derived);
+      }
+    }
+
+    // Rebuild candidates from the surviving locks (intersection of each
+    // locked field's matches). Start from the full set; an empty surviving
+    // lock set restores everything, exactly like a fresh scan.
+    var rebuilt = Set<String>.from(_allDeviceIds);
+    for (final entry in _locked.entries) {
+      final idx = _indexForField(entry.key);
+      if (idx == null) continue; // derived/colour fields don't narrow
+      final m = _fuzzyLookup(
+          entry.key, entry.value.value.toLowerCase().trim(), idx);
+      if (m != null && m.isNotEmpty) {
+        final next = rebuilt.intersection(m);
+        if (next.isNotEmpty) rebuilt = next; // keep open-mode semantics
+      }
+    }
+    _candidates = rebuilt;
+
+    // Clear this field's contradiction tallies so the incoming value lands
+    // fresh and a future genuine contradiction must re-accumulate.
+    _rejectedValueCounts
+        .removeWhere((k, _) => k.startsWith('${field.name}|'));
+  }
+
+  /// Fields auto-derived from [field] (so they must be dropped when it
+  /// re-opens). Mirrors [_autoLockDerived].
+  static List<DeviceField> _derivedOf(DeviceField field) {
+    switch (field) {
+      case DeviceField.batterySize:
+        return const [DeviceField.power];
+      case DeviceField.type:
+        return const [DeviceField.tubing];
+      default:
+        return const [];
+    }
   }
 
   /// Narrow candidates by a detected field value.
@@ -275,8 +399,17 @@ class DeviceIndex {
     DetectionSource source = DetectionSource.ocr,
     String? confidence,
   }) {
-    // Don't re-narrow a field to the same value
-    if (_locked[field]?.value == value) return state;
+    // Don't re-narrow a field to the same value. A re-read that CORROBORATES the
+    // current lock is positive evidence FOR it, so it must also break every
+    // competing value's consecutive-contradiction run — otherwise a contradiction
+    // split by reads that re-affirm the lock (A_lock, B_rej, A_corroborate, B_rej)
+    // would still re-open on the 2nd B, which is not two CONSECUTIVE frames of
+    // contradiction (Carnot, #88 cage-match — the "consecutive frames" invariant
+    // must survive interleaved corroboration, not just interleaved alternatives).
+    if (_locked[field]?.value == value) {
+      _rejectedValueCounts.removeWhere((k, _) => k.startsWith('${field.name}|'));
+      return state;
+    }
 
     // Override guard: stops the "right answer then noisy override" flapping
     // observed live on 2026-05-07. If the field is already locked, require
@@ -298,15 +431,73 @@ class DeviceIndex {
           newRank: newRank,
           newSource: source,
         );
-        if (kDebugMode) {
-          debugPrint('DeviceIndex: REJECT override on ${field.name} — '
-              'kept "${existing.value}" (${existing.confidence}, '
-              'rank=$existingRank) over incoming "$value" '
-              '($confidence, rank=$newRank)');
+
+        // Contradiction-aware re-open (issue #733). The guard above is a
+        // one-way ratchet: once a transient misread locks a field, every
+        // equal/lower-rank signal — even the CORRECT one — is rejected
+        // forever, freezing a wrong ID. To break that ratchet WITHOUT
+        // reintroducing flapping, we count CONSECUTIVE rejections of the
+        // *same* alternative value. A single weaker reading (noise) is still
+        // rejected; but the SAME contradicting value arriving
+        // _kReopenThreshold times *in a row* is not noise — it is steady
+        // evidence the lock is wrong. At that point we re-open the field and
+        // let this value narrow normally below.
+        //
+        // The count is a CONSECUTIVE run, not a cumulative tally: the run for a
+        // value is broken by EITHER a rejection of a *different* value (below)
+        // OR a frame that corroborates the current lock (the early-return at the
+        // top of narrow()). So a re-open needs _kReopenThreshold frames that ALL
+        // read the SAME contradicting value, uninterrupted — genuinely
+        // consecutive readable frames, not merely consecutive among rejected
+        // alternatives. This is what makes the anti-flap guarantee real: classic
+        // flapping oscillates A,B,A,B…, so each value's run is broken every frame
+        // and neither ever reaches 2; and a lock that keeps reading true (A,B,A
+        // where the middle A re-affirms the lock) likewise never lets B
+        // accumulate. (A cumulative tally would wrongly re-open on the second B —
+        // the bug the consecutive reset fixes, #778; the corroboration reset
+        // closes the interleaved-corroboration gap, #88.)
+        final key = _rejKey(field, value);
+        // Break the run of every OTHER contradicting value for this field:
+        // a switch to a new alternative means the previous one is no longer
+        // arriving consecutively, so it must not retain accumulated count.
+        final prefix = '${field.name}|';
+        _rejectedValueCounts.removeWhere(
+            (k, _) => k != key && k.startsWith(prefix));
+        final count = (_rejectedValueCounts[key] ?? 0) + 1;
+        _rejectedValueCounts[key] = count;
+
+        if (count < _kReopenThreshold) {
+          if (kDebugMode) {
+            debugPrint('DeviceIndex: REJECT override on ${field.name} — '
+                'kept "${existing.value}" (${existing.confidence}, '
+                'rank=$existingRank) over incoming "$value" '
+                '($confidence, rank=$newRank) [contradiction $count/'
+                '$_kReopenThreshold]');
+          }
+          return state;
         }
-        return state;
+
+        // Threshold reached — re-open the field and fall through so the
+        // persistently-contradicting value re-narrows the candidate set.
+        if (kDebugMode) {
+          debugPrint('DeviceIndex: RE-OPEN ${field.name} — "$value" '
+              'contradicted the "${existing.value}" lock $count× '
+              '(≥ $_kReopenThreshold); breaking the ratchet');
+        }
+        _reopenField(field);
       }
     }
+
+    // Reaching here means this value is being ACCEPTED — it cleared the guard as
+    // strictly stronger evidence, it's a manual override (which bypasses the
+    // guard), or the field was just re-opened above and is re-narrowing. In every
+    // case the field is about to (re)lock, so its old per-value contradiction runs
+    // are stale and must be cleared — otherwise a count accumulated against the
+    // PREVIOUS lock could re-open the NEW one after a single contradiction. This
+    // honors the _rejectedValueCounts doc-comment ("cleared per-field when that
+    // field re-opens or relocks") which the relock + manual-override paths
+    // previously violated (Carnot, #88 cage-match — per-lock state isolation).
+    _rejectedValueCounts.removeWhere((k, _) => k.startsWith('${field.name}|'));
 
     final normalized = value.toLowerCase().trim();
     final index = _indexForField(field);

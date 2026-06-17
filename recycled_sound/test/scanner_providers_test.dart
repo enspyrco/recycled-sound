@@ -46,12 +46,45 @@ void main() {
       expect(corrections.first.originalConfidence, 88);
     });
 
-    test('updateField with same value does nothing', () {
+    test('same value records no correction but still upgrades provenance', () {
       final notifier = container.read(scanResultProvider.notifier);
-      notifier.updateField(ScanField.brand, 'Phonak'); // same as mock
+      // mock brand is AI-sourced 'Phonak'; tapping the same value is a no-op
+      // for the value (no correction) but a deliberate human confirmation.
+      notifier.updateField(ScanField.brand, 'Phonak');
 
-      expect(notifier.corrections, isEmpty);
-      expect(container.read(scanResultProvider).brand.value, 'Phonak');
+      final brand = container.read(scanResultProvider).brand;
+      expect(notifier.corrections, isEmpty, reason: 'value did not change');
+      expect(brand.value, 'Phonak');
+      expect(
+        brand.source,
+        FieldSource.human,
+        reason: 'confirming the AI value is still a human act',
+      );
+    });
+
+    test('confirming an AI Unknown flags it as a volunteer handoff', () {
+      // The case Carnot caught: scan fusion emits an AI-sourced 'Unknown' for
+      // a field it cannot determine (e.g. batterySize). The volunteer taps the
+      // visible Unknown chip — same string value — and that confirmation MUST
+      // register as the audiologist handoff, not get swallowed by an early
+      // same-value return.
+      final notifier = container.read(scanResultProvider.notifier);
+      notifier.setResult(
+        ScanResult.mock().copyWith(
+          batterySize: const SpecField(
+            value: kUnknownValue,
+            confidence: 10,
+            source: FieldSource.ai,
+          ),
+        ),
+      );
+
+      notifier.updateField(ScanField.batterySize, kUnknownValue);
+
+      final result = container.read(scanResultProvider);
+      expect(result.batterySize.source, FieldSource.human);
+      expect(result.batterySize.isVolunteerUnknown, isTrue);
+      expect(result.volunteerUnknownFields, contains(ClinicalField.batterySize));
     });
 
     // Note: the old "invalid field does nothing" test is no longer needed —

@@ -254,14 +254,28 @@ service cloud.firestore {
       // on a clean doc. Not a flagged-device bypass (clean ⇒ nothing to cover,
       // value↔flag vacuous) and not introduced by #92 — but it pollutes any
       // "every device an override touched" audit with a clean device carrying a
-      // forged/foreign override. Require a clean write's qaOverride to be ABSENT
-      // or SELF-attributed. Vacuously true for a flagged write (the disjunct arms
-      // below govern its override), so it composes as a top-level conjunct on
-      // both create and update — the same shape as overrideCoversBlockers().
+      // forged/foreign override. Require a clean write's qaOverride to be ABSENT,
+      // SELF-attributed, or UNCHANGED from what's already stored.
+      //
+      // The `overrideUnchanged()` escape is the SAME principle the flagged path
+      // already uses (blockersUnchanged() && overrideUnchanged()): a DIFFERENT
+      // elevated user may edit a doc carrying someone else's override as long as
+      // the override is byte-identical — unchanged ≠ forged (Kelvin + Carnot,
+      // PR #98 cage-match). Without it, a clean doc that legitimately carries a
+      // self-attributed override (e.g. one placed by its promoter) would be
+      // FROZEN: a second audiologist editing servicing/status would fail the
+      // self-attribution check against the original promoter's uid. It is guarded
+      // `resource != null` so it applies ONLY on update — on create there is no
+      // legitimate pre-existing override, so the create invariant stays the
+      // strict "absent or self-attributed" (and `resource.data` would null-deref
+      // on create otherwise). Vacuously true for a flagged write (the disjunct
+      // arms below govern its override), so it composes as a top-level conjunct
+      // on both create and update — the same shape as overrideCoversBlockers().
       function cleanWriteOverrideOk() {
         return !noBlockers() ||
           !('qaOverride' in request.resource.data) ||
-          hasSelfAttributedOverride();
+          hasSelfAttributedOverride() ||
+          (resource != null && overrideUnchanged());
       }
 
       allow read: if request.auth != null;

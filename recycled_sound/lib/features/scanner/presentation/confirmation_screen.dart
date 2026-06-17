@@ -1,11 +1,15 @@
 // Excluded from coverage: large stateful form depending on Firestore writes + colour pickers
 // coverage:ignore-file
+import 'dart:io';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../capture/presentation/capture_slot.dart';
+import '../../capture/providers/capture_providers.dart';
 import '../../devices/data/incoming_device_repository.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -78,6 +82,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   @override
   Widget build(BuildContext context) {
     final result = ref.watch(scanResultProvider);
+    final capturedPhotos = ref.watch(capturedPhotosProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkCompletion(result);
     });
@@ -98,7 +103,11 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
               total: 7,
               isComplete: result.isComplete,
               completionAnimation: _completionController,
-              onClose: () => context.go('/'),
+              // Back to CaptureCamera when entering from the capture flow so
+              // the volunteer can retake a slot; otherwise close to home.
+              onClose: () => capturedPhotos.isEmpty
+                  ? context.go('/')
+                  : context.go('/capture'),
             ),
 
             // ── Field list ────────────────────────────────────────────
@@ -106,6 +115,9 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
+                  // ── Captured photo strip (capture flow only) ──────
+                  if (capturedPhotos.isNotEmpty)
+                    _CapturePhotoStrip(photos: capturedPhotos),
                   // 1. MAKE — AI-filled, tap to correct
                   _AiTextField(
                     label: 'MAKE',
@@ -226,6 +238,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
+    final capturedPhotos = ref.read(capturedPhotosProvider);
 
     // A confirmed scan has no persisted identity yet — it's a DraftDevice.
     // Firestore allocates the id inside createIncoming, where the draft is
@@ -244,7 +257,14 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     );
 
     try {
-      final id = await repo.createIncoming(draft);
+      // namedPhotoPaths is empty for the scanner flow — no-op for that path.
+      final id = await repo.createIncoming(
+        draft,
+        namedPhotoPaths: capturedPhotos,
+      );
+      if (capturedPhotos.isNotEmpty) {
+        ref.read(capturedPhotosProvider.notifier).state = const {};
+      }
       messenger.showSnackBar(
         SnackBar(
           content: Text('Added to register · $id'),
@@ -858,6 +878,83 @@ class _BottomAction extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Capture photo strip — shown at top of field list when entering from CaptureCamera
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _CapturePhotoStrip extends StatelessWidget {
+  const _CapturePhotoStrip({required this.photos});
+
+  /// Slot-name → local file path, as written by CaptureScreen.
+  final Map<String, String> photos;
+
+  @override
+  Widget build(BuildContext context) {
+    // Preserve the canonical slot order rather than map-insertion order.
+    final ordered = CaptureSlot.sequence
+        .where((s) => photos.containsKey(s.name))
+        .toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'PHOTOS — tap ← to retake',
+              style: AppTypography.monoLabel.copyWith(
+                color: const Color(0xFF888888),
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 100,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: ordered.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final slot = ordered[i];
+                final path = photos[slot.name]!;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.file(
+                        File(path),
+                        width: 64,
+                        height: 64,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: 64,
+                      child: Text(
+                        slot.title,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.monoMicro.copyWith(
+                          color: const Color(0xFF888888),
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

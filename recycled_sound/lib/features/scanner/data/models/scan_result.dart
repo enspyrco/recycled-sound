@@ -227,6 +227,23 @@ class ScanResult {
             const [],
       );
 
+  /// Returns a blank result — all fields empty, confidence 0.
+  ///
+  /// Used when entering ConfirmationScreen from CaptureCamera so stale scanner
+  /// data from a previous session never pre-fills the form.
+  factory ScanResult.blank() => const ScanResult(
+        scanId: '',
+        imageUrl: '',
+        brand: SpecField(value: '', confidence: 0),
+        model: SpecField(value: '', confidence: 0),
+        type: SpecField(value: '', confidence: 0),
+        year: SpecField(value: '', confidence: 0),
+        batterySize: SpecField(value: '', confidence: 0),
+        domeType: SpecField(value: '', confidence: 0),
+        waxFilter: SpecField(value: '', confidence: 0),
+        receiver: SpecField(value: '', confidence: 0),
+      );
+
   /// Returns a mock result for development/testing.
   ///
   /// Simulates a real scan: brand, model, and colour are AI-filled.

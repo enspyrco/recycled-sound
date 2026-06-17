@@ -1,5 +1,4 @@
 import 'package:camera/camera.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,10 +7,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../devices/data/incoming_device_repository.dart';
-import '../../devices/data/models/device.dart';
-import '../../devices/providers/device_providers.dart';
+import '../../scanner/data/models/scan_result.dart';
+import '../../scanner/providers/scanner_providers.dart';
 import '../data/focus_control.dart';
+import '../providers/capture_providers.dart';
 import 'capture_slot.dart';
 import 'widgets/capture_guide_hand.dart';
 
@@ -41,7 +40,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   bool _cameraReady = false;
   String? _cameraError;
   bool _isCapturing = false;
-  bool _saving = false;
   bool _disposed = false;
 
   /// Camera lifecycle uses TWO guards that answer different questions:
@@ -74,6 +72,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scheduleInit();
+    // Restore any photos from a previous capture session (e.g. the volunteer
+    // pressed back from ConfirmationScreen to retake a slot).
+    final existing = ref.read(capturedPhotosProvider);
+    for (final entry in existing.entries) {
+      final idx =
+          CaptureSlot.sequence.indexWhere((s) => s.name == entry.key);
+      if (idx >= 0) _captured[idx] = entry.value;
+    }
   }
 
   @override
@@ -296,43 +302,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   Future<void> _save() async {
     final slotPhotos = _capturedBySlot;
-    if (slotPhotos.isEmpty || _saving) return;
-    setState(() => _saving = true);
+    if (slotPhotos.isEmpty) return;
 
-    final messenger = ScaffoldMessenger.of(context);
-    final router = GoRouter.of(context);
-    final repo = ref.read(incomingDeviceRepositoryProvider);
-
-    // Capture has no scan result, so identification fields start blank; the
-    // record exists to hold the photos and gets its specs filled in later.
-    const draft = DraftDevice(brand: '', model: '');
-
-    try {
-      final id = await repo.createIncoming(draft, namedPhotoPaths: slotPhotos);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Saved ${slotPhotos.length} photos · $id'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-      router.go('/devices/$id');
-    } on FirebaseException catch (e) {
-      if (mounted) setState(() => _saving = false);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(PersistErrorKind.fromCode(e.code).userMessage),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } catch (_) {
-      if (mounted) setState(() => _saving = false);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(PersistErrorKind.unknown.userMessage),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
+    // Store local paths for ConfirmationScreen to upload alongside the spec
+    // fields the volunteer fills in. Clear stale scanner data so ConfirmationScreen
+    // opens blank rather than showing a previous scan's result.
+    ref.read(capturedPhotosProvider.notifier).state = slotPhotos;
+    ref.read(scanResultProvider.notifier).setResult(ScanResult.blank());
+    GoRouter.of(context).go('/scan/confirm');
   }
 
   @override
@@ -487,23 +464,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                     width: 72,
                     child: capturedCount > 0
                         ? TextButton(
-                            onPressed: _saving ? null : _save,
-                            child: _saving
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'Save',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                            onPressed: _save,
+                            child: const Text(
+                              'Save',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           )
                         : const SizedBox.shrink(),
                   ),

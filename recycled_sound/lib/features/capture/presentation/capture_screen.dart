@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +13,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
 import '../../devices/providers/device_providers.dart';
+import '../data/capture_ocr.dart';
 import '../data/focus_control.dart';
 import 'capture_slot.dart';
 import 'widgets/capture_guide_hand.dart';
@@ -78,14 +81,25 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   /// skipped, so we key by index rather than using a list.
   final Map<int, String> _captured = {};
 
-  /// Volunteer-enterable device details. Box number is the link from this photo
-  /// set back to the physical box in the register, so [_save] requires it; the
-  /// rest are the easy identification fields a non-expert can read. Stored
-  /// trimmed (box uppercased) to match the scan-confirm flow.
+  /// The volunteer enters only the box number (the link back to the physical
+  /// box — it's on the box, not the device, so no camera can read it) and
+  /// optionally the colour. Brand + model are read off the brand-label shots by
+  /// OCR ([_ocr]); the audiologist confirms them later. Stored trimmed (box
+  /// uppercased) to match the scan-confirm flow.
   String _location = '';
+  String _colour = '';
+
+  /// Brand/model as read by OCR from the medial (brand-label) shots — NOT typed
+  /// by the volunteer. Blank until a brand-label photo is taken and matched.
   String _brand = '';
   String _model = '';
-  String _colour = '';
+
+  /// True while OCR is running on a freshly-captured brand-label shot, so the
+  /// details bar can show an "identifying…" hint.
+  bool _detecting = false;
+
+  /// Reads brand/model off captured stills. Off the live-camera hot path.
+  final CaptureOcr _ocr = CaptureOcr();
 
   CaptureStep get _currentStepData => CaptureSlot.pairSequence[_currentStep];
   CaptureSlot get _currentSlot => _currentStepData.slot;
@@ -103,6 +117,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _scheduleStop();
+    _ocr.dispose();
     super.dispose();
   }
 
@@ -273,10 +288,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       final xFile = await controller.takePicture();
       if (!mounted || _disposed) return;
       HapticFeedback.lightImpact();
+      final shotStep = _currentStep;
       setState(() {
-        _captured[_currentStep] = xFile.path;
+        _captured[shotStep] = xFile.path;
         _currentStep = _nextUnshotStep();
       });
+      // A brand-label (medial) shot just landed — read brand/model off it so
+      // the volunteer never types them. Fire-and-forget: OCR must never block
+      // or fail the capture.
+      if (CaptureSlot.pairSequence[shotStep].slot == CaptureSlot.medial) {
+        unawaited(_runOcr());
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -319,6 +341,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 _captured[i]!,
       };
 
+  /// Run OCR over the captured brand-label (medial) shots — left and right —
+  /// and fill brand/model from whatever it reads. Best-effort and off the
+  /// camera thread: a failure leaves the fields blank for the audiologist. Does
+  /// not overwrite a brand/model the volunteer already corrected by hand.
+  Future<void> _runOcr() async {
+    final paths = [
+      for (var i = 0; i < CaptureSlot.pairSequence.length; i++)
+        if (CaptureSlot.pairSequence[i].slot == CaptureSlot.medial &&
+            _captured[i] != null)
+          _captured[i]!,
+    ];
+    if (paths.isEmpty) return;
+    setState(() => _detecting = true);
+    final id = await _ocr.identify(paths);
+    if (!mounted) return;
+    setState(() {
+      _detecting = false;
+      if (id != null) {
+        if (_brand.isEmpty && id.brand.isNotEmpty) _brand = id.brand;
+        if (_model.isEmpty && id.model.isNotEmpty) _model = id.model;
+      }
+    });
+  }
+
   /// Prompt for the volunteer-enterable details (box number + the easy
   /// identification fields). The dialog ([_DetailsDialog]) owns its own
   /// controllers and disposes them in *its* `State.dispose` — disposing right
@@ -328,19 +374,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     final result = await showDialog<_DeviceDetails>(
       context: context,
       builder: (context) => _DetailsDialog(
-        initial: _DeviceDetails(
-          box: _location,
-          brand: _brand,
-          model: _model,
-          colour: _colour,
-        ),
+        initial: _DeviceDetails(box: _location, colour: _colour),
       ),
     );
     if (result != null && mounted) {
       setState(() {
         _location = result.box.trim().toUpperCase();
-        _brand = result.brand.trim();
-        _model = result.model.trim();
         _colour = result.colour.trim();
       });
     }
@@ -396,6 +435,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         _brand = '';
         _model = '';
         _colour = '';
+        _detecting = false;
         _saving = false;
       });
       messenger.showSnackBar(
@@ -503,9 +543,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
               // fields. Amber call-to-action until a box number is set.
               _DetailsBar(
                 box: _location,
+                colour: _colour,
                 brand: _brand,
                 model: _model,
-                colour: _colour,
+                detecting: _detecting,
                 onTap: _editDetails,
               ),
               const SizedBox(height: 12),
@@ -625,25 +666,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 }
 
 /// The volunteer-enterable device details, carried between the dialog and the
-/// screen as one value.
+/// screen as one value. Brand + model are deliberately absent — those are read
+/// by OCR off the brand-label shots, not typed.
 class _DeviceDetails {
-  const _DeviceDetails({
-    required this.box,
-    required this.brand,
-    required this.model,
-    required this.colour,
-  });
+  const _DeviceDetails({required this.box, required this.colour});
 
   final String box;
-  final String brand;
-  final String model;
   final String colour;
 }
 
-/// Modal for entering the device details. A `StatefulWidget` so it owns its
-/// controllers and disposes them in `State.dispose` — which runs only after the
-/// route is fully gone, avoiding the use-after-dispose that disposing in the
-/// caller (right after `await showDialog`) causes during the exit animation.
+/// Modal for entering the device details a volunteer can actually provide: the
+/// box number (required) and optionally the colour. A `StatefulWidget` so it
+/// owns its controllers and disposes them in `State.dispose` — which runs only
+/// after the route is fully gone, avoiding the use-after-dispose that disposing
+/// in the caller (right after `await showDialog`) causes during the exit anim.
 class _DetailsDialog extends StatefulWidget {
   const _DetailsDialog({required this.initial});
 
@@ -656,18 +692,12 @@ class _DetailsDialog extends StatefulWidget {
 class _DetailsDialogState extends State<_DetailsDialog> {
   late final TextEditingController _box =
       TextEditingController(text: widget.initial.box);
-  late final TextEditingController _brand =
-      TextEditingController(text: widget.initial.brand);
-  late final TextEditingController _model =
-      TextEditingController(text: widget.initial.model);
   late final TextEditingController _colour =
       TextEditingController(text: widget.initial.colour);
 
   @override
   void dispose() {
     _box.dispose();
-    _brand.dispose();
-    _model.dispose();
     _colour.dispose();
     super.dispose();
   }
@@ -692,29 +722,12 @@ class _DetailsDialogState extends State<_DetailsDialog> {
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: _brand,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Brand',
-                hintText: 'e.g. Phonak, Oticon',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _model,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Model',
-                hintText: 'if printed on the device',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
               controller: _colour,
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(
                 labelText: 'Colour',
                 hintText: 'e.g. Beige, Grey',
+                helperText: 'Brand & model are read from the photos for you',
               ),
             ),
           ],
@@ -727,12 +740,7 @@ class _DetailsDialogState extends State<_DetailsDialog> {
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(
-            _DeviceDetails(
-              box: _box.text,
-              brand: _brand.text,
-              model: _model.text,
-              colour: _colour.text,
-            ),
+            _DeviceDetails(box: _box.text, colour: _colour.text),
           ),
           child: const Text('OK'),
         ),
@@ -741,36 +749,38 @@ class _DetailsDialogState extends State<_DetailsDialog> {
   }
 }
 
-/// The device-details bar at the top of the capture flow. Unset (no box
-/// number), it glows amber and reads as a call to action; set, it goes solid
-/// and shows a summary of what's been entered. Either way it's tappable to
-/// edit. The box number is the device's identity in the register, so it earns
-/// persistent, prominent screen space.
+/// The device-details bar at the top of the capture flow. The top line is the
+/// volunteer-entered part (box number, required, + optional colour): amber call
+/// to action until a box number is set, solid once it is, tappable to edit. A
+/// second line shows what OCR read off the brand-label shots (brand + model) —
+/// not editable here, since the audiologist confirms it; this is just feedback
+/// that the auto-identify worked.
 class _DetailsBar extends StatelessWidget {
   const _DetailsBar({
     required this.box,
+    required this.colour,
     required this.brand,
     required this.model,
-    required this.colour,
+    required this.detecting,
     required this.onTap,
   });
 
   final String box;
+  final String colour;
   final String brand;
   final String model;
-  final String colour;
+  final bool detecting;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final isSet = box.isNotEmpty;
-    // Compact summary of whatever's been filled in, box first.
-    final parts = [
+    final entered = [
       if (isSet) 'Box $box',
-      if (brand.isNotEmpty) brand,
-      if (model.isNotEmpty) model,
       if (colour.isNotEmpty) colour,
     ];
+    final detected = [brand, model].where((s) => s.isNotEmpty).join(' ');
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -786,27 +796,57 @@ class _DetailsBar extends StatelessWidget {
             width: isSet ? 1 : 2,
           ),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              isSet ? Icons.inventory_2 : Icons.label_important_outline,
-              color: isSet ? Colors.white : AppColors.warning,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                isSet
-                    ? parts.join('  ·  ')
-                    : 'Tap to add device details (box number required)',
-                style: AppTypography.body.copyWith(
-                  color: Colors.white,
-                  fontWeight: isSet ? FontWeight.bold : FontWeight.normal,
+            Row(
+              children: [
+                Icon(
+                  isSet ? Icons.inventory_2 : Icons.label_important_outline,
+                  color: isSet ? Colors.white : AppColors.warning,
+                  size: 20,
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    isSet
+                        ? entered.join('  ·  ')
+                        : 'Tap to add box number (required)',
+                    style: AppTypography.body.copyWith(
+                      color: Colors.white,
+                      fontWeight: isSet ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Icon(Icons.edit, color: Colors.white54, size: 16),
+              ],
             ),
-            const Icon(Icons.edit, color: Colors.white54, size: 16),
+            // OCR feedback line — only once there's something to say.
+            if (detecting || detected.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const SizedBox(width: 30),
+                  Icon(
+                    detected.isNotEmpty ? Icons.auto_awesome : Icons.search,
+                    color: AppColors.accent,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      detected.isNotEmpty
+                          ? 'Read from photo: $detected'
+                          : 'Reading brand & model…',
+                      style: AppTypography.caption
+                          .copyWith(color: Colors.white70),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

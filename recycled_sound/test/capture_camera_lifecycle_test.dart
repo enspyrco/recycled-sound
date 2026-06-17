@@ -170,12 +170,12 @@ void main() {
     await settle(tester); // camera ready, live UI painted
 
     // Unset: the bar reads as a call to action.
-    expect(find.text('Tap to add device details (box number required)'),
+    expect(find.text('Tap to add box number (required)'),
         findsOneWidget);
 
     // Open the dialog, type a lowercase box label into the first field, accept.
     await tester.tap(
-        find.text('Tap to add device details (box number required)'));
+        find.text('Tap to add box number (required)'));
     await tester.pumpAndSettle();
     expect(find.text('Device details'), findsOneWidget); // dialog title
     await tester.enterText(find.byType(TextField).first, 'b07');
@@ -184,7 +184,7 @@ void main() {
 
     // Box input is trimmed + uppercased and summarised on the now-solid bar.
     expect(find.text('Box B07'), findsOneWidget);
-    expect(find.text('Tap to add device details (box number required)'),
+    expect(find.text('Tap to add box number (required)'),
         findsNothing);
   }, skip: !fontReady);
 

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Full history: diff-cover computes a three-dot diff
           # (origin/base...HEAD), which needs the merge-base. A shallow
@@ -87,7 +87,7 @@ jobs:
             echo "compare_branch=HEAD~1" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.docs-check.outputs.skip != 'true'
         with:
           python-version: '3.12'
@@ -129,7 +129,7 @@ jobs:
             --show-uncovered
 
       # Cloud Functions build check
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         if: steps.docs-check.outputs.skip != 'true'
         with:
           node-version: 20
@@ -147,13 +147,13 @@ jobs:
   rules-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
@@ -185,9 +185,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -218,9 +218,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
 

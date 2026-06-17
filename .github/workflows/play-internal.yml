@@ -1,0 +1,70 @@
+name: Play Internal
+
+# Android counterpart to testflight.yml — builds a signed AAB and pushes it to a
+# Play testing track via the Android Publisher API. Manual trigger only (like the
+# TestFlight workflow), with the target track + release status as inputs.
+#
+# Required repo secrets (set once):
+#   ANDROID_UPLOAD_KEYSTORE_BASE64   base64 of android/app/upload-keystore.jks
+#   ANDROID_KEYSTORE_PASSWORD        store + key password (same for our upload key)
+#   ANDROID_KEY_ALIAS                upload
+#   PLAY_SERVICE_ACCOUNT_JSON_BASE64 base64 of the play-publisher SA JSON key
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play track"
+        default: "internal"
+        type: choice
+        options: [internal, alpha, beta]
+      status:
+        description: "Release status (draft stages without releasing)"
+        default: "draft"
+        type: choice
+        options: [draft, completed]
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Restore upload keystore + key.properties
+        working-directory: recycled_sound/android
+        run: |
+          echo "${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}" | base64 --decode > app/upload-keystore.jks
+          cat > key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Restore Play service account key
+        run: echo "${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/play-sa.json"
+
+      - name: Build signed AAB
+        working-directory: recycled_sound
+        run: |
+          flutter pub get
+          flutter build appbundle --release
+
+      - name: Upload to Play track
+        env:
+          RS_PLAY_SA_KEY: ${{ runner.temp }}/play-sa.json
+        run: |
+          pip install --quiet google-api-python-client google-auth
+          python3 scripts/play_upload.py \
+            --aab recycled_sound/build/app/outputs/bundle/release/app-release.aab \
+            --track "${{ inputs.track }}" \
+            --status "${{ inputs.status }}"

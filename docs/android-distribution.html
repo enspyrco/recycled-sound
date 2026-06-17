@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recycled Sound — Android Distribution Runbook</title>
+<style>
+  body { font: 16px/1.6 -apple-system, system-ui, sans-serif; max-width: 760px;
+         margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.6rem; } h2 { font-size: 1.25rem; margin-top: 2rem; border-bottom: 2px solid #eee; padding-bottom: .3rem; }
+  code, kbd { background: #f4f4f4; padding: .1em .4em; border-radius: 4px; font-size: .9em; }
+  pre { background: #f4f4f4; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+  .done { color: #2e7d32; font-weight: 600; } .todo { color: #c62828; font-weight: 600; }
+  .you { background: #fff3e0; border-left: 4px solid #fb8c00; padding: .6rem 1rem; border-radius: 4px; }
+  details { margin: .5rem 0; } summary { cursor: pointer; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ddd; padding: .4rem .6rem; text-align: left; }
+</style>
+</head>
+<body>
+<h1>Android Distribution Runbook</h1>
+<p>How a Recycled Sound build gets from this repo onto a volunteer's Android phone,
+   the iOS-TestFlight counterpart. Mirrors <code>co.enspyr.recycledsound</code> to a
+   Play <strong>internal testing</strong> track via the Android Publisher API.</p>
+
+<h2>Status at a glance</h2>
+<table>
+  <tr><th>Piece</th><th>State</th></tr>
+  <tr><td>Play Console app entry</td><td class="done">✓ Exists (developer 6377577278131876604)</td></tr>
+  <tr><td>Firebase Android app + <code>google-services.json</code></td><td class="done">✓ Registered (package co.enspyr.recycledsound)</td></tr>
+  <tr><td>Release signing (upload keystore)</td><td class="done">✓ <code>android/app/upload-keystore.jks</code> (gitignored; pw in <code>~/.claude/.env</code>)</td></tr>
+  <tr><td>Signed release AAB builds</td><td class="done">✓ <code>flutter build appbundle --release</code> → verified upload-key-signed</td></tr>
+  <tr><td>Android Publisher API + service account</td><td class="done">✓ <code>play-publisher@recycled-sound-app.iam.gserviceaccount.com</code>, key minted</td></tr>
+  <tr><td>Upload script</td><td class="done">✓ <code>scripts/play_upload.py</code></td></tr>
+  <tr><td>SA granted in Play Console</td><td class="todo">✗ YOU — one-click grant</td></tr>
+  <tr><td>"Set up your app" content gates</td><td class="todo">✗ YOU — policy forms</td></tr>
+  <tr><td>Internal testers + opt-in link</td><td class="todo">✗ YOU — add emails</td></tr>
+</table>
+
+<h2 class="you">What only you can do (Console, your Google login)</h2>
+<p>Three things gate the first rollout. None are automatable — they need your
+   account auth and policy answers.</p>
+
+<details open>
+<summary>1. Grant the publisher service account (1 minute)</summary>
+<p>Play Console → <strong>Users &amp; permissions</strong> → <strong>Invite new users</strong> →
+   paste:</p>
+<pre>play-publisher@recycled-sound-app.iam.gserviceaccount.com</pre>
+<p>Grant <strong>app access</strong> to Recycled Sound with at least
+   <em>Release to testing tracks</em> (or Admin for simplicity). This is what
+   flips the <code>403</code> to a working upload.</p>
+</details>
+
+<details>
+<summary>2. Complete "Set up your app" content (one-time, ~20 min)</summary>
+<p>Play blocks every rollout — even internal — until these are answered:</p>
+<ul>
+  <li><strong>Privacy policy URL</strong> — we already have one (<code>docs/privacy.html</code>); paste its hosted URL.</li>
+  <li><strong>Data safety</strong> form — what the app collects (camera images, anonymous auth id, device specs).</li>
+  <li><strong>Content rating</strong> questionnaire.</li>
+  <li><strong>Target audience</strong> + <strong>Ads</strong> declaration (no ads).</li>
+</ul>
+</details>
+
+<details>
+<summary>3. Add internal testers + share the opt-in link</summary>
+<p>Play Console → Testing → <strong>Internal testing</strong> → Testers → add a
+   list of emails (Delia + the dress-rehearsal crew). Play generates a
+   <strong>shareable opt-in link</strong> — no per-tester developer invite, the
+   TestFlight-equivalent "join" URL.</p>
+</details>
+
+<h2>What's now one command (after the grant)</h2>
+<p>Build a fresh signed AAB and push it to the internal track:</p>
+<pre>cd recycled_sound &amp;&amp; flutter build appbundle --release
+cd .. &amp;&amp; python3 scripts/play_upload.py \
+  --aab recycled_sound/build/app/outputs/bundle/release/app-release.aab \
+  --track internal --status completed</pre>
+<p>Use <code>--status draft</code> for a dry run that stages without releasing.
+   Auth resolves from <code>~/.claude/keys/recycled-sound-play-publisher.json</code>
+   (override with <code>$RS_PLAY_SA_KEY</code>).</p>
+
+<details>
+<summary>Notes &amp; gotchas</summary>
+<ul>
+  <li><strong>versionCode must increase every upload.</strong> Driven by pubspec
+      <code>version: x.y.z+N</code> (currently <code>0.5.0+8</code>). Bump <code>+N</code> before each new upload.</li>
+  <li><strong>AAB is ~97 MB</strong> (bundled TFLite + ML Kit models). Play splits
+      it per-device, so the actual download is much smaller.</li>
+  <li><strong>Google Sign-In</strong> would need the upload-key SHA-1
+      (<code>7D:40:93:A9:…</code>) registered in Firebase — not needed today (anonymous auth).</li>
+  <li><strong>Keystore is resettable</strong> under Play App Signing; losing the
+      upload key is recoverable, unlike legacy signing.</li>
+</ul>
+</details>
+</body>
+</html>

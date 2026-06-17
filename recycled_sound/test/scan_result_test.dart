@@ -114,4 +114,39 @@ void main() {
       expect(r.brand, m.brand);
     });
   });
+
+  group('ScanResult.blank', () {
+    test('all spec fields are empty with zero confidence', () {
+      final b = ScanResult.blank();
+      expect(b.scanId, isEmpty);
+      expect(b.imageUrl, isEmpty);
+      for (final f in [
+        b.brand,
+        b.model,
+        b.type,
+        b.year,
+        b.batterySize,
+        b.domeType,
+        b.waxFilter,
+        b.receiver,
+      ]) {
+        expect(f.value, isEmpty);
+        expect(f.confidence, 0);
+      }
+    });
+
+    test('blank has no optional fields set', () {
+      final b = ScanResult.blank();
+      expect(b.colour, isNull);
+      expect(b.tubing, isNull);
+      expect(b.powerSource, isNull);
+      expect(b.rawLabels, isEmpty);
+    });
+
+    test('blank is not complete and has zero filled fields', () {
+      final b = ScanResult.blank();
+      expect(b.isComplete, isFalse);
+      expect(b.filledFieldCount, 0);
+    });
+  });
 }

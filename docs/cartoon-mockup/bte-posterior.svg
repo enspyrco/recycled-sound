@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BTE hearing aid, POSTERIOR face (the back/trailing edge — the smooth
+  spine that points away from the face when worn). Drawn 3/4 so a sliver
+  of the lateral face stays visible on the RIGHT (mirror of anterior).
+  No mic port on this edge; the spine is smooth. Earhook curves back
+  (toward viewer-right) at the top.
+
+  Style: Simpsons-style cartoon — flat fills, 6px major / 4px secondary
+  / 3px detail black strokes, no gradients.
+
+  Shapes: 1 back-edge face, 2 lateral sliver (depth), 3 earhook,
+  4 receiver wire, 5 dome.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" fill="#FFFFFF"/>
+
+  <!-- 2. Lateral sliver behind on the LEFT, darker, gives 3/4 depth -->
+  <path d="M 370 150
+           C 330 150, 300 200, 300 260
+           C 300 320, 330 360, 370 360
+           C 390 360, 400 300, 400 255
+           C 400 210, 390 150, 370 150 Z"
+        fill="#E8A86F" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 1. Back-edge face — slim rounded smooth spine, the hero plane -->
+  <path d="M 440 150
+           C 390 150, 370 210, 370 260
+           C 370 315, 390 360, 440 360
+           C 470 360, 480 315, 480 260
+           C 480 205, 470 150, 440 150 Z"
+        fill="#F5C99B" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- spine seam detail (smooth back, no mic) -->
+  <path d="M 425 175 C 418 230, 418 290, 425 340"
+        fill="none" stroke="#000000" stroke-width="3"/>
+
+  <!-- 3. Earhook — curves back (toward viewer-right) out the top -->
+  <path d="M 420 158
+           C 440 120, 500 110, 530 150
+           C 548 174, 548 196, 538 216"
+        fill="none" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- 4. Receiver wire — coils down to the right -->
+  <path d="M 538 216
+           C 555 256, 600 268, 615 300
+           C 630 332, 590 360, 552 356
+           C 514 352, 500 332, 518 314"
+        fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- 5. Receiver dome -->
+  <path d="M 615 300
+           C 650 300, 680 318, 685 343
+           C 690 368, 660 386, 632 384
+           C 604 382, 580 365, 592 342
+           C 598 330, 610 314, 615 300 Z"
+        fill="#F0E6D2" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <text x="400" y="475" font-family="Impact, 'Arial Black', sans-serif"
+        font-size="32" text-anchor="middle" fill="#000000">BTE — POSTERIOR (BACK EDGE)</text>
+</svg>

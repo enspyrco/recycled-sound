@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BTE (Behind-The-Ear) hearing aid, MEDIAL face (the inner side that
+  faces the head when worn). This is the OCR money shot: the brand and
+  model are printed HERE, running lengthwise along the shell. The whole
+  point of this illustration is to teach the operator "hold it so this
+  printed text faces the camera."
+
+  Style: Simpsons-style cartoon — flat fills, 6px major / 4px secondary
+  / 3px detail black strokes, no gradients, no shading. Mirror of the
+  lateral view, so the earhook exits top-LEFT.
+
+  Six simple shapes:
+    1. Body shell (curved kidney bean, mirrored)
+    2. Printed label plate (where make/model is silk-screened)
+    3. Sideways brand text (the thing OCR reads)
+    4. Earhook (curved tube exiting top-left)
+    5. Receiver wire (S-curve coiling below)
+    6. Receiver dome (mushroom at the left end)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" fill="#FFFFFF"/>
+
+  <!-- 1. Body shell — mirror of lateral (earhook exits top-left) -->
+  <path d="M 600 120
+           C 620 120, 640 160, 640 220
+           C 640 290, 610 340, 560 340
+           C 510 340, 480 300, 480 240
+           C 480 180, 510 120, 560 120 Z"
+        fill="#F5C99B" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 2. Printed label plate — the silk-screened panel, slightly lighter -->
+  <rect x="505" y="170" width="110" height="140" rx="12"
+        fill="#FBE3C4" stroke="#000000" stroke-width="4"/>
+
+  <!-- 3. Sideways brand text — rotated 90deg, this is what OCR must read -->
+  <text x="560" y="248" transform="rotate(-90 560 240)"
+        font-family="Impact, 'Arial Black', sans-serif"
+        font-size="34" letter-spacing="2"
+        text-anchor="middle" fill="#1A1A1A">MAKE</text>
+  <text x="588" y="248" transform="rotate(-90 588 240)"
+        font-family="Arial, sans-serif" font-weight="bold"
+        font-size="20" letter-spacing="1"
+        text-anchor="middle" fill="#4A4A4A">model</text>
+
+  <!-- 4. Earhook — curved tube exiting top-LEFT -->
+  <path d="M 510 140
+           C 440 110, 360 110, 320 170
+           C 300 200, 300 220, 310 240"
+        fill="none" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 510 152
+           C 440 124, 368 124, 330 175
+           C 312 202, 312 218, 320 235"
+        fill="none" stroke="#000000" stroke-width="2"/>
+
+  <!-- 5. Receiver wire — S-curve coiling below toward the left -->
+  <path d="M 310 240
+           C 290 280, 240 290, 220 320
+           C 200 350, 240 380, 280 380
+           C 320 380, 340 360, 320 340
+           C 300 320, 240 330, 200 360"
+        fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- 6. Receiver dome — mushroom at the left end -->
+  <path d="M 200 360
+           C 160 355, 120 370, 110 395
+           C 100 420, 130 440, 160 440
+           C 190 440, 220 425, 210 400
+           C 205 388, 200 372, 200 360 Z"
+        fill="#F0E6D2" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M 185 400 Q 155 395 125 410"
+        fill="none" stroke="#000000" stroke-width="3"/>
+
+  <!-- Label, comic-book caps -->
+  <text x="400" y="475"
+        font-family="Impact, 'Arial Black', sans-serif"
+        font-size="32"
+        text-anchor="middle"
+        fill="#000000">BTE — MEDIAL (PRINTED SIDE)</text>
+</svg>

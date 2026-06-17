@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BTE (Behind-The-Ear) hearing aid, INFERIOR face (the bottom end,
+  where the battery door is). Drawn as a slight 3/4 from-below view
+  rather than pure end-on: a pure end-on ellipse reads as an
+  ambiguous blob, so we tilt it so the battery door is the hero and
+  the body recedes upward. Teaches "point the battery-door end at the
+  camera."
+
+  Style: Simpsons-style cartoon — flat fills, 6px major / 4px
+  secondary / 3px detail black strokes, no gradients, no shading.
+
+  Six simple shapes:
+    1. Body shell (foreshortened, receding upward)
+    2. Bottom face (the rounded end disc facing the viewer)
+    3. Battery door (large rounded rect on the bottom face)
+    4. Thumbnail notch (the open-here detail)
+    5. Earhook stub (peeking at the far top)
+    6. Hinge seam (where the door pivots)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" fill="#FFFFFF"/>
+
+  <!-- 1. Body shell — foreshortened, receding up and slightly back -->
+  <path d="M 320 360
+           C 300 300, 305 200, 340 150
+           C 365 115, 435 115, 460 150
+           C 495 200, 500 300, 480 360 Z"
+        fill="#F5C99B" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 5. Earhook stub — peeking out the far (top) end -->
+  <path d="M 380 140
+           C 380 110, 420 110, 420 140"
+        fill="none" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- 2. Bottom face — the rounded end disc tilted toward the viewer -->
+  <path d="M 320 360
+           C 320 410, 360 440, 400 440
+           C 440 440, 480 410, 480 360
+           C 480 345, 440 350, 400 350
+           C 360 350, 320 345, 320 360 Z"
+        fill="#E8A86F" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 3. Battery door — the large rounded rect dominating the bottom face -->
+  <path d="M 345 372
+           C 345 405, 370 425, 400 425
+           C 430 425, 455 405, 455 372
+           C 455 362, 430 365, 400 365
+           C 370 365, 345 362, 345 372 Z"
+        fill="#D98E4E" stroke="#000000" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- 6. Hinge seam — across the top of the door -->
+  <path d="M 348 372 C 380 366, 420 366, 452 372"
+        fill="none" stroke="#000000" stroke-width="3"/>
+
+  <!-- 4. Thumbnail notch — the open-here detail at the door's lip -->
+  <path d="M 388 420 L 400 432 L 412 420"
+        fill="none" stroke="#000000" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Label, comic-book caps -->
+  <text x="400" y="475"
+        font-family="Impact, 'Arial Black', sans-serif"
+        font-size="32"
+        text-anchor="middle"
+        fill="#000000">BTE — INFERIOR (BATTERY END)</text>
+</svg>

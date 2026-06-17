@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BTE hearing aid, SUPERIOR face (the top end, where the earhook exits).
+  Drawn 3/4 from slightly above: the earhook root is the hero feature at
+  the near (top) end, the body foreshortens downward behind it. Teaches
+  "point the earhook end at the camera."
+
+  Style: Simpsons-style cartoon — flat fills, 6px major / 4px secondary
+  / 3px detail black strokes, no gradients.
+
+  Shapes: 1 body (foreshortened down), 2 top end face, 3 earhook root,
+  4 earhook arc, 5 receiver wire, 6 dome.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <rect width="800" height="500" fill="#FFFFFF"/>
+
+  <!-- 1. Body shell — foreshortened, receding downward -->
+  <path d="M 320 200
+           C 305 260, 310 360, 345 410
+           C 370 445, 430 445, 455 410
+           C 490 360, 495 260, 480 200 Z"
+        fill="#F5C99B" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 2. Top end face — the rounded end disc tilted toward viewer -->
+  <path d="M 320 200
+           C 320 160, 360 140, 400 140
+           C 440 140, 480 160, 480 200
+           C 480 214, 440 208, 400 208
+           C 360 208, 320 214, 320 200 Z"
+        fill="#E8A86F" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- 3. Earhook root — thick collar where the hook leaves the top face -->
+  <ellipse cx="400" cy="176" rx="34" ry="16"
+           fill="#D98E4E" stroke="#000000" stroke-width="4"/>
+
+  <!-- 4. Earhook arc — sweeps up and over toward the right -->
+  <path d="M 388 168
+           C 360 120, 470 95, 520 150
+           C 545 178, 545 205, 532 230"
+        fill="none" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 392 172 C 366 132, 462 112, 506 158"
+        fill="none" stroke="#000000" stroke-width="2"/>
+
+  <!-- 5. Receiver wire -->
+  <path d="M 532 230
+           C 548 270, 595 282, 608 314
+           C 622 346, 582 372, 546 368"
+        fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- 6. Receiver dome -->
+  <path d="M 608 314
+           C 643 314, 672 332, 677 357
+           C 682 382, 652 400, 624 398
+           C 596 396, 574 379, 586 356
+           C 592 344, 603 328, 608 314 Z"
+        fill="#F0E6D2" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+  <text x="400" y="475" font-family="Impact, 'Arial Black', sans-serif"
+        font-size="32" text-anchor="middle" fill="#000000">BTE — SUPERIOR (EARHOOK END)</text>
+</svg>

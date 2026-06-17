@@ -552,4 +552,38 @@ class IncomingDeviceRepository {
       .doc(id)
       .snapshots()
       .map((s) => s.exists ? Device.fromFirestore(s) : null);
+
+  /// How many photographed sets we already hold for this exact make/model.
+  ///
+  /// The scanner-first flow captures EVERY device (training data wants many
+  /// sets per model, not one), so this is NOT a skip signal — it drives
+  /// *coverage feedback* ("set #N of this model"), so the day's distribution is
+  /// visible and volunteers can be steered toward under-represented models.
+  /// Matches case-insensitively on brand+model and counts only records with a
+  /// non-empty `photos` list; checks BOTH the curated register and the
+  /// pre-triage `incoming/` queue (a freshly-captured device lives in
+  /// `incoming/` until promoted).
+  ///
+  /// Returns 0 when brand or model is blank (an unidentified device — there's
+  /// nothing to match on). The whole-collection fetch is fine at register scale
+  /// (hundreds of devices); revisit with a brand-indexed query if it grows.
+  Future<int> countReferenceSetsFor(String brand, String model) async {
+    final b = brand.trim().toLowerCase();
+    final m = model.trim().toLowerCase();
+    if (b.isEmpty || m.isEmpty) return 0;
+
+    bool isMatch(Device d) =>
+        d.brand.trim().toLowerCase() == b &&
+        d.model.trim().toLowerCase() == m &&
+        d.photos.isNotEmpty;
+
+    final snapshots = await Future.wait([_devicesCol.get(), _col.get()]);
+    var count = 0;
+    for (final snapshot in snapshots) {
+      for (final doc in snapshot.docs) {
+        if (isMatch(Device.fromFirestore(doc))) count++;
+      }
+    }
+    return count;
+  }
 }

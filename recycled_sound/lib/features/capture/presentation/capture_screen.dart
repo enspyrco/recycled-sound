@@ -15,6 +15,7 @@ import '../../devices/data/models/device.dart';
 import '../../devices/providers/device_providers.dart';
 import '../data/capture_ocr.dart';
 import '../data/focus_control.dart';
+import '../providers/capture_seed.dart';
 import 'capture_slot.dart';
 import 'widgets/capture_guide_hand.dart';
 
@@ -110,6 +111,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scheduleInit();
+    // If the scanner routed here for a novel device, pre-fill the identity it
+    // already read + the box number, so the volunteer just shoots. Consume the
+    // seed (after this frame) so a later standalone capture starts blank.
+    final seed = ref.read(captureSeedProvider);
+    if (seed != null) {
+      _brand = seed.brand;
+      _model = seed.model;
+      _location = seed.box;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(captureSeedProvider.notifier).state = null;
+      });
+    }
   }
 
   @override

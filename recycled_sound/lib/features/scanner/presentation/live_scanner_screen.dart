@@ -1818,16 +1818,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
             // Boot sequence overlay
             if (_phase == _ScanPhase.booting) _buildBootSequence(),
 
-            // Back button
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 8,
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: AppColors.white),
-                onPressed: () => context.go('/'),
-              ),
-            ),
-
             // Elapsed-time chip (top-center) — primary diagnostic readout.
             // Counts up from scan start, freezes on completion so the final
             // detection time stays on screen for reading.
@@ -2044,6 +2034,20 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                   ],
                 ),
               ),
+            // Back button — rendered LAST so it stays on top of every
+            // scanning overlay (FeatureOverlayPainter, HUD, etc.). Placed
+            // earlier in the children list it gets buried once scanning
+            // starts and a full-screen overlay swallows its taps: worked on
+            // the boot screen, dead on the live scanner. Classic Stack
+            // paint-order bug (#14).
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: AppColors.white),
+                onPressed: () => context.go('/'),
+              ),
+            ),
           ],
         ),
       ),

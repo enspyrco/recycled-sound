@@ -337,6 +337,43 @@ describe('Firestore: devices/', () => {
       );
     });
 
+  // Clean-write override hygiene (Carnot, PR #92 set-cover 3rd-pass scope note;
+  // claude-tasks #821). The flagged path requires a self-attributed, covering
+  // override — but the clean (noBlockers) arm used to admit ANY qaOverride, so a
+  // direct write could plant a forged/foreign override on a clean doc and
+  // pollute an "every device an override touched" audit.
+  it('NEGATIVE: a clean device cannot carry a someone-else qaOverride on create',
+    async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cleanovr1'), {
+          ...CLEAN_DEVICE,
+          qaOverride: { overriddenBy: 'someone-else', fields: [] },
+        })
+      );
+    });
+
+  it('NEGATIVE: cannot update a clean device to add a someone-else qaOverride',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/cleanovr2'), { ...CLEAN_DEVICE }));
+      // Stays clean (no blockers), but plants a foreign-attributed override.
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/cleanovr2'), {
+          qaOverride: { overriddenBy: 'someone-else', fields: [] },
+        })
+      );
+    });
+
+  it('POSITIVE: a clean device may carry a SELF-attributed qaOverride', async () => {
+    // The spec is "absent OR self-attributed" — a self-attributed override on a
+    // clean doc names the caller and so cannot falsely implicate anyone; allowed.
+    await assertSucceeds(
+      setDoc(doc(asAudiologist().firestore(), 'devices/cleanovr3'), {
+        ...CLEAN_DEVICE,
+        qaOverride: { overriddenBy: 'aud1', fields: [] },
+      })
+    );
+  });
+
   // #783: identity fields (brand/model/type/batterySize) are now editable on the
   // review screen, so a flagged IDENTITY field can be RESOLVED by correcting its
   // value (the flag drops out of needsInputFields) — not only overridden. The

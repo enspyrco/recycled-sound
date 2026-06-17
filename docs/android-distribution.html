@@ -8,19 +8,22 @@
   body { font: 16px/1.6 -apple-system, system-ui, sans-serif; max-width: 760px;
          margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
   h1 { font-size: 1.6rem; } h2 { font-size: 1.25rem; margin-top: 2rem; border-bottom: 2px solid #eee; padding-bottom: .3rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
   code, kbd { background: #f4f4f4; padding: .1em .4em; border-radius: 4px; font-size: .9em; }
   pre { background: #f4f4f4; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+  a { color: #1565c0; }
   .done { color: #2e7d32; font-weight: 600; } .todo { color: #c62828; font-weight: 600; }
   .you { background: #fff3e0; border-left: 4px solid #fb8c00; padding: .6rem 1rem; border-radius: 4px; }
+  .judge { background: #fce4ec; border-left: 4px solid #d81b60; padding: .6rem 1rem; border-radius: 4px; }
   details { margin: .5rem 0; } summary { cursor: pointer; font-weight: 600; }
-  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ddd; padding: .4rem .6rem; text-align: left; }
+  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ddd; padding: .4rem .6rem; text-align: left; vertical-align: top; }
 </style>
 </head>
 <body>
 <h1>Android Distribution Runbook</h1>
 <p>How a Recycled Sound build gets from this repo onto a volunteer's Android phone,
-   the iOS-TestFlight counterpart. Mirrors <code>co.enspyr.recycledsound</code> to a
-   Play <strong>internal testing</strong> track via the Android Publisher API.</p>
+   the iOS-TestFlight counterpart. App package <code>co.enspyr.recycledsound</code>,
+   developer account <code>6377577278131876604</code>.</p>
 
 <h2>Status at a glance</h2>
 <table>
@@ -31,51 +34,126 @@
   <tr><td>Signed release AAB builds</td><td class="done">✓ <code>flutter build appbundle --release</code> → verified upload-key-signed</td></tr>
   <tr><td>Android Publisher API + service account</td><td class="done">✓ <code>play-publisher@recycled-sound-app.iam.gserviceaccount.com</code>, key minted</td></tr>
   <tr><td>Upload script</td><td class="done">✓ <code>scripts/play_upload.py</code></td></tr>
-  <tr><td>SA granted in Play Console</td><td class="todo">✗ YOU — one-click grant</td></tr>
-  <tr><td>"Set up your app" content gates</td><td class="todo">✗ YOU — policy forms</td></tr>
-  <tr><td>Internal testers + opt-in link</td><td class="todo">✗ YOU — add emails</td></tr>
+  <tr><td><strong>SA granted in Play Console</strong></td><td class="done">✓ DONE — proven: API edits commit + build 56 live on internal</td></tr>
+  <tr><td><strong>Store listing</strong> (title, descriptions, icon, feature graphic, 3 screenshots)</td><td class="done">✓ DONE — pushed via API 2026-06-17 (en-GB)</td></tr>
+  <tr><td>Build 56 on internal track</td><td class="done">✓ Live (status completed)</td></tr>
+  <tr><td>Build 56 staged on <strong>open testing</strong> (beta) track</td><td class="done">✓ Staged as <em>draft</em> release (awaiting send-for-review)</td></tr>
+  <tr><td><strong>App content</strong> policy forms (data safety, content rating, target audience, ads, app access)</td><td class="todo">✗ YOU — Console forms (answers pre-drafted below)</td></tr>
+  <tr><td>Send open-testing release for review → exit draft → public link</td><td class="todo">✗ YOU — one click after the forms</td></tr>
 </table>
 
-<h2 class="you">What only you can do (Console, your Google login)</h2>
-<p>Three things gate the first rollout. None are automatable — they need your
-   account auth and policy answers.</p>
+<h2 class="you">The only thing left: complete App content + send for review</h2>
+<p>The store listing and the staged open-testing release are done via the API. What
+   remains is the <strong>App content</strong> section (Console-only policy attestations
+   Google won't let a service account sign) and the final <strong>send for review</strong>.
+   Every answer below is pre-drafted from the app's actual behaviour — you transcribe and click.</p>
+<p><strong>Start here (App content hub):</strong>
+   <a href="https://play.google.com/console/u/0/developers/6377577278131876604/app/4975374344410944706/app-content">
+   play.google.com/console → Recycled Sound → App content</a>.
+   If that deep link doesn't resolve, open the
+   <a href="https://play.google.com/console/u/0/developers/6377577278131876604/app-list">app list</a>
+   → Recycled Sound → left nav <em>Policy → App content</em>. The hub lists every form below with a Start button.</p>
 
 <details open>
-<summary>1. Grant the publisher service account (1 minute)</summary>
-<p>Play Console → <strong>Users &amp; permissions</strong> → <strong>Invite new users</strong> →
-   paste:</p>
-<pre>play-publisher@recycled-sound-app.iam.gserviceaccount.com</pre>
-<p>Grant <strong>app access</strong> to Recycled Sound with at least
-   <em>Release to testing tracks</em> (or Admin for simplicity). This is what
-   flips the <code>403</code> to a working upload.</p>
+<summary>Privacy policy</summary>
+<p>Paste this public URL (verified live, HTTP 200):</p>
+<pre>https://enspyrco.github.io/recycled-sound/privacy.html</pre>
 </details>
 
 <details>
-<summary>2. Complete "Set up your app" content (one-time, ~20 min)</summary>
-<p>Play blocks every rollout — even internal — until these are answered:</p>
+<summary>Data safety (the tedious one — answers below)</summary>
+<p>Derived from the actual SDKs in <code>pubspec.yaml</code>: <code>firebase_auth</code>,
+   <code>cloud_firestore</code>, <code>firebase_storage</code>, <code>camera</code>.
+   <strong>No</strong> analytics, <strong>no</strong> Crashlytics, <strong>no</strong> ads,
+   <strong>no</strong> location.</p>
+<table>
+  <tr><th>Question</th><th>Answer</th></tr>
+  <tr><td>Does your app collect or share any of the required user data types?</td><td><strong>Yes</strong></td></tr>
+  <tr><td>Is all user data encrypted in transit?</td><td><strong>Yes</strong> (Firebase uses TLS/HTTPS)</td></tr>
+  <tr><td>Do you provide a way for users to request that their data be deleted?</td><td><strong>Yes</strong> — photos are deletable in-app; account/data deletion on request via <code>nick.meinhold@gmail.com</code></td></tr>
+</table>
+<p><strong>Data types to declare as collected</strong> (all: collected not shared; processed on Google/Firebase servers; <em>not</em> used for tracking/advertising):</p>
+<table>
+  <tr><th>Data type</th><th>Why</th><th>Purpose</th><th>Required/Optional</th></tr>
+  <tr><td>Personal info → <strong>Email address</strong></td><td>Admin/audiologist accounts sign in with email + password (<code>auth_service.dart</code>)</td><td>Account management, App functionality</td><td>Optional (only those roles)</td></tr>
+  <tr><td>Personal info → <strong>User IDs</strong></td><td>Firebase auth UID (anonymous for volunteers, linked for admins)</td><td>App functionality</td><td>Required</td></tr>
+  <tr><td>Photos and videos → <strong>Photos</strong></td><td>Captured device photos uploaded to Firebase Storage</td><td>App functionality</td><td>Required</td></tr>
+</table>
+<p>Everything else (location, financial info, health/fitness, contacts, messages, web
+   history, app activity, crash logs, diagnostics, device identifiers for tracking):
+   <strong>No</strong> — none collected. (No Analytics/Crashlytics SDK is present.)</p>
+</details>
+
+<details>
+<summary>Content rating (IARC questionnaire)</summary>
 <ul>
-  <li><strong>Privacy policy URL</strong> — we already have one (<code>docs/privacy.html</code>); paste its hosted URL.</li>
-  <li><strong>Data safety</strong> form — what the app collects (camera images, anonymous auth id, device specs).</li>
-  <li><strong>Content rating</strong> questionnaire.</li>
-  <li><strong>Target audience</strong> + <strong>Ads</strong> declaration (no ads).</li>
+  <li>Category: <strong>Utility, Productivity, Communication, or Other</strong> (a tool/reference app)</li>
+  <li>Violence, sexual, profanity, controlled substances, gambling, user-generated public content: <strong>No</strong> to all</li>
+  <li>Does the app share the user's location with other users? <strong>No</strong></li>
+  <li>Expected result: rated <strong>Everyone / PEGI 3</strong></li>
 </ul>
 </details>
 
 <details>
-<summary>3. Add internal testers + share the opt-in link</summary>
-<p>Play Console → Testing → <strong>Internal testing</strong> → Testers → add a
-   list of emails (Delia + the dress-rehearsal crew). Play generates a
-   <strong>shareable opt-in link</strong> — no per-tester developer invite, the
-   TestFlight-equivalent "join" URL.</p>
+<summary>Target audience and content</summary>
+<ul>
+  <li>Target age group: <strong>18 and over</strong> only (it is a volunteer/clinical tool, not for children — selecting only 18+ avoids the Families policy obligations)</li>
+  <li>Appeal to children: <strong>No</strong></li>
+</ul>
 </details>
 
-<h2>What's now one command (after the grant)</h2>
-<p>Build a fresh signed AAB and push it to the internal track:</p>
+<details>
+<summary>App access (does any functionality need sign-in?)</summary>
+<p>The Android build is the <strong>scanner</strong>, which runs on <strong>anonymous auth</strong> —
+   a reviewer needs no credentials. Answer: <strong>"All functionality is available without
+   special access"</strong>. (Email/password sign-in is the web admin console, not shipped in the Android app.)</p>
+</details>
+
+<details>
+<summary>Ads</summary>
+<p>Does your app contain ads? <strong>No</strong>.</p>
+</details>
+
+<details>
+<summary>Other declarations</summary>
+<ul>
+  <li>News app: <strong>No</strong></li>
+  <li>COVID-19 contact tracing/status: <strong>No</strong></li>
+  <li>Government app: <strong>No</strong></li>
+  <li>Financial features: <strong>No</strong></li>
+  <li>Health apps declaration: see the judgment note below.</li>
+</ul>
+</details>
+
+<div class="judge">
+<h3>⚖ One judgment call for you: app category &amp; the "health" question</h3>
+<p>Recycled Sound catalogs <em>hearing aids</em>, so Play may surface a <strong>Health
+   apps</strong> declaration depending on the category you choose. My read: this is a
+   <strong>logistics / cataloguing / workflow tool</strong> for a donation program, not a
+   medical device, diagnostic, or health-records app — it stores no patient health data.
+   I'd pick category <strong>Productivity</strong> or <strong>Tools</strong> (defensible,
+   avoids extra health-compliance forms). Picking <strong>Medical</strong> is more literally
+   accurate but can trigger additional health declarations. Your call — flagging it rather
+   than silently choosing.</p>
+</div>
+
+<h3>Then: send for review</h3>
+<p>Once App content shows all green, open
+   <a href="https://play.google.com/console/u/0/developers/6377577278131876604/app/4975374344410944706/tracks/open-testing">
+   Testing → Open testing</a>. Build 56 is already staged there as a draft release —
+   open it, set countries/regions (Australia at minimum), then
+   <strong>Save → Review release → Start rollout / Send for review</strong>. Google's first
+   review can take a few days; when it clears, the app exits draft and the public opt-in
+   link goes live on that same Open testing page.</p>
+
+<h2>What's now one command (uploading future builds)</h2>
+<p>Build a fresh signed AAB and push it to a track:</p>
 <pre>cd recycled_sound &amp;&amp; flutter build appbundle --release
 cd .. &amp;&amp; python3 scripts/play_upload.py \
   --aab recycled_sound/build/app/outputs/bundle/release/app-release.aab \
   --track internal --status completed</pre>
-<p>Use <code>--status draft</code> for a dry run that stages without releasing.
+<p>Tracks: <code>internal</code> | <code>alpha</code> (closed) | <code>beta</code> (open) |
+   <code>production</code>. Use <code>--status draft</code> to stage without releasing.
    Auth resolves from <code>~/.claude/keys/recycled-sound-play-publisher.json</code>
    (override with <code>$RS_PLAY_SA_KEY</code>).</p>
 
@@ -83,13 +161,18 @@ cd .. &amp;&amp; python3 scripts/play_upload.py \
 <summary>Notes &amp; gotchas</summary>
 <ul>
   <li><strong>versionCode must increase every upload.</strong> Driven by pubspec
-      <code>version: x.y.z+N</code> (currently <code>0.5.0+8</code>). Bump <code>+N</code> before each new upload.</li>
+      <code>version: x.y.z+N</code> (currently <code>0.5.0+56</code>). Bump <code>+N</code> before each new upload.</li>
+  <li><strong>Draft-app rule:</strong> a brand-new app only accepts <code>status: draft</code>
+      releases on non-internal tracks until it exits draft (first review passes). That's why
+      build 56 is <em>staged</em> on open testing but not yet rolled out.</li>
   <li><strong>AAB is ~97 MB</strong> (bundled TFLite + ML Kit models). Play splits
       it per-device, so the actual download is much smaller.</li>
   <li><strong>Google Sign-In</strong> would need the upload-key SHA-1
-      (<code>7D:40:93:A9:…</code>) registered in Firebase — not needed today (anonymous auth).</li>
+      (<code>7D:40:93:A9:…</code>) registered in Firebase — not needed today (anonymous auth on Android).</li>
   <li><strong>Keystore is resettable</strong> under Play App Signing; losing the
       upload key is recoverable, unlike legacy signing.</li>
+  <li><strong>Default listing language is <code>en-GB</code></strong> — image/listing API
+      calls must target that language code, not <code>en-US</code>.</li>
 </ul>
 </details>
 </body>

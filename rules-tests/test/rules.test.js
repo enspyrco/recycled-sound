@@ -27,6 +27,12 @@ const PNG_1x1 = Buffer.from(
   'base64'
 );
 const IMG_META = { contentType: 'image/png' };
+const VIDEO_META = { contentType: 'video/mp4' };
+
+// A zeroed buffer of N MiB — used to exercise the size ceilings in the
+// captures rule. Content bytes don't matter to the rule (it gates on
+// `request.resource.size` + `contentType`), only the byte length does.
+const mib = (n) => Buffer.alloc(n * 1024 * 1024);
 
 let testEnv;
 
@@ -937,6 +943,60 @@ describe('Storage: captures/{uid}/**', () => {
   it('POSITIVE: an audiologist can read another user\'s capture (triage)', async () => {
     await seedStorage(aliceCapture);
     await assertSucceeds(getBytes(ref(asAudiologist().storage(), aliceCapture)));
+  });
+
+  // Video-sweep protocol: the in-app capture engine uploads a single
+  // `sweep_{ts}.mp4` clip alongside (or instead of) the legacy stills. The
+  // captures rule was widened to admit video/* up to 50 MB; these pin that the
+  // widening landed AND that it didn't loosen the image arm.
+  const aliceSweep = 'captures/alice/dev1/sweep_1718000000000.mp4';
+
+  it('POSITIVE: owner can upload a video sweep clip', async () => {
+    const aliceRef = ref(asAlice().storage(), aliceSweep);
+    await assertSucceeds(uploadBytes(aliceRef, PNG_1x1, VIDEO_META));
+  });
+
+  it('POSITIVE: a video clip over the 10 MB image cap but under 50 MB is allowed', async () => {
+    // The regression this guards: pre-widening, ANY video failed (image-only
+    // content-type) AND anything > 10 MB failed. An 11 MB video proves both —
+    // it rides the video arm's higher ceiling, not the image arm.
+    const aliceRef = ref(asAlice().storage(), aliceSweep);
+    await assertSucceeds(uploadBytes(aliceRef, mib(11), VIDEO_META));
+  });
+
+  it('NEGATIVE: an image over 10 MB is still rejected (image arm not loosened)', async () => {
+    // The video arm's 50 MB ceiling must not leak to images — an 11 MB still
+    // must still fail on the image arm's 10 MB cap.
+    const aliceRef = ref(asAlice().storage(), 'captures/alice/dev1/big.png');
+    await assertFails(uploadBytes(aliceRef, mib(11), IMG_META));
+  });
+
+  it('NEGATIVE: a non-media content-type is rejected', async () => {
+    const aliceRef = ref(asAlice().storage(), 'captures/alice/dev1/notes.txt');
+    await assertFails(
+      uploadBytes(aliceRef, Buffer.from('hi'), { contentType: 'text/plain' })
+    );
+  });
+
+  it('NEGATIVE: a different uid cannot upload a video into another user\'s captures', async () => {
+    const bobRef = ref(asBob().storage(), aliceSweep);
+    await assertFails(uploadBytes(bobRef, PNG_1x1, VIDEO_META));
+  });
+
+  // Extension ↔ content-type coupling: the `videos` field must stay disjoint
+  // from `photos`, so a video may ONLY live at a `.mp4` path and an image may
+  // NOT. These pin the gate that enforces the invariant on the wire.
+  it('NEGATIVE: a video at a photo (.jpg) path is rejected', async () => {
+    // Smuggling video/mp4 to captures/alice/dev1/0.jpg would land it in the
+    // photos array and 404 the image gallery — the rule must reject it.
+    const ref_ = ref(asAlice().storage(), 'captures/alice/dev1/0.jpg');
+    await assertFails(uploadBytes(ref_, PNG_1x1, VIDEO_META));
+  });
+
+  it('NEGATIVE: an image at a sweep (.mp4) path is rejected', async () => {
+    const ref_ =
+        ref(asAlice().storage(), 'captures/alice/dev1/sweep_123.mp4');
+    await assertFails(uploadBytes(ref_, PNG_1x1, IMG_META));
   });
 });
 

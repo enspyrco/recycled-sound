@@ -80,22 +80,22 @@ class HomeScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 20),
                     // ── Capture mode ─────────────────────────────────────
-                    // The complement: no live ID at all, just a guided set of
-                    // photos saved for an audiologist to read later. Naming the
+                    // The complement: no live ID at all, just a guided video
+                    // sweep saved for an audiologist to review later. Naming the
                     // absence of identification stops "couldn't even get the
                     // info, unlike scanning" from reading as a failure.
                     RsButton(
-                      label: 'Capture photos for later',
-                      icon: Icons.photo_camera_outlined,
+                      label: 'Record a capture sweep',
+                      icon: Icons.videocam_outlined,
                       variant: RsButtonVariant.outline,
                       onPressed: () => context.push('/capture'),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'A step-by-step photo guide. It does not identify the '
-                      'device — it just saves a clear set of photos for an '
-                      'audiologist to review later. Use this when scanning is '
-                      'hard or you just want a good photo record.',
+                      'A guided video sweep. It does not identify the device — '
+                      'it just records a short rotation of it for an audiologist '
+                      'to review later. Use this when scanning is hard or you '
+                      'just want a good visual record.',
                       style: AppTypography.caption
                           .copyWith(color: AppColors.textMuted),
                       textAlign: TextAlign.center,

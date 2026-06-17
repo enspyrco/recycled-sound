@@ -235,18 +235,90 @@ class IncomingDeviceRepository {
     }
   }
 
+  /// Create a new incoming device record from a single sweep-video clip.
+  ///
+  /// The in-app video-sweep protocol (the deployment-faithful successor to the
+  /// 6-still [CaptureSlot] sequence) records ONE ~10-15s rotation clip per
+  /// device. This uploads that clip to
+  /// `captures/{uid}/{deviceId}/sweep_{millisSinceEpoch}.mp4` and writes the
+  /// device doc with the resulting gs:// URI in the `videos` field (NOT
+  /// `photos` — a video must never reach the image-thumbnail gallery). Returns
+  /// the new document id.
+  ///
+  /// **Same path + atomicity contract as [createIncoming]** — see its doc for
+  /// why `captures/{uid}/…` is the canonical bucket (pure-uid rule, no
+  /// cross-service `firestore.get`). The clip uploads with an explicit
+  /// `video/mp4` content type so the widened captures Storage rule
+  /// (`video/.*` ≤ 50 MB) admits it; an `image/jpeg` type would be rejected by
+  /// that arm. If the upload or the Firestore write fails, the uploaded object
+  /// is deleted before the error propagates, so a partial failure leaves no
+  /// orphaned blob and no record.
+  ///
+  /// The filename carries a timestamp so a re-sweep of the same device never
+  /// overwrites an earlier clip (clips accumulate in `videos`).
+  Future<String> createIncomingVideo(
+    DraftDevice draft, {
+    required String localVideoPath,
+  }) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      throw StateError('Must be signed in to create an incoming device');
+    }
+
+    final ref = _col.doc();
+    final id = ref.id;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    final uploaded = <Reference>[];
+    try {
+      final storageRef = _storage.ref('captures/$uid/$id/sweep_$ts.mp4');
+      final videoUri = await _uploadFile(
+        storageRef,
+        localVideoPath,
+        'video/mp4',
+        uploaded,
+      );
+
+      final device = draft.toDevice(
+        id: id,
+        videos: [...draft.videos, videoUri],
+      );
+      await ref.set(device.toFirestore(createdBy: uid));
+      return id;
+    } catch (_) {
+      // Compensating cleanup — identical reasoning to [createIncoming]: a failed
+      // delete must not mask the original error, so each is caught individually.
+      await Future.wait(
+        uploaded.map((r) => r.delete().catchError((_) {})),
+      );
+      rethrow;
+    }
+  }
+
   /// Upload one local file (as image/jpeg) and record its [Reference] in
   /// [uploaded] (so a later failure can compensate by deleting it). Returns
-  /// the gs:// URI. The explicit `contentType` keeps the Storage rule's
-  /// `image/.*` predicate satisfied independent of file-extension inference.
+  /// the gs:// URI.
   Future<String> _uploadPhoto(
     Reference storageRef,
     String localPath,
     List<Reference> uploaded,
+  ) =>
+      _uploadFile(storageRef, localPath, 'image/jpeg', uploaded);
+
+  /// Upload one local file with an explicit [contentType] and record its
+  /// [Reference] in [uploaded] (so a later failure can compensate by deleting
+  /// it). Returns the gs:// URI. The explicit `contentType` keeps the Storage
+  /// rule's media predicate (`image/.*` or `video/.*`) satisfied independent of
+  /// file-extension inference.
+  Future<String> _uploadFile(
+    Reference storageRef,
+    String localPath,
+    String contentType,
+    List<Reference> uploaded,
   ) async {
     await storageRef.putFile(
       File(localPath),
-      SettableMetadata(contentType: 'image/jpeg'),
+      SettableMetadata(contentType: contentType),
     );
     uploaded.add(storageRef);
     return 'gs://${storageRef.bucket}/${storageRef.fullPath}';

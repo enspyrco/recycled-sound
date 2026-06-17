@@ -12,6 +12,7 @@ import '../data/incoming_device_repository.dart';
 import '../data/models/device.dart';
 import '../providers/device_providers.dart';
 import 'widgets/storage_image.dart';
+import 'widgets/sweep_video_list.dart';
 
 /// Back-affordance for the device-detail surface.
 ///
@@ -214,6 +215,12 @@ class _DetailViewState extends ConsumerState<_DetailView> {
               Text('Photos', style: AppTypography.h3),
               const SizedBox(height: 8),
               _PhotoGallery(deviceId: device.id, photos: device.photos),
+              const SizedBox(height: 20),
+            ],
+            if (device.videos.isNotEmpty) ...[
+              Text('Sweep videos', style: AppTypography.h3),
+              const SizedBox(height: 8),
+              SweepVideoList(videos: device.videos),
               const SizedBox(height: 20),
             ],
             Text('Identification', style: AppTypography.h3),

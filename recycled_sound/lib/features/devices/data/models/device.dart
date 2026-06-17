@@ -282,6 +282,7 @@ class DraftDevice {
     this.scanId = '',
     this.location = '',
     this.photos = const [],
+    this.videos = const [],
     this.needsInputFields = const [],
   });
 
@@ -338,6 +339,13 @@ class DraftDevice {
 
   final List<String> photos;
 
+  /// Sweep-video clips for this device (gs:// URIs), distinct from [photos].
+  /// The in-app video-sweep capture protocol records one ~10-15s rotation clip
+  /// per device; kept in its own field so a video URI never lands in [photos]
+  /// (which the gallery renders as image thumbnails). A list, not a single
+  /// URI, so re-sweeps accumulate rather than clobber.
+  final List<String> videos;
+
   /// The 7-field scan-model fields the volunteer flagged as undetermined, asking
   /// the audiologist to determine them (e.g. `[ClinicalField.tubing,
   /// ClinicalField.colour]`). A structured, *typed* handoff — not magic strings
@@ -345,9 +353,13 @@ class DraftDevice {
   final List<ClinicalField> needsInputFields;
 
   /// Promote this draft to a persisted [Device], pinning the Firestore-issued
-  /// [id]. Optionally overrides [photos] (used after photo upload resolves the
-  /// final gs:// URIs). This is the one-way DraftDevice→Device boundary.
-  Device toDevice({required String id, List<String>? photos}) => Device(
+  /// [id]. Optionally overrides [photos]/[videos] (used after upload resolves
+  /// the final gs:// URIs). This is the one-way DraftDevice→Device boundary.
+  Device toDevice({
+    required String id,
+    List<String>? photos,
+    List<String>? videos,
+  }) => Device(
     id: id,
     brand: brand,
     model: model,
@@ -380,6 +392,7 @@ class DraftDevice {
     scanId: scanId,
     location: location,
     photos: photos ?? this.photos,
+    videos: videos ?? this.videos,
     needsInputFields: needsInputFields,
   );
 }
@@ -423,6 +436,7 @@ class Device {
     this.scanId = '',
     this.location = '',
     this.photos = const [],
+    this.videos = const [],
     this.needsInputFields = const [],
     this.unrecognisedNeedsInput = const [],
     this.qaOverride,
@@ -480,6 +494,11 @@ class Device {
   final String location;
 
   final List<String> photos;
+
+  /// Sweep-video clips (gs:// URIs) from the in-app video-sweep capture
+  /// protocol, kept separate from [photos] so a video never reaches the
+  /// image-thumbnail gallery. See [DraftDevice.videos].
+  final List<String> videos;
 
   /// The 7-field scan-model fields the volunteer flagged as undetermined at
   /// scan-confirm time (the amber escape valve), persisted as a structured,
@@ -556,6 +575,7 @@ class Device {
       scanId: (d['scanId'] as String?) ?? '',
       location: (d['location'] as String?) ?? '',
       photos: ((d['photos'] as List?)?.cast<String>()) ?? const <String>[],
+      videos: ((d['videos'] as List?)?.cast<String>()) ?? const <String>[],
       needsInputFields: needsInput.known,
       unrecognisedNeedsInput: needsInput.unknown,
       qaOverride: QaOverride.fromFirestore(d['qaOverride']),
@@ -604,6 +624,7 @@ class Device {
     'scanId': scanId,
     'location': location,
     'photos': photos,
+    'videos': videos,
     // Typed keys + any retained unrecognised keys — so a tolerant read followed
     // by a write never silently destroys a blocker we couldn't interpret.
     'needsInputFields': [...needsInputFields.toWireList(), ...unrecognisedNeedsInput],

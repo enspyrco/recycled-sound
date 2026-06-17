@@ -12,22 +12,28 @@ import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
 import '../../devices/providers/device_providers.dart';
 import '../data/focus_control.dart';
-import 'capture_slot.dart';
-import 'widgets/capture_guide_hand.dart';
+import 'widgets/sweep_guide.dart';
 
-/// Guided photo-capture flow — a peer to the scanner (`/scan`).
+/// Guided video-sweep capture flow — a peer to the scanner (`/scan`).
 ///
-/// Steps the volunteer through [CaptureSlot.sequence], one shot per slot, then
-/// saves the set to a new device via
-/// [IncomingDeviceRepository.createIncoming], which uploads each local file
-/// atomically to `captures/{uid}/{deviceId}/{slot}.jpg`. The filename is
-/// the *slot identity*, not a position — so skipping a slot can never shift
-/// another slot's photo onto the wrong anatomical label.
+/// The volunteer records ONE slow ~10-15s rotation of the hearing aid in front
+/// of the camera while mirroring the [SweepGuide] turntable, then the clip is
+/// saved to a new device via [IncomingDeviceRepository.createIncomingVideo],
+/// which uploads it to `captures/{uid}/{deviceId}/sweep_{ts}.mp4`. This is the
+/// deployment-faithful successor to the legacy 6-still [CaptureSlot] sequence:
+/// the live scanner sees a continuous frame stream, so a rotating sweep matches
+/// what the scanner actually sees and is a superset of the stills (individual
+/// frames can be extracted offline with `ffmpeg -vf fps=2`). The [CaptureSlot]
+/// enum is retained as a legacy type for any still-based consumers; this screen
+/// no longer drives it.
 ///
 /// Camera lifecycle mirrors the scanner: a [WidgetsBindingObserver] tears the
 /// controller down on background and rebuilds on resume, so the camera never
-/// leaks. Unlike the scanner, there is no image stream — this flow only needs
-/// preview + [CameraController.takePicture].
+/// leaks. Unlike the scanner, there is no image stream — this flow drives
+/// preview + [CameraController.startVideoRecording]/`stopVideoRecording`, whose
+/// encoding is hardware-accelerated and off the UI thread. Backgrounding
+/// mid-sweep disposes the controller and abandons the in-progress clip (the
+/// recording resets on resume).
 class CaptureScreen extends ConsumerStatefulWidget {
   const CaptureScreen({super.key});
 
@@ -40,9 +46,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   CameraController? _controller;
   bool _cameraReady = false;
   String? _cameraError;
-  bool _isCapturing = false;
-  bool _saving = false;
+
+  /// True while a video sweep is actively recording (between
+  /// `startVideoRecording` and `stopVideoRecording`). Drives the [SweepGuide]
+  /// turntable + progress ring and the start/stop button state.
+  bool _recording = false;
+
+  /// True while the recorded clip is uploading + the device doc is being
+  /// written. Locks the UI so a second tap can't double-submit.
+  bool _uploading = false;
   bool _disposed = false;
+
+  /// How long one capture sweep runs — the [SweepGuide] progress ring fills
+  /// once over this, then auto-stops + uploads. ~12s gives several readable
+  /// passes of the sideways medial-face label.
+  static const Duration _sweepDuration = Duration(seconds: 12);
 
   /// Camera lifecycle uses TWO guards that answer different questions:
   ///
@@ -59,15 +77,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   /// only stops the stale result from being kept.
   int _initGen = 0;
   Future<void> _cameraOp = Future<void>.value();
-
-  /// Active slot the volunteer is shooting.
-  int _currentIndex = 0;
-
-  /// Captured local file paths, keyed by slot index. Sparse: a slot may be
-  /// skipped, so we key by index rather than using a list.
-  final Map<int, String> _captured = {};
-
-  CaptureSlot get _currentSlot => CaptureSlot.sequence[_currentIndex];
 
   @override
   void initState() {
@@ -224,6 +233,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     if (c == null) return;
     _controller = null;
     _cameraReady = false;
+    // Backgrounding mid-sweep abandons the in-progress clip — reset the flag so
+    // the UI shows "ready to record" (not a stuck recording state) on resume.
+    // Disposing a controller that is still recording is the plugin's concern;
+    // _safeDispose swallows any error it raises.
+    _recording = false;
     // Unmount CameraPreview BEFORE disposing the hardware, so the widget tree
     // never holds a disposed controller (an assertion crash on background).
     if (mounted) setState(() {});
@@ -241,83 +255,83 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     }
   }
 
-  Future<void> _capture() async {
+  /// Begin a video sweep. No-op unless the camera is ready and we're not
+  /// already recording or uploading. The [SweepGuide] (driven by [_recording])
+  /// starts demonstrating the rotation and fills its progress ring over
+  /// [_sweepDuration], at which point [_finishSweep] auto-fires.
+  Future<void> _startSweep() async {
     final controller = _controller;
-    if (_isCapturing || controller == null || !controller.value.isInitialized) {
+    if (_recording ||
+        _uploading ||
+        controller == null ||
+        !controller.value.isInitialized) {
       return;
     }
-    setState(() => _isCapturing = true);
+    // Claim the recording state SYNCHRONOUSLY, before the await, so a bouncy
+    // double-tap can't fire two concurrent startVideoRecording calls into the
+    // plugin (a CameraException). The second tap sees `_recording == true` (and
+    // the button has already flipped to Stop) and bails. If the hardware start
+    // throws, release the claim. The SweepGuide ring starts a few hundred ms
+    // before the hardware confirms — negligible against a ~12s sweep.
+    setState(() => _recording = true);
     try {
-      final xFile = await controller.takePicture();
+      await controller.startVideoRecording();
       if (!mounted || _disposed) return;
-      HapticFeedback.lightImpact();
-      setState(() {
-        _captured[_currentIndex] = xFile.path;
-        _currentIndex = _nextUnshotSlot();
-      });
+      HapticFeedback.mediumImpact();
     } catch (e) {
       if (mounted) {
+        setState(() => _recording = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Capture failed: $e'),
+            content: Text('Could not start recording: $e'),
             backgroundColor: AppColors.error,
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isCapturing = false);
     }
   }
 
-  void _selectSlot(int index) => setState(() => _currentIndex = index);
-
-  /// The next slot with no photo yet, scanning forward from the current slot
-  /// and wrapping. Returns the current index unchanged when every slot is shot,
-  /// so a full set leaves the user on the last-shot slot rather than jumping
-  /// back onto one already captured.
-  int _nextUnshotSlot() {
-    final n = CaptureSlot.sequence.length;
-    for (var step = 1; step <= n; step++) {
-      final i = (_currentIndex + step) % n;
-      if (_captured[i] == null) return i;
-    }
-    return _currentIndex;
-  }
-
-  void _retakeCurrent() => setState(() => _captured.remove(_currentIndex));
-
-  /// Captured local paths keyed by slot *identity* (the enum name), not
-  /// position. The storage filename is derived from this key, so a skipped
-  /// slot can never shift another slot's photo onto the wrong label.
-  Map<String, String> get _capturedBySlot => {
-        for (var i = 0; i < CaptureSlot.sequence.length; i++)
-          if (_captured[i] != null) CaptureSlot.sequence[i].name: _captured[i]!,
-      };
-
-  Future<void> _save() async {
-    final slotPhotos = _capturedBySlot;
-    if (slotPhotos.isEmpty || _saving) return;
-    setState(() => _saving = true);
+  /// Stop the recording and upload the clip. Fires from two paths: the
+  /// volunteer tapping Stop (a shorter-but-valid clip), or [SweepGuide]'s
+  /// `onComplete` when the ring fills. Guards re-entrancy: the second caller
+  /// sees `_recording == false` and bails, so the clip is never stopped twice.
+  Future<void> _finishSweep() async {
+    final controller = _controller;
+    if (!_recording || controller == null) return;
+    setState(() {
+      _recording = false;
+      _uploading = true;
+    });
 
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
 
-    // Capture has no scan result, so identification fields start blank; the
-    // record exists to hold the photos and gets its specs filled in later.
-    const draft = DraftDevice(brand: '', model: '');
-
     try {
-      final id = await repo.createIncoming(draft, namedPhotoPaths: slotPhotos);
+      final clip = await controller.stopVideoRecording();
+      HapticFeedback.lightImpact();
+
+      // Capture has no scan result, so identification fields start blank; the
+      // record exists to hold the sweep clip and gets its specs filled in later.
+      const draft = DraftDevice(brand: '', model: '');
+      final id =
+          await repo.createIncomingVideo(draft, localVideoPath: clip.path);
+
+      // If the volunteer tapped close (`context.go('/')`) while the upload was
+      // in flight, the screen is gone — the clip + doc still persisted (good),
+      // but we must NOT yank navigation back to the device or post a snackbar
+      // on a defunct messenger. Leaving mid-upload = continue silently.
+      if (!mounted || _disposed) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text('Saved ${slotPhotos.length} photos · $id'),
+        const SnackBar(
+          content: Text('Sweep saved'),
           backgroundColor: AppColors.success,
         ),
       );
       router.go('/devices/$id');
     } on FirebaseException catch (e) {
-      if (mounted) setState(() => _saving = false);
+      if (!mounted || _disposed) return;
+      setState(() => _uploading = false);
       messenger.showSnackBar(
         SnackBar(
           content: Text(PersistErrorKind.fromCode(e.code).userMessage),
@@ -325,7 +339,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         ),
       );
     } catch (_) {
-      if (mounted) setState(() => _saving = false);
+      if (!mounted || _disposed) return;
+      setState(() => _uploading = false);
       messenger.showSnackBar(
         SnackBar(
           content: Text(PersistErrorKind.unknown.userMessage),
@@ -350,16 +365,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   }
 
   Widget _buildCamera(BuildContext context) {
-    final capturedCount = _captured.length;
-    final total = CaptureSlot.sequence.length;
-    final hasCurrentShot = _captured[_currentIndex] != null;
-
     return Stack(
       fit: StackFit.expand,
       children: [
         Center(child: CameraPreview(_controller!)),
 
-        // Top bar: close + progress.
+        // Top bar: close + mode label.
         Positioned(
           top: 8,
           left: 8,
@@ -371,8 +382,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 onPressed: () => context.go('/'),
               ),
               const Spacer(),
-              // Mode reminder: this flow only collects photos, it does not try
-              // to read the device. Naming that here prevents the "no info,
+              // Mode reminder: this flow records a clip, it does not try to
+              // read the device live. Naming that here prevents the "no info,
               // unlike scanning" confusion from the entry point onward.
               Flexible(
                 child: Container(
@@ -383,234 +394,109 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'Photo capture · no live ID',
+                    'Video sweep · no live ID',
                     style:
                         AppTypography.caption.copyWith(color: Colors.white70),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$capturedCount / $total',
-                  style: AppTypography.body.copyWith(color: Colors.white),
-                ),
-              ),
             ],
           ),
         ),
 
-        // Slot guidance — the cartoony hand coaches the orientation, the text
-        // names the shot.
-        Positioned(
-          top: 64,
-          left: 16,
-          right: 16,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CaptureGuideHand(slot: _currentSlot),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // "Photo N of M" so the volunteer always knows where they
-                    // are in the set — concrete progress, not just a fraction.
-                    Text(
-                      'Photo ${_currentIndex + 1} of $total · ${_currentSlot.title}',
-                      style: AppTypography.label.copyWith(color: Colors.white60),
-                    ),
-                    const SizedBox(height: 2),
-                    // What to shoot — the action, in plain language.
-                    Text(
-                      _currentSlot.hint,
-                      style: AppTypography.h4.copyWith(color: Colors.white),
-                    ),
-                    const SizedBox(height: 6),
-                    // Why it matters — keeps the step from feeling arbitrary to
-                    // a non-expert (recognition over recall).
-                    Text(
-                      'Why: ${_currentSlot.why}',
-                      style:
-                          AppTypography.caption.copyWith(color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+        // Centre guidance: the 3D turntable demonstrates the rotation to mirror
+        // and the ring shows sweep progress while recording. Purely cosmetic —
+        // it never blocks or throws into the capture pipeline.
+        Center(
+          child: SweepGuide(
+            running: _recording,
+            sweepDuration: _sweepDuration,
+            onComplete: _finishSweep,
           ),
         ),
 
-        // Bottom controls: thumbnail strip + capture/retake + save.
+        // Bottom control: Start → Stop → uploading spinner.
         Positioned(
-          bottom: 16,
+          bottom: 32,
           left: 0,
           right: 0,
-          child: Column(
-            children: [
-              _SlotStrip(
-                captured: _captured,
-                currentIndex: _currentIndex,
-                onSelect: _selectSlot,
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Retake (only when current slot already has a shot).
-                  SizedBox(
-                    width: 72,
-                    child: hasCurrentShot
-                        ? TextButton(
-                            onPressed: _retakeCurrent,
-                            child: const Text(
-                              'Retake',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                  _ShutterButton(
-                    busy: _isCapturing,
-                    onTap: _capture,
-                  ),
-                  // Save (enabled once at least one photo exists).
-                  SizedBox(
-                    width: 72,
-                    child: capturedCount > 0
-                        ? TextButton(
-                            onPressed: _saving ? null : _save,
-                            child: _saving
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'Save',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ),
-            ],
-          ),
+          child: Center(child: _buildSweepControl()),
         ),
       ],
     );
   }
-}
 
-/// Horizontal strip of slot chips — captured slots show a check, the active
-/// slot is ringed. Tapping jumps to that slot (to re-shoot or fill a skip).
-class _SlotStrip extends StatelessWidget {
-  const _SlotStrip({
-    required this.captured,
-    required this.currentIndex,
-    required this.onSelect,
-  });
+  /// The single primary action, whose shape tracks the capture state:
+  ///   * uploading → a labelled spinner (UI locked until navigation),
+  ///   * recording → a red Stop button (ends the sweep early but valid),
+  ///   * idle      → a Start button that begins the sweep.
+  Widget _buildSweepControl() {
+    if (_uploading) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Saving sweep…',
+            style: AppTypography.caption.copyWith(color: Colors.white70),
+          ),
+        ],
+      );
+    }
 
-  final Map<int, String> captured;
-  final int currentIndex;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 64,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: CaptureSlot.sequence.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final slot = CaptureSlot.sequence[i];
-          final shot = captured[i];
-          final active = i == currentIndex;
-          return GestureDetector(
-            onTap: () => onSelect(i),
-            child: Container(
-              width: 56,
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: active ? AppColors.accent : Colors.white24,
-                  width: active ? 2 : 1,
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    shot != null ? Icons.check_circle : Icons.circle_outlined,
-                    color: shot != null ? AppColors.success : Colors.white54,
-                    size: 20,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    slot.title,
-                    style: AppTypography.caption.copyWith(
-                      color: Colors.white,
-                      fontSize: 9,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+    final recording = _recording;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          key: const Key('sweep-record-button'),
+          onTap: recording ? _finishSweep : _startSweep,
+          child: Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(
+                color: recording ? AppColors.error : AppColors.accent,
+                width: 5,
               ),
             ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _ShutterButton extends StatelessWidget {
-  const _ShutterButton({required this.busy, required this.onTap});
-
-  final bool busy;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: busy ? null : onTap,
-      child: Container(
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white,
-          border: Border.all(color: AppColors.accent, width: 4),
+            child: Center(
+              child: recording
+                  // A rounded square = the universal "stop recording" glyph.
+                  ? Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: AppColors.error,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    )
+                  // A filled dot = the universal "start recording" glyph.
+                  : Container(
+                      width: 34,
+                      height: 34,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.error,
+                      ),
+                    ),
+            ),
+          ),
         ),
-        child: busy
-            ? const Padding(
-                padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: AppColors.accent,
-                ),
-              )
-            : const Icon(Icons.camera_alt, color: AppColors.accent, size: 32),
-      ),
+        const SizedBox(height: 8),
+        Text(
+          recording ? 'Tap to finish' : 'Tap to record the sweep',
+          style: AppTypography.caption.copyWith(color: Colors.white70),
+        ),
+      ],
     );
   }
 }

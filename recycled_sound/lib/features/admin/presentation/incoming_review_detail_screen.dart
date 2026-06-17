@@ -11,6 +11,7 @@ import '../../../core/widgets/rs_spec_row.dart';
 import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
 import '../../devices/presentation/widgets/storage_image.dart';
+import '../../devices/presentation/widgets/sweep_video_list.dart';
 import '../../devices/providers/device_providers.dart';
 import '../../scanner/data/models/scan_result.dart' show kUnknownValue;
 
@@ -382,6 +383,17 @@ class _ReviewBodyState extends ConsumerState<_ReviewBody> {
                 Text('Photos', style: AppTypography.h3),
                 const SizedBox(height: 8),
                 _PhotoGallery(photos: d.photos),
+                const SizedBox(height: 20),
+              ],
+
+              // ── Sweep videos ───────────────────────────────────────
+              // The video-sweep capture protocol stores clips in `videos`, not
+              // `photos` — surface them here so a sweep-only capture isn't an
+              // empty record the audiologist can't review.
+              if (d.videos.isNotEmpty) ...[
+                Text('Sweep videos', style: AppTypography.h3),
+                const SizedBox(height: 8),
+                SweepVideoList(videos: d.videos),
                 const SizedBox(height: 20),
               ],
 

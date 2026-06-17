@@ -454,9 +454,28 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   }
 
   Future<void> _stopCamera() async {
-    await _cameraController?.dispose();
+    // Null the controller synchronously FIRST so any in-flight _onCameraFrame
+    // bails (it dereferences _cameraController) before we touch the hardware.
+    final controller = _cameraController;
     _cameraController = null;
     _cameraReady = false;
+    if (controller == null) return;
+    // Stop the image stream BEFORE disposing — disposing a controller that's
+    // still streaming throws a CameraException (which surfaced as a red error
+    // flash on the way to the confirm screen). Both steps are best-effort:
+    // a teardown error must never escape and paint a red screen.
+    try {
+      if (controller.value.isStreamingImages) {
+        await controller.stopImageStream();
+      }
+    } catch (_) {
+      // already stopped / transitioning — nothing actionable.
+    }
+    try {
+      await controller.dispose();
+    } catch (_) {
+      // best-effort hardware release.
+    }
   }
 
   // ── Frame processing ──────────────────────────────────────────────────
@@ -1596,27 +1615,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     // AVCaptureSession is fully torn down.
     await _stopCamera();
     if (!mounted) return;
-    context.go('/scan/results', extra: scanId);
-  }
-
-  Future<void> _takePhoto() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
-    try {
-      await _cameraController!.stopImageStream();
-      final xFile = await _cameraController!.takePicture();
-      if (mounted) {
-        // go() (not push()) so this screen leaves the stack and the camera
-        // disposes — a push()ed scanner keeps _processFrame alive underneath
-        // the confirmation screen and starves its UI thread (issue #70).
-        context.go('/scan/analysing', extra: xFile.path);
-      }
-    } catch (e) {
-      if (mounted && _cameraController != null) {
-        _cameraController!.startImageStream(_onCameraFrame);
-      }
-    }
+    // Straight to the confirm screen (brand/model + colour swatches + style/
+    // tubing chips + box field) — the on-device pipeline already identified the
+    // device, so skip BOTH the old cloud analyse screen AND the legacy results
+    // screen. ConfirmationScreen reads the ScanResult we just set above.
+    context.go('/scan/confirm');
   }
 
   Future<void> _pickFromGallery() async {
@@ -1627,7 +1630,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       imageQuality: 80,
     );
     if (image != null && mounted) {
-      // go() for the same camera-disposal reason as _takePhoto (issue #70).
+      // go() (not push()) so the scanner leaves the stack and the camera
+      // disposes — a push()ed scanner keeps _processFrame alive underneath the
+      // next screen and starves its UI thread (issue #70). A picked still has
+      // no live on-device detection, so it's the one path that still uses the
+      // cloud analyse pipeline.
       context.go('/scan/analysing', extra: image.path);
     }
   }
@@ -2009,7 +2016,13 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                                 color: AppColors.white, size: 28),
                           ),
                           GestureDetector(
-                            onTap: _takePhoto,
+                            // Proceed with what the on-device pipeline already
+                            // detected (OCR + neural net + DeviceIndex) — go
+                            // straight to review, NOT the old cloud analyse
+                            // screen. The live scanner has already identified
+                            // the device; there's nothing to upload-and-wait
+                            // for. (Removes the "analysing your phone" detour.)
+                            onTap: _captureAndReview,
                             child: Container(
                               width: 64,
                               height: 64,

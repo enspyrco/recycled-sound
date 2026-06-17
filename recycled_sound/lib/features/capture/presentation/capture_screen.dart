@@ -67,6 +67,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   /// skipped, so we key by index rather than using a list.
   final Map<int, String> _captured = {};
 
+  /// The physical box/bag label this device lives in (e.g. `B07`, `C10`) — the
+  /// only handle that ties this photo set back to the register device. Without
+  /// it a capture is an orphaned pile of photos, so [_save] requires it.
+  /// Stored uppercased/trimmed to match how the scan-confirm flow persists it.
+  String _location = '';
+
   CaptureSlot get _currentSlot => CaptureSlot.sequence[_currentIndex];
 
   @override
@@ -294,18 +300,58 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
           if (_captured[i] != null) CaptureSlot.sequence[i].name: _captured[i]!,
       };
 
+  /// Prompt for the box/bag label in a small dialog. A modal dialog (rather
+  /// than an inline `TextField` floating over the camera preview) sidesteps the
+  /// keyboard-over-preview layout fights and works identically on every device.
+  /// Auto-capitalised and uppercased on accept so `b07` lands as `B07`.
+  ///
+  /// The dialog ([_BoxNumberDialog]) owns its own `TextEditingController` and
+  /// disposes it in *its* `State.dispose` — NOT here. Disposing right after
+  /// `await showDialog` returns is too early: the future completes when the
+  /// route is popped, but the `TextField` still rebuilds during the exit
+  /// animation and would touch a disposed controller (a real crash).
+  Future<void> _editBoxNumber() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => _BoxNumberDialog(initial: _location),
+    );
+    if (result != null && mounted) {
+      setState(() => _location = result.trim().toUpperCase());
+    }
+  }
+
   Future<void> _save() async {
     final slotPhotos = _capturedBySlot;
     if (slotPhotos.isEmpty || _saving) return;
-    setState(() => _saving = true);
 
+    // Resolve context-bound handles up front — `_editBoxNumber` awaits below,
+    // so any `of(context)` lookup after it would cross an async gap.
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
 
+    // The box number is the link from this photo set back to the physical
+    // device in the register — saving without it orphans the capture. Prompt
+    // for it, and bail (with a clear nudge) if the volunteer still skips it.
+    if (_location.isEmpty) {
+      await _editBoxNumber();
+      if (_location.isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Enter the box / bag number before saving'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+    }
+
+    setState(() => _saving = true);
+
     // Capture has no scan result, so identification fields start blank; the
-    // record exists to hold the photos and gets its specs filled in later.
-    const draft = DraftDevice(brand: '', model: '');
+    // record exists to hold the photos (tied to its physical bag via
+    // [_location]) and gets its specs filled in later by the audiologist.
+    final draft = DraftDevice(brand: '', model: '', location: _location);
 
     try {
       final id = await repo.createIncoming(draft, namedPhotoPaths: slotPhotos);
@@ -359,88 +405,100 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       children: [
         Center(child: CameraPreview(_controller!)),
 
-        // Top bar: close + progress.
+        // Top region: close + progress, the box-number bar, then slot
+        // guidance — stacked in one Column so they never overlap.
         Positioned(
           top: 8,
           left: 8,
           right: 8,
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => context.go('/'),
-              ),
-              const Spacer(),
-              // Mode reminder: this flow only collects photos, it does not try
-              // to read the device. Naming that here prevents the "no info,
-              // unlike scanning" confusion from the entry point onward.
-              Flexible(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'Photo capture · no live ID',
-                    style:
-                        AppTypography.caption.copyWith(color: Colors.white70),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '$capturedCount / $total',
-                  style: AppTypography.body.copyWith(color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Slot guidance — the cartoony hand coaches the orientation, the text
-        // names the shot.
-        Positioned(
-          top: 64,
-          left: 16,
-          right: 16,
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CaptureGuideHand(slot: _currentSlot),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => context.go('/'),
+                  ),
+                  const Spacer(),
+                  // Mode reminder: this flow only collects photos, it does not
+                  // try to read the device. Naming that here prevents the "no
+                  // info, unlike scanning" confusion from the entry point on.
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'Photo capture · no live ID',
+                        style: AppTypography.caption
+                            .copyWith(color: Colors.white70),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '$capturedCount / $total',
+                      style: AppTypography.body.copyWith(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Box-number bar — the device's identity in the register. Amber
+              // and prompting while unset, solid once entered. Tappable to edit.
+              _BoxNumberBar(value: _location, onTap: _editBoxNumber),
+              const SizedBox(height: 12),
+
+              // Slot guidance — the cartoony hand coaches the orientation, the
+              // text names the shot.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // "Photo N of M" so the volunteer always knows where they
-                    // are in the set — concrete progress, not just a fraction.
-                    Text(
-                      'Photo ${_currentIndex + 1} of $total · ${_currentSlot.title}',
-                      style: AppTypography.label.copyWith(color: Colors.white60),
-                    ),
-                    const SizedBox(height: 2),
-                    // What to shoot — the action, in plain language.
-                    Text(
-                      _currentSlot.hint,
-                      style: AppTypography.h4.copyWith(color: Colors.white),
-                    ),
-                    const SizedBox(height: 6),
-                    // Why it matters — keeps the step from feeling arbitrary to
-                    // a non-expert (recognition over recall).
-                    Text(
-                      'Why: ${_currentSlot.why}',
-                      style:
-                          AppTypography.caption.copyWith(color: Colors.white70),
+                    CaptureGuideHand(slot: _currentSlot),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // "Photo N of M" so the volunteer always knows where
+                          // they are in the set — concrete, not just a fraction.
+                          Text(
+                            'Photo ${_currentIndex + 1} of $total · ${_currentSlot.title}',
+                            style: AppTypography.label
+                                .copyWith(color: Colors.white60),
+                          ),
+                          const SizedBox(height: 2),
+                          // What to shoot — the action, in plain language.
+                          Text(
+                            _currentSlot.hint,
+                            style:
+                                AppTypography.h4.copyWith(color: Colors.white),
+                          ),
+                          const SizedBox(height: 6),
+                          // Why it matters — keeps the step from feeling
+                          // arbitrary to a non-expert (recognition over recall).
+                          Text(
+                            'Why: ${_currentSlot.why}',
+                            style: AppTypography.caption
+                                .copyWith(color: Colors.white70),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -513,6 +571,109 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Modal for entering the box/bag label. A `StatefulWidget` so it owns its
+/// `TextEditingController` and disposes it in `State.dispose` — which runs only
+/// after the route is fully gone, avoiding the use-after-dispose that disposing
+/// in the caller (right after `await showDialog`) causes during the exit anim.
+class _BoxNumberDialog extends StatefulWidget {
+  const _BoxNumberDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_BoxNumberDialog> createState() => _BoxNumberDialogState();
+}
+
+class _BoxNumberDialogState extends State<_BoxNumberDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Box / bag number'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.characters,
+        decoration: const InputDecoration(
+          hintText: 'e.g. B07, C10',
+          helperText: 'The label on this device’s bag',
+        ),
+        onSubmitted: (v) => Navigator.of(context).pop(v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('OK'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The box/bag-label bar at the top of the capture flow. Unset, it glows amber
+/// and reads as a call to action ("Tap to set box number"); set, it goes solid
+/// and shows the label. Either way it's tappable to edit. This is the device's
+/// identity in the register, so it earns persistent, prominent screen space.
+class _BoxNumberBar extends StatelessWidget {
+  const _BoxNumberBar({required this.value, required this.onTap});
+
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSet = value.isNotEmpty;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSet ? Colors.black54 : AppColors.warning.withValues(alpha: 0.22),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSet ? Colors.white24 : AppColors.warning,
+            width: isSet ? 1 : 2,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSet ? Icons.inventory_2 : Icons.label_important_outline,
+              color: isSet ? Colors.white : AppColors.warning,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                isSet ? 'Box $value' : 'Tap to set box / bag number',
+                style: AppTypography.body.copyWith(
+                  color: Colors.white,
+                  fontWeight: isSet ? FontWeight.bold : FontWeight.normal,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(Icons.edit, color: Colors.white54, size: 16),
+          ],
+        ),
+      ),
     );
   }
 }

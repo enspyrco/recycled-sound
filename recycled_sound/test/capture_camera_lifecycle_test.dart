@@ -156,6 +156,33 @@ void main() {
     expect(fake.liveControllerCount, 1,
         reason: 'the queue self-heals: a thrown dispose does not freeze it');
   }, skip: !fontReady);
+
+  // The box/bag number is the only handle that ties a capture's photo set back
+  // to its physical device in the register — it MUST be enterable in this flow.
+  // (Before this it lived only in the scan-confirm screen, so photo-day captures
+  // saved with an empty location and orphaned the photos.) This pins the entry
+  // UI contract; the save-gate that blocks an empty box is verified on-device.
+  testWidgets(
+      'box-number bar prompts when unset and shows the label once entered',
+      (tester) async {
+    await pumpCapture(tester);
+    await settle(tester); // camera ready, live UI painted
+
+    // Unset: the bar reads as a call to action.
+    expect(find.text('Tap to set box / bag number'), findsOneWidget);
+
+    // Open the dialog, type a lowercase label, accept.
+    await tester.tap(find.text('Tap to set box / bag number'));
+    await tester.pumpAndSettle();
+    expect(find.text('Box / bag number'), findsOneWidget); // dialog title
+    await tester.enterText(find.byType(TextField), 'b07');
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    // Input is trimmed + uppercased and shown on the now-solid bar.
+    expect(find.text('Box B07'), findsOneWidget);
+    expect(find.text('Tap to set box / bag number'), findsNothing);
+  }, skip: !fontReady);
 }
 
 /// A controllable fake [CameraPlatform] that tracks created/disposed controller

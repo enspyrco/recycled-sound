@@ -106,15 +106,16 @@ class _CaptureGuideHandState extends State<CaptureGuideHand>
     if (_precached) return;
     _precached = true;
     // Warm every transition + rest still once, so no play-through flickers.
+    // onError swallows a missing/undecodable frame (and the empty test asset
+    // bundle) — the build-side Image.asset errorBuilder is the real fallback;
+    // precache must never surface an uncaught exception.
+    void warm(String asset) =>
+        precacheImage(AssetImage(asset), context, onError: (_, _) {});
     for (final s in CaptureSlot.values) {
-      precacheImage(AssetImage(CaptureGuideHand.restAsset(s)), context);
+      warm(CaptureGuideHand.restAsset(s));
       final t = CaptureGuideHand.transitionFor(
           s, CaptureSlot.values[(s.index + 1) % CaptureSlot.values.length]);
-      if (t != null) {
-        for (final a in t) {
-          precacheImage(AssetImage(a), context);
-        }
-      }
+      if (t != null) t.forEach(warm);
     }
   }
 

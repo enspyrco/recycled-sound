@@ -426,9 +426,15 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         _camera!,
         ResolutionPreset.high,
         enableAudio: false,
+        // iOS: BGRA8888 (what ML Kit's iOS converter accepts). Android: NV21,
+        // NOT yuv420 — ML Kit's Android InputImageConverter only supports NV21/
+        // YV12, and YUV_420_888 throws "ImageFormat is not supported" on every
+        // frame (the on-device OCR silently produced 0 blocks on the Pixel
+        // because all prior testing was on iOS). NV21 is a single interleaved
+        // plane ML Kit reads directly.
         imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
             ? ImageFormatGroup.bgra8888
-            : ImageFormatGroup.yuv420,
+            : ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
@@ -1633,8 +1639,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       // go() (not push()) so the scanner leaves the stack and the camera
       // disposes — a push()ed scanner keeps _processFrame alive underneath the
       // next screen and starves its UI thread (issue #70). A picked still has
-      // no live on-device detection, so it's the one path that still uses the
-      // cloud analyse pipeline.
+      // no live on-device detection, so it's the one path still using the
+      // analyse pipeline.
       context.go('/scan/analysing', extra: image.path);
     }
   }
@@ -2016,12 +2022,9 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                                 color: AppColors.white, size: 28),
                           ),
                           GestureDetector(
-                            // Proceed with what the on-device pipeline already
-                            // detected (OCR + neural net + DeviceIndex) — go
-                            // straight to review, NOT the old cloud analyse
-                            // screen. The live scanner has already identified
-                            // the device; there's nothing to upload-and-wait
-                            // for. (Removes the "analysing your phone" detour.)
+                            // Straight to confirm with the live on-device
+                            // detection — NO analysing screen. (Detection
+                            // reliability is being diagnosed separately.)
                             onTap: _captureAndReview,
                             child: Container(
                               width: 64,

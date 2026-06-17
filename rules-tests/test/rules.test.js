@@ -337,6 +337,94 @@ describe('Firestore: devices/', () => {
       );
     });
 
+  // Clean-write override hygiene (Carnot, PR #92 set-cover 3rd-pass scope note;
+  // claude-tasks #821). The flagged path requires a self-attributed, covering
+  // override — but the clean (noBlockers) arm used to admit ANY qaOverride, so a
+  // direct write could plant a forged/foreign override on a clean doc and
+  // pollute an "every device an override touched" audit.
+  it('NEGATIVE: a clean device cannot carry a someone-else qaOverride on create',
+    async () => {
+      await assertFails(
+        setDoc(doc(asAudiologist().firestore(), 'devices/cleanovr1'), {
+          ...CLEAN_DEVICE,
+          qaOverride: { overriddenBy: 'someone-else', fields: [] },
+        })
+      );
+    });
+
+  it('NEGATIVE: cannot update a clean device to add a someone-else qaOverride',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/cleanovr2'), { ...CLEAN_DEVICE }));
+      // Stays clean (no blockers), but plants a foreign-attributed override.
+      await assertFails(
+        updateDoc(doc(asAudiologist().firestore(), 'devices/cleanovr2'), {
+          qaOverride: { overriddenBy: 'someone-else', fields: [] },
+        })
+      );
+    });
+
+  it('POSITIVE: a clean device may carry a SELF-attributed qaOverride', async () => {
+    // The spec is "absent OR self-attributed" — a self-attributed override on a
+    // clean doc names the caller and so cannot falsely implicate anyone; allowed.
+    await assertSucceeds(
+      setDoc(doc(asAudiologist().firestore(), 'devices/cleanovr3'), {
+        ...CLEAN_DEVICE,
+        qaOverride: { overriddenBy: 'aud1', fields: [] },
+      })
+    );
+  });
+
+  // Don't FREEZE a clean doc that legitimately carries an override (Kelvin +
+  // Carnot, PR #98 cage-match): a DIFFERENT elevated user must still be able to
+  // edit servicing/status as long as the override rides along UNCHANGED — the
+  // same `overrideUnchanged()` escape the flagged path already grants.
+  it('POSITIVE: a different elevated user can edit a clean device carrying an '
+    + 'UNCHANGED override from its promoter', async () => {
+      await seed((db) => setDoc(doc(db, 'devices/cleanovr4'), {
+        ...CLEAN_DEVICE,
+        qaOverride: { overriddenBy: 'aud1', fields: [] },
+      }));
+      // admin1 ≠ aud1, but the override is untouched — must be allowed.
+      await assertSucceeds(
+        updateDoc(doc(asAdmin().firestore(), 'devices/cleanovr4'), {
+          servicingNotes: 'Cleaned',
+        })
+      );
+    });
+
+  it('POSITIVE: resolving a flagged device to clean while RETAINING the '
+    + 'original (unchanged) override is allowed', async () => {
+      await seed((db) => setDoc(doc(db, 'devices/cleanovr5'), {
+        ...CLEAN_DEVICE,
+        brand: 'Unknown',
+        needsInputFields: ['brand'],
+        qaOverride: { overriddenBy: 'aud1', fields: ['brand'] },
+      }));
+      // A different elevated user fixes brand → flag set empties (noBlockers),
+      // override unchanged → the historical audit survives the clean transition.
+      await assertSucceeds(
+        updateDoc(doc(asAdmin().firestore(), 'devices/cleanovr5'), {
+          brand: 'Oticon',
+          needsInputFields: [],
+        })
+      );
+    });
+
+  it('NEGATIVE: a clean update may not MUTATE the override to a foreign one',
+    async () => {
+      await seed((db) => setDoc(doc(db, 'devices/cleanovr6'), {
+        ...CLEAN_DEVICE,
+        qaOverride: { overriddenBy: 'aud1', fields: [] },
+      }));
+      // Rewriting the override to name someone else on a clean doc — not
+      // unchanged, not self-attributed by the caller → rejected.
+      await assertFails(
+        updateDoc(doc(asAdmin().firestore(), 'devices/cleanovr6'), {
+          qaOverride: { overriddenBy: 'someone-else', fields: [] },
+        })
+      );
+    });
+
   // #783: identity fields (brand/model/type/batterySize) are now editable on the
   // review screen, so a flagged IDENTITY field can be RESOLVED by correcting its
   // value (the flag drops out of needsInputFields) — not only overridden. The

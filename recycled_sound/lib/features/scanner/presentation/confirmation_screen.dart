@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../devices/data/incoming_device_repository.dart';
+import '../../devices/data/models/device.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -40,6 +41,9 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   late final AnimationController _pulseController;
   late final AnimationController _completionController;
   bool _completionFired = false;
+  // Reentrancy guard for the async "Add to Register" persist — the button is
+  // only enabled when complete, but a double-tap could still fire two writes.
+  bool _persisting = false;
 
   @override
   void initState() {
@@ -249,6 +253,8 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   }
 
   Future<void> _confirmAndPersist(ScanResult result) async {
+    if (_persisting) return;
+    _persisting = true;
     HapticFeedback.mediumImpact();
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
@@ -259,47 +265,58 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     // Box was entered up front in the box-first home modal (the single source
     // for the box number); read it straight through to the created device.
     final box = ref.read(scanBoxProvider).trim().toUpperCase();
-    // Colour is confirmed ONLY here, on the confirm screen. Carry it into the
-    // capture flow so the created device's colour matches what was just
-    // confirmed (capture has no colour picker of its own).
-    final colour = result.colour?.value ?? '';
 
-    // Capture-all-uniformly: every confirmed scan goes on to shoot a full photo
-    // set — training data wants many sets per model, not one, so we NEVER skip.
-    // The scanner's job here is auto-IDENTIFICATION; the capture flow creates
-    // the device with the photos, seeded with the identity + box below. We
-    // surface coverage ("set #N of this model") so the day's distribution is
-    // visible, but it never gates the shoot — a count failure is non-fatal.
-    var existing = 0;
-    try {
-      existing = await repo.countReferenceSetsFor(brand, model);
-    } catch (_) {
-      // Coverage is cosmetic — proceed to capture regardless.
-    }
-    if (!mounted) return;
-
+    // Persist the volunteer's field corrections to the scan doc (training
+    // signal) before creating the device.
     await _submitCorrections(result);
     if (!mounted) return;
 
-    ref.read(captureSeedProvider.notifier).state = CaptureSeed(
+    // Identify-only: confirming ADDS the device to the register with the
+    // scanned identity and the confirmed 7 fields, but NO photos. Photos are a
+    // separate, optional step the volunteer takes via the home "Capture photos
+    // for later" button — the scanner is an identification tool, not a
+    // photo-capture flow (it no longer chains into /capture). Clinical-value
+    // strings are parsed through the tolerant `fromWire` enums, which map the
+    // `Unknown` sentinel + blanks to `unspecified`; the genuine "needs input"
+    // signal rides on `needsInputFields`, not the value (see
+    // feedback_provenance_not_value).
+    final draft = DraftDevice(
       brand: brand,
       model: model,
-      box: box,
-      colour: colour,
+      type: Style.fromWire(result.type.value),
+      tubing: Tubing.fromWire(result.tubing?.value),
+      powerSource: PowerSource.fromWire(result.powerSource?.value),
+      batterySize: BatterySize.fromWire(result.batterySize.value),
+      colour: result.colour?.value ?? '',
+      location: box,
+      scanId: result.scanId,
       needsInputFields: result.volunteerUnknownFields,
     );
+
     final label = [brand, model].where((s) => s.isNotEmpty).join(' ');
+    try {
+      await repo.createIncoming(draft);
+    } catch (_) {
+      if (!mounted) return;
+      _persisting = false;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not add to register — please try again'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          label.isEmpty
-              ? 'Let\'s photograph this device'
-              : 'Set #${existing + 1} of $label — let\'s get photos',
+          label.isEmpty ? 'Added to register' : '$label added to register',
         ),
         backgroundColor: AppColors.accent,
       ),
     );
-    router.go('/capture');
+    router.go('/');
   }
 
   /// Battery size field — null if empty (triggers amber pulse).

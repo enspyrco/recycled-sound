@@ -1,7 +1,15 @@
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
+import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
+import 'package:recycled_sound/features/capture/providers/capture_seed.dart';
+import 'package:recycled_sound/features/devices/data/incoming_device_repository.dart';
+import 'package:recycled_sound/features/devices/data/models/device.dart';
+import 'package:recycled_sound/features/devices/providers/device_providers.dart';
 import 'package:recycled_sound/features/scanner/data/models/scan_result.dart';
 import 'package:recycled_sound/features/scanner/presentation/confirmation_screen.dart';
 import 'package:recycled_sound/features/scanner/providers/scanner_providers.dart';
@@ -87,4 +95,114 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 2));
   });
+
+  // #25 / Option B: the scanner is an identification tool, not a photo-capture
+  // flow. Confirming a complete scan ADDS an identity-only device to the
+  // register (the 7 confirmed fields + box, NO photos) and returns home — it no
+  // longer chains into /capture. Photos are a separate step via the home
+  // "Capture photos for later" button.
+  testWidgets('Add to Register creates an identity-only device (no photos) and '
+      'routes home', (tester) async {
+    final repo = _RecordingRepo();
+    final container = ProviderContainer(overrides: [
+      incomingDeviceRepositoryProvider.overrideWithValue(repo),
+      scanBoxProvider.overrideWith((ref) => 'B07'),
+    ]);
+    addTearDown(container.dispose);
+    // A fully-resolved 7-field result so the "Add to Register" button enables
+    // (isComplete) and every clinical value parses to a real enum.
+    container.read(scanResultProvider.notifier).setResult(
+          ScanResult.mock().copyWith(
+            brand: const SpecField(value: 'Oticon', confidence: 95),
+            model: const SpecField(value: 'More 1', confidence: 92),
+            type: const SpecField(value: 'BTE', confidence: 90),
+            tubing: const SpecField(value: 'Slim', confidence: 88),
+            powerSource: const SpecField(value: 'Battery', confidence: 88),
+            batterySize: const SpecField(value: '312', confidence: 88),
+            colour: const SpecField(value: 'Black', confidence: 88),
+          ),
+        );
+
+    final router = GoRouter(
+      initialLocation: '/scan/confirm',
+      routes: [
+        GoRoute(
+          path: '/scan/confirm',
+          builder: (_, _) => const ConfirmationScreen(),
+        ),
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Scaffold(body: Text('HOME')),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Add to Register'));
+    await tester.pump(); // run the async persist
+    await tester.pump(const Duration(milliseconds: 600)); // route transition
+
+    expect(repo.createCalls, 1, reason: 'confirming persists exactly one device');
+    final draft = repo.lastDraft!;
+    expect(draft.brand, 'Oticon');
+    expect(draft.model, 'More 1');
+    expect(draft.type, Style.bte);
+    expect(draft.tubing, Tubing.slim);
+    expect(draft.powerSource, PowerSource.battery);
+    expect(draft.batterySize, BatterySize.size312);
+    expect(draft.colour, 'Black');
+    expect(draft.location, 'B07',
+        reason: 'the box-first box number lands as the device location');
+    expect(draft.needsInputFields, isEmpty,
+        reason: 'every field was resolved, so nothing is flagged');
+    expect(repo.lastLocalPaths, isEmpty);
+    expect(repo.lastNamedPaths, isEmpty,
+        reason: 'identity-only: the scan path uploads NO photos');
+    expect(find.text('HOME'), findsOneWidget,
+        reason: 'after adding to the register the scanner returns home, '
+            'NOT into the capture flow');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
+}
+
+/// Records what [createIncoming] was called with instead of touching Firebase.
+/// Subclasses the real repo only to satisfy the provider's type — the mock
+/// Firebase handles passed to `super` are never used (createIncoming is fully
+/// overridden).
+class _RecordingRepo extends IncomingDeviceRepository {
+  _RecordingRepo()
+      : super(
+          firestore: FakeFirebaseFirestore(),
+          storage: MockFirebaseStorage(),
+          auth: MockFirebaseAuth(
+            signedIn: true,
+            mockUser: MockUser(uid: 'u-1'),
+          ),
+        );
+
+  int createCalls = 0;
+  DraftDevice? lastDraft;
+  List<String>? lastLocalPaths;
+  Map<String, String>? lastNamedPaths;
+
+  @override
+  Future<String> createIncoming(
+    DraftDevice draft, {
+    List<String> localPhotoPaths = const [],
+    Map<String, String> namedPhotoPaths = const {},
+    void Function(String key, int bytesTransferred, int totalBytes)? onProgress,
+  }) async {
+    createCalls++;
+    lastDraft = draft;
+    lastLocalPaths = localPhotoPaths;
+    lastNamedPaths = namedPhotoPaths;
+    return 'dev-1';
+  }
 }

@@ -43,3 +43,8 @@ data/spike_real_box/
 data/spike_dts/
 data/yolov8s-worldv2.pt
 data/yolov8s-world.pt
+data/spike_sam3/
+data/spike_sam3_lo/
+data/spike_sam3_lo2/
+data/spike_reticle/
+data/spike_sam2b/

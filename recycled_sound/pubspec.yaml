@@ -48,6 +48,8 @@ dev_dependencies:
   # CameraPlatform (the seam the production code drives through).
   camera_platform_interface: ^2.12.0
   plugin_platform_interface: ^2.1.8
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.8
 
 flutter:
   uses-material-design: true
@@ -65,3 +67,28 @@ flutter:
     - assets/custom_words.json
     - assets/capture_guide/
     - assets/capture_guide/aid_turntable/
+    - assets/capture_guide/anim/
+
+# Generates the real launcher icon (replaces the default Flutter blue-F that
+# the Android-12 splash falls back to) from the brand mark. Run:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icon/app_icon_1024.png"
+  adaptive_icon_background: "#277358"
+  adaptive_icon_foreground: "assets/icon/app_icon_1024.png"
+
+# Branded launch screen: forest-green background + the brand mark, instead of
+# the default white screen. Run:
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#277358"
+  # White brand mark on transparent — shows against the green background.
+  # (The full app_icon is a green tile, invisible on a green splash.)
+  image: assets/icon/splash_mark.png
+  android_12:
+    image: assets/icon/splash_mark.png
+    color: "#277358"
+    icon_background_color: "#277358"

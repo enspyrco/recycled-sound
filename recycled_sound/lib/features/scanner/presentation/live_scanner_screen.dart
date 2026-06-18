@@ -176,7 +176,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
   // ── Live scan status (shown to user while waiting) ─────────────────
   String _scanStatus = '';
-  Timer? _periodicCaptureTimer;
 
   // ── Graduated hint suppression ──────────────────────────────────────
   int _totalScans = 0;
@@ -262,7 +261,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     WidgetsBinding.instance.removeObserver(this);
     _hintTimer?.cancel();
     _crossRefTimer?.cancel();
-    _periodicCaptureTimer?.cancel();
     _elapsedTicker?.cancel();
     _mlkitDebugImage?.dispose();
     _pulseController.dispose();
@@ -301,7 +299,6 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   void _tryTransitionToScanning() {
     if (_bootComplete && _cameraReady && _phase == _ScanPhase.booting) {
       setState(() => _phase = _ScanPhase.scanning);
-      _startPeriodicCaptures();
       _startElapsedTicker();
     }
   }
@@ -324,74 +321,13 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     });
   }
 
-  /// Take periodic snapshots while scanning so the user sees activity
-  /// in the thumbnail dock. Stops once brand is detected.
-  void _startPeriodicCaptures() {
-    _periodicCaptureTimer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) {
-        if (_disposed || !mounted) {
-          _periodicCaptureTimer?.cancel();
-          return;
-        }
-        // Stop once brand is found — detection snapshots take over
-        if (_detectedBrand != null) {
-          _periodicCaptureTimer?.cancel();
-          return;
-        }
-        _takePeriodicSnapshot();
-      },
-    );
-  }
-
-  /// Grab a quick snapshot for the thumbnail dock without pausing the stream.
-  ///
-  /// PROFILING NOTE: this method stops the image stream, calls takePicture()
-  /// (which can take 200-1500ms on iOS while the camera reconfigures for a
-  /// full-res capture), then restarts the stream. Every period of this is
-  /// frames OCR doesn't see. The pauseMs log line measures the wallclock
-  /// hole — feeds the detection-throughput-sacred analysis.
-  Future<void> _takePeriodicSnapshot() async {
-    if (_isCapturing || _cameraController == null) return;
-    if (!_cameraController!.value.isInitialized) return;
-    _isCapturing = true;
-
-    final Stopwatch? pauseWatch =
-        kDebugMode ? (Stopwatch()..start()) : null;
-    try {
-      await _cameraController!.stopImageStream();
-      final xFile = await _cameraController!.takePicture();
-
-      if (!mounted || _disposed) return;
-
-      setState(() {
-        _dockedThumbnails.add(DockThumbnail(
-          id: 'scan_${DateTime.now().millisecondsSinceEpoch}',
-          imagePath: xFile.path,
-          label: _ocrHasSeenText ? 'Text found' : 'Scanning',
-        ));
-      });
-
-      // Resume stream
-      if (mounted && _cameraController != null) {
-        await _cameraController!.startImageStream(_onCameraFrame);
-      }
-    } catch (e) {
-      _log('periodic snapshot error: $e');
-      // Try to resume stream
-      if (mounted && _cameraController != null) {
-        try {
-          await _cameraController!.startImageStream(_onCameraFrame);
-        } catch (_) {}
-      }
-    } finally {
-      _isCapturing = false;
-      if (pauseWatch != null) {
-        _log('PROFILE periodic-snapshot pauseMs=${pauseWatch.elapsedMilliseconds} '
-            '(stream blocked → frames lost during this window)');
-      }
-    }
-  }
+  // Periodic 3s "scanning activity" snapshots were removed: they did
+  // stopImageStream → takePicture → startImageStream every 3s, which on Android
+  // repeatedly unbinds/rebinds the camerax ImageAnalysis use-case and wedges the
+  // camera (observed on a Pixel 4 2026-06-18: stream died ~13s in, right as a
+  // detection snapshot piled onto the periodic churn). They were purely
+  // cosmetic (thumbnail-dock activity); detection snapshots still populate the
+  // dock. See `feedback_detection_throughput_sacred`.
 
   // ── Camera setup ──────────────────────────────────────────────────────
 
@@ -426,9 +362,15 @@ class _LiveScanScreenState extends State<LiveScanScreen>
         _camera!,
         ResolutionPreset.high,
         enableAudio: false,
+        // iOS: BGRA8888 (what ML Kit's iOS converter accepts). Android: NV21,
+        // NOT yuv420 — ML Kit's Android InputImageConverter only supports NV21/
+        // YV12, and YUV_420_888 throws "ImageFormat is not supported" on every
+        // frame (the on-device OCR silently produced 0 blocks on the Pixel
+        // because all prior testing was on iOS). NV21 is a single interleaved
+        // plane ML Kit reads directly.
         imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
             ? ImageFormatGroup.bgra8888
-            : ImageFormatGroup.yuv420,
+            : ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
@@ -454,9 +396,28 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   }
 
   Future<void> _stopCamera() async {
-    await _cameraController?.dispose();
+    // Null the controller synchronously FIRST so any in-flight _onCameraFrame
+    // bails (it dereferences _cameraController) before we touch the hardware.
+    final controller = _cameraController;
     _cameraController = null;
     _cameraReady = false;
+    if (controller == null) return;
+    // Stop the image stream BEFORE disposing — disposing a controller that's
+    // still streaming throws a CameraException (which surfaced as a red error
+    // flash on the way to the confirm screen). Both steps are best-effort:
+    // a teardown error must never escape and paint a red screen.
+    try {
+      if (controller.value.isStreamingImages) {
+        await controller.stopImageStream();
+      }
+    } catch (_) {
+      // already stopped / transitioning — nothing actionable.
+    }
+    try {
+      await controller.dispose();
+    } catch (_) {
+      // best-effort hardware release.
+    }
   }
 
   // ── Frame processing ──────────────────────────────────────────────────
@@ -972,7 +933,16 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
   /// Capture a still frame and upload it in the background.
   /// Camera stream pauses briefly (~200ms) then resumes.
+  ///
+  /// iOS-only: this stops and restarts the image stream to take a full-res
+  /// still. On Android that unbinds/rebinds the camerax ImageAnalysis use-case
+  /// and can wedge the camera (the same failure mode that retired the periodic
+  /// snapshots above), so Android skips it — the scan result is built from OCR
+  /// tokens, not these snapshots, and the live bounding-box overlay is
+  /// unaffected. Re-enabling on Android needs a no-stop path (grab the snapshot
+  /// from the live stream frame instead of takePicture). See task #16.
   Future<void> _captureSnapshot(String field, String label, Rect bbox) async {
+    if (!Platform.isIOS) return;
     if (_isCapturing || _cameraController == null) return;
     // Only snapshot once per field — prevents spam when OCR flips
     // between model candidates on successive frames.
@@ -1325,6 +1295,15 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   /// 2. ML Kit OCR → brand/model from text on the device (if readable)
   /// Neural net result is primary; OCR can override or add model info.
   Future<void> _autoCapturForOcr() async {
+    // iOS-only, same reason as `_captureSnapshot`: this stops and restarts the
+    // image stream to grab a full-res still for the neural-net classifier, and
+    // on Android that unbinds/rebinds the camerax use-case and risks wedging the
+    // camera. On Android the 5s colour-gate-timeout fallback (which only fires
+    // there, since colour confirmation is iOS-gated) would otherwise trigger one
+    // such stop per scan. Android detection runs on live-stream OCR frames (the
+    // strongest signal anyway), so skipping the neural-net snapshot costs no
+    // detection. Re-enable via the no-stop stream-frame path in task #20.
+    if (!Platform.isIOS) return;
     if (_ocrCaptureInProgress || _cameraController == null) return;
     _ocrCaptureInProgress = true;
 
@@ -1596,27 +1575,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     // AVCaptureSession is fully torn down.
     await _stopCamera();
     if (!mounted) return;
-    context.go('/scan/results', extra: scanId);
-  }
-
-  Future<void> _takePhoto() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
-    try {
-      await _cameraController!.stopImageStream();
-      final xFile = await _cameraController!.takePicture();
-      if (mounted) {
-        // go() (not push()) so this screen leaves the stack and the camera
-        // disposes — a push()ed scanner keeps _processFrame alive underneath
-        // the confirmation screen and starves its UI thread (issue #70).
-        context.go('/scan/analysing', extra: xFile.path);
-      }
-    } catch (e) {
-      if (mounted && _cameraController != null) {
-        _cameraController!.startImageStream(_onCameraFrame);
-      }
-    }
+    // Straight to the confirm screen (brand/model + colour swatches + style/
+    // tubing chips + box field) — the on-device pipeline already identified the
+    // device, so skip BOTH the old cloud analyse screen AND the legacy results
+    // screen. ConfirmationScreen reads the ScanResult we just set above.
+    context.go('/scan/confirm');
   }
 
   Future<void> _pickFromGallery() async {
@@ -1627,7 +1590,11 @@ class _LiveScanScreenState extends State<LiveScanScreen>
       imageQuality: 80,
     );
     if (image != null && mounted) {
-      // go() for the same camera-disposal reason as _takePhoto (issue #70).
+      // go() (not push()) so the scanner leaves the stack and the camera
+      // disposes — a push()ed scanner keeps _processFrame alive underneath the
+      // next screen and starves its UI thread (issue #70). A picked still has
+      // no live on-device detection, so it's the one path still using the
+      // analyse pipeline.
       context.go('/scan/analysing', extra: image.path);
     }
   }
@@ -2009,7 +1976,10 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                                 color: AppColors.white, size: 28),
                           ),
                           GestureDetector(
-                            onTap: _takePhoto,
+                            // Straight to confirm with the live on-device
+                            // detection — NO analysing screen. (Detection
+                            // reliability is being diagnosed separately.)
+                            onTap: _captureAndReview,
                             child: Container(
                               width: 64,
                               height: 64,

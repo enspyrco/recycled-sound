@@ -1,6 +1,5 @@
 // Excluded from coverage: large stateful form depending on Firestore writes + colour pickers
 // coverage:ignore-file
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,7 +10,7 @@ import '../../devices/data/incoming_device_repository.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/providers/firebase_providers.dart';
-import '../../devices/data/models/device.dart';
+import '../../capture/providers/capture_seed.dart';
 import '../../devices/providers/device_providers.dart';
 import '../data/brand_colour_palettes.dart';
 import '../data/colour_classifier.dart';
@@ -234,96 +233,65 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   /// `photos[]` rather than re-uploading. Intake photos captured via the
   /// device-intake flow land in the durable `captures/{uid}/{deviceId}/` bucket
   /// (see [IncomingDeviceRepository.createIncoming]).
+  /// Submit scan corrections (training telemetry). Guarded so a failed write
+  /// can never strand the volunteer — lost corrections are recoverable from the
+  /// scan doc later; the volunteer's flow is not.
+  Future<void> _submitCorrections(ScanResult result) async {
+    try {
+      final corrections = ref.read(scanResultProvider.notifier).corrections;
+      final scanner = ref.read(scannerRepositoryProvider);
+      final profile = ref.read(currentUserProfileProvider).value;
+      final userRole = profile?.role.wire ?? 'volunteer';
+      await scanner.submitCorrections(
+        scanId: result.scanId,
+        corrections: corrections,
+        userId: ref.read(firebaseAuthProvider).currentUser?.uid ?? '',
+        userRole: userRole,
+      );
+    } catch (_) {
+      // Lost corrections are recoverable from the scan doc later.
+    }
+  }
+
   Future<void> _confirmAndPersist(ScanResult result) async {
     HapticFeedback.mediumImpact();
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     final repo = ref.read(incomingDeviceRepositoryProvider);
 
-    // A confirmed scan has no persisted identity yet — it's a DraftDevice.
-    // Firestore allocates the id inside createIncoming, where the draft is
-    // promoted to a Device and `createdBy` is pinned for the rules layer.
-    final draft = DraftDevice(
-      brand: result.brand.value,
-      model: result.model.value,
-      // Style (clinical field 3) and batterySize (field 6) are closed-set enums
-      // at the model boundary (#15). The scanner works in catalog STRING space
-      // (fuzzy OCR/CLIP against catalog strings like 'BTE'), so parse into the
-      // typed enums here; an untouched field or the volunteer's 'Unknown' flag
-      // resolves to `unspecified` (the "needs input" signal rides on
-      // needsInputFields below, not on the value).
-      type: Style.fromWire(result.type.value),
-      year: result.year.value,
-      batterySize: BatterySize.fromWire(result.batterySize.value),
-      // Clinical fields 4/5/7 — previously dropped at persist (issue #751).
-      // ScanResult holds these as optional String SpecFields; parse into the
-      // typed enums at this boundary (#15). An untouched field or the volunteer's
-      // 'Unknown' provenance flag both resolve to `unspecified` — the "needs
-      // input" signal rides on needsInputFields below, not on the value.
-      tubing: Tubing.fromWire(result.tubing?.value),
-      powerSource: PowerSource.fromWire(result.powerSource?.value),
-      colour: result.colour?.value ?? '',
-      domeType: result.domeType.value,
-      waxFilter: result.waxFilter.value,
-      receiver: result.receiver.value,
-      scanId: result.scanId,
-      // Physical storage location (issue #766) — trimmed + uppercased so
-      // `b07` and ` B07 ` both persist as `B07`. Empty when left blank.
-      location: _locationController.text.trim().toUpperCase(),
-      photos: [if (result.imageUrl.isNotEmpty) result.imageUrl],
-      // The volunteer→audiologist handoff: which fields the human deliberately
-      // flagged undetermined. Persisted as a structured set so the register's
-      // "NEEDS INPUT" flag is driven by intent, not by string-matching the
-      // AI pipeline's own 'Unknown' default.
-      needsInputFields: result.volunteerUnknownFields,
-    );
+    final brand = result.brand.value;
+    final model = result.model.value;
+    final box = _locationController.text.trim().toUpperCase();
 
+    // Capture-all-uniformly: every confirmed scan goes on to shoot a full photo
+    // set — training data wants many sets per model, not one, so we NEVER skip.
+    // The scanner's job here is auto-IDENTIFICATION; the capture flow creates
+    // the device with the photos, seeded with the identity + box below. We
+    // surface coverage ("set #N of this model") so the day's distribution is
+    // visible, but it never gates the shoot — a count failure is non-fatal.
+    var existing = 0;
     try {
-      final id = await repo.createIncoming(draft);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Added to register · $id'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-      // Corrections are training telemetry — guarded separately so a failed
-      // corrections write can never strand the volunteer on this screen
-      // after the device was already created (re-tapping Add to Register
-      // would duplicate it).
-      try {
-        final corrections = ref.read(scanResultProvider.notifier).corrections;
-        final scanner = ref.read(scannerRepositoryProvider);
-        final profile = ref.read(currentUserProfileProvider).value;
-        final userRole = profile?.role.wire ?? 'volunteer';
-        await scanner.submitCorrections(
-          scanId: result.scanId,
-          corrections: corrections,
-          userId: ref.read(firebaseAuthProvider).currentUser?.uid ?? '',
-          userRole: userRole,
-        );
-      } catch (_) {
-        // Lost corrections are recoverable from the scan doc later; the
-        // volunteer's flow is not.
-      }
-
-      router.go('/devices');
-    } on FirebaseException catch (e) {
-      // Discriminate by code so volunteers get actionable copy instead of a
-      // raw exception string.
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(PersistErrorKind.fromCode(e.code).userMessage),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      existing = await repo.countReferenceSetsFor(brand, model);
     } catch (_) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(PersistErrorKind.unknown.userMessage),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      // Coverage is cosmetic — proceed to capture regardless.
     }
+    if (!mounted) return;
+
+    await _submitCorrections(result);
+    if (!mounted) return;
+
+    ref.read(captureSeedProvider.notifier).state =
+        CaptureSeed(brand: brand, model: model, box: box);
+    final label = [brand, model].where((s) => s.isNotEmpty).join(' ');
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(label.isEmpty
+            ? 'Let\'s photograph this device'
+            : 'Set #${existing + 1} of $label — let\'s get photos'),
+        backgroundColor: AppColors.accent,
+      ),
+    );
+    router.go('/capture');
   }
 
   /// Battery size field — null if empty (triggers amber pulse).

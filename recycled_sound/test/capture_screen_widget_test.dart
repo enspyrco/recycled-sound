@@ -49,16 +49,17 @@ void main() {
     // The live camera UI is up (no spinner blocking the body).
     expect(find.byType(CameraPreview), findsOneWidget);
 
-    // The slot strip renders one tappable chip per slot — and the chip shows
-    // the slot's short title. The active (first) slot's title also appears in
-    // the large guidance header, so every slot title is present at least once.
+    // The step strip renders a chip per step (each orientation appears for the
+    // LEFT aid and the RIGHT aid), and the chip shows the slot's short title.
+    // The active (first) slot's title also appears in the large guidance
+    // header, so every slot title is present at least once.
     for (final slot in CaptureSlot.sequence) {
       expect(find.text(slot.title), findsWidgets,
           reason: 'slot "${slot.name}" should render its title');
     }
 
-    // Progress counter starts at 0 / total.
-    expect(find.text('0 / ${CaptureSlot.sequence.length}'), findsOneWidget);
+    // Progress counter starts at 0 / total (14 = 7 orientations × 2 aids).
+    expect(find.text('0 / ${CaptureSlot.pairSequence.length}'), findsOneWidget);
   });
 }
 

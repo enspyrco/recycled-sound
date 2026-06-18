@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:recycled_sound/features/capture/presentation/capture_screen.dart';
+import 'package:recycled_sound/features/capture/presentation/capture_slot.dart';
 
 import 'support/google_fonts_test_asset.dart';
 
@@ -163,25 +164,56 @@ void main() {
   // saved with an empty location and orphaned the photos.) This pins the entry
   // UI contract; the save-gate that blocks an empty box is verified on-device.
   testWidgets(
-      'box-number bar prompts when unset and shows the label once entered',
+      'details bar prompts when unset and shows a summary once entered',
       (tester) async {
     await pumpCapture(tester);
     await settle(tester); // camera ready, live UI painted
 
     // Unset: the bar reads as a call to action.
-    expect(find.text('Tap to set box / bag number'), findsOneWidget);
+    expect(find.text('Tap to add box number (required)'),
+        findsOneWidget);
 
-    // Open the dialog, type a lowercase label, accept.
-    await tester.tap(find.text('Tap to set box / bag number'));
+    // Open the dialog, type a lowercase box label into the first field, accept.
+    await tester.tap(
+        find.text('Tap to add box number (required)'));
     await tester.pumpAndSettle();
-    expect(find.text('Box / bag number'), findsOneWidget); // dialog title
-    await tester.enterText(find.byType(TextField), 'b07');
+    expect(find.text('Device details'), findsOneWidget); // dialog title
+    await tester.enterText(find.byType(TextField).first, 'b07');
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
 
-    // Input is trimmed + uppercased and shown on the now-solid bar.
+    // Box input is trimmed + uppercased and summarised on the now-solid bar.
     expect(find.text('Box B07'), findsOneWidget);
-    expect(find.text('Tap to set box / bag number'), findsNothing);
+    expect(find.text('Tap to add box number (required)'),
+        findsNothing);
+  }, skip: !fontReady);
+
+  // The flow models a PAIR: 14 steps = 7 orientations of the LEFT aid, then 7
+  // of the RIGHT. This is the structural invariant the whole redesign rests on.
+  test('pairSequence is left×7 then right×7, 14 steps', () {
+    expect(CaptureSlot.pairSequence.length, 14);
+    expect(CaptureSlot.pairSequence.first.side, AidSide.left);
+    expect(CaptureSlot.pairSequence[6].side, AidSide.left);
+    expect(CaptureSlot.pairSequence[7].side, AidSide.right);
+    expect(CaptureSlot.pairSequence.last.side, AidSide.right);
+    // Each side runs the same 7 orientations in the same order.
+    expect(
+      CaptureSlot.pairSequence.sublist(0, 7).map((s) => s.slot).toList(),
+      CaptureSlot.sequence,
+    );
+    expect(
+      CaptureSlot.pairSequence.sublist(7).map((s) => s.slot).toList(),
+      CaptureSlot.sequence,
+    );
+  });
+
+  // The volunteer starts on the LEFT aid at photo 1 of 14.
+  testWidgets('capture flow opens on the LEFT aid, photo 1 of 14',
+      (tester) async {
+    await pumpCapture(tester);
+    await settle(tester);
+    expect(find.text('LEFT AID'), findsOneWidget);
+    expect(find.textContaining('Photo 1 of 14'), findsOneWidget);
   }, skip: !fontReady);
 }
 

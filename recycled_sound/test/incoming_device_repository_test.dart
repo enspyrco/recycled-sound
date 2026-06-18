@@ -153,6 +153,35 @@ void main() {
     );
   });
 
+  group('countReferenceSetsFor', () {
+    test('returns 0 when brand or model is blank (unidentified device)',
+        () async {
+      await repo.createIncoming(
+          const DraftDevice(brand: 'Phonak', model: 'P90', photos: ['gs://a']));
+      expect(await repo.countReferenceSetsFor('', 'P90'), 0);
+      expect(await repo.countReferenceSetsFor('Phonak', ''), 0);
+    });
+
+    test('counts case-insensitively and ONLY records that have photos',
+        () async {
+      // Photographed set → counts.
+      await repo.createIncoming(
+          const DraftDevice(brand: 'Phonak', model: 'P90', photos: ['gs://a']));
+      // Same model, no photos (logged but not yet shot) → does NOT count.
+      await repo.createIncoming(const DraftDevice(brand: 'Phonak', model: 'P90'));
+      expect(await repo.countReferenceSetsFor('phonak', 'p90'), 1);
+    });
+
+    test('counts across both the incoming queue and the curated register',
+        () async {
+      await repo.createIncoming(
+          const DraftDevice(brand: 'Phonak', model: 'P90', photos: ['gs://a']));
+      await firestore.collection('devices').add(
+          {'brand': 'Phonak', 'model': 'P90', 'photos': ['gs://b']});
+      expect(await repo.countReferenceSetsFor('Phonak', 'P90'), 2);
+    });
+  });
+
   group('createIncoming', () {
     test('writes doc with brand+model and stamps createdBy', () async {
       const draft = DraftDevice(brand: 'Phonak', model: 'P90');

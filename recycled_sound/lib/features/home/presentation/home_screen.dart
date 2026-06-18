@@ -248,6 +248,12 @@ class _BoxEntryDialogState extends State<_BoxEntryDialog> {
               if (v.trim().isNotEmpty) Navigator.of(context).pop(v);
             },
             decoration: const InputDecoration(
+              // Override the app's light InputDecorationTheme (filled white) —
+              // this field lives in a dark dialog, so a white fill would render
+              // the white input text invisible (white-on-white). Dark fill keeps
+              // it legible and consistent with the scanner/confirm dark surface.
+              filled: true,
+              fillColor: Color(0xFF222222),
               labelText: 'Box number',
               labelStyle: TextStyle(color: muted),
               hintText: 'e.g. B07, C10',

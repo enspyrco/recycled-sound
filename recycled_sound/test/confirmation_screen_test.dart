@@ -65,11 +65,12 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 100));
 
-    // The Unknown (help) button inside the MODEL row.
+    // The amber "Unknown" pill inside the MODEL row (replaced the old help-icon
+    // button — same handoff, now styled like the chip sections).
     final modelRow =
         find.ancestor(of: find.text('MODEL'), matching: find.byType(Row)).first;
-    final modelUnknown = find.descendant(
-        of: modelRow, matching: find.byIcon(Icons.help_outline));
+    final modelUnknown =
+        find.descendant(of: modelRow, matching: find.text(kUnknownValue));
     expect(modelUnknown, findsOneWidget);
 
     await tester.tap(modelUnknown);

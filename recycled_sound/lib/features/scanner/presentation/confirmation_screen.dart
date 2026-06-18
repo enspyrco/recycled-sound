@@ -501,6 +501,10 @@ class _AiTextFieldState extends State<_AiTextField> {
                 cursorColor: AppColors.success,
                 decoration: const InputDecoration(
                   isDense: true,
+                  // Transparent — the app's light InputDecorationTheme fills
+                  // white by default, which would paint a white box (and white-
+                  // on-white text) over this dark field container.
+                  filled: false,
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.symmetric(vertical: 4),
                 ),
@@ -513,10 +517,19 @@ class _AiTextFieldState extends State<_AiTextField> {
               onTap: _save,
             ),
           ] else ...[
+            // The value (or the "tap to enter" placeholder) IS the edit
+            // affordance — tapping anywhere on it opens the text field. No
+            // separate "+"/pencil button: the obvious target should be the one
+            // that works. `opaque` so the whole row width is tappable, including
+            // the empty space the placeholder doesn't fill.
             Expanded(
-              child: Text(
-                hasFill ? widget.field.value : '— tap to enter —',
-                style: _valueStyle(hasFill),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _editing = true),
+                child: Text(
+                  hasFill ? widget.field.value : '— tap to enter —',
+                  style: _valueStyle(hasFill),
+                ),
               ),
             ),
             if (hasFill) _ConfidenceBadge(confidence: confidence),
@@ -526,24 +539,16 @@ class _AiTextFieldState extends State<_AiTextField> {
             // it for the audiologist rather than guessing. Saving routes through
             // `updateField`, which stamps [FieldSource.human], so it reads as a
             // deliberate handoff (`isVolunteerUnknown`), not an AI read failure
-            // that shares the string. Hidden once the field already reads Unknown.
-            if (widget.field.value != kUnknownValue) ...[
-              _ActionButton(
-                icon: Icons.help_outline,
-                color: _amberColor,
-                tooltip: 'Mark Unknown — the audiologist will determine it',
+            // that shares the string. Same amber "Unknown" pill as the chip
+            // sections (Style/Tubing/Battery), for one consistent gesture across
+            // the whole form. Hidden once the field already reads Unknown.
+            if (widget.field.value != kUnknownValue)
+              _UnknownChip(
                 onTap: () {
                   HapticFeedback.lightImpact();
                   widget.onSave(kUnknownValue);
                 },
               ),
-              const SizedBox(width: 4),
-            ],
-            _ActionButton(
-              icon: hasFill ? Icons.edit_outlined : Icons.add,
-              color: hasFill ? const Color(0xFF666666) : _amberColor,
-              onTap: () => setState(() => _editing = true),
-            ),
           ],
         ],
       ),
@@ -554,6 +559,40 @@ class _AiTextFieldState extends State<_AiTextField> {
 // ═══════════════════════════════════════════════════════════════════════════
 // Chip Selector Field — for Style, Tubing, Power, Battery Size
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// The amber "Unknown" pill, styled to match the unselected-Unknown chip in
+/// [_ChipSelectorField] so the free-text fields (Make/Model) flag-as-Unknown
+/// with the exact same gesture and look as the constrained fields. It's an
+/// action, not a toggle — once tapped the field reads "Unknown" and the caller
+/// hides the chip — so it only ever renders in this one (unselected) state.
+class _UnknownChip extends StatelessWidget {
+  const _UnknownChip({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF222222),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: AppColors.warning.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Text(
+          kUnknownValue,
+          style: AppTypography.monoValue.copyWith(
+            color: AppColors.warning.withValues(alpha: 0.8),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _ChipSelectorField extends StatelessWidget {
   const _ChipSelectorField({
@@ -1103,17 +1142,15 @@ class _ActionButton extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onTap,
-    this.tooltip,
   });
 
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    final button = GestureDetector(
+    return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 32,
@@ -1125,7 +1162,6 @@ class _ActionButton extends StatelessWidget {
         child: Icon(icon, size: 16, color: color),
       ),
     );
-    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
   }
 }
 

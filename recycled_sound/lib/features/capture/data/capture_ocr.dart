@@ -67,8 +67,11 @@ class CaptureOcr {
 
       // Shadow A/B: log what each engine would have found on its own, so a real
       // device capture session tells us whether Vision .accurate is pulling its
-      // weight vs ML Kit (or whether either alone would suffice).
-      if (kDebugMode && Platform.isIOS) {
+      // weight vs ML Kit (or whether either alone would suffice). Fires on both
+      // platforms — on Android `vision` is null (channel is iOS-only), but the
+      // mlkit/fused reads still expose whether the crop pyramid recovered a hard
+      // label that full-frame missed (the #58 on-device verification signal).
+      if (kDebugMode) {
         final mlkitOnly = _matchTokens(mlkitTokens);
         final visionOnly = _matchTokens(visionTokens);
         debugPrint('CaptureOcr A/B over ${imagePaths.length} still(s), '

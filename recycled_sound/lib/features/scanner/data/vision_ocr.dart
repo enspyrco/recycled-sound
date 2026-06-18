@@ -47,6 +47,13 @@ class VisionOcr {
   /// orientation in degrees (typically 90 for an iPhone back camera in
   /// portrait). The native side maps this to `CGImagePropertyOrientation`.
   ///
+  /// [accurate] picks Vision's recognition level. Leave it **false** on the
+  /// live per-frame path — `.fast` is mandatory there (throughput-sacred).
+  /// Pass **true** only for off-hot-path still OCR (post-capture identify):
+  /// a 2026-06-18 spike found `.accurate` reads brand labels off captured
+  /// stills that `.fast` misses entirely. Defaulting to false guarantees an
+  /// omitted arg can never silently regress the live scanner.
+  ///
   /// Returns the list of recognized text blocks, ordered as Vision
   /// returned them (no sort). Empty list if nothing was found.
   static Future<List<VisionTextBlock>> recognizeText({
@@ -55,6 +62,7 @@ class VisionOcr {
     required int height,
     required int bytesPerRow,
     required int orientation,
+    bool accurate = false,
   }) async {
     final result = await _channel.invokeMethod<List<Object?>>(
       'recognizeText',
@@ -64,6 +72,7 @@ class VisionOcr {
         'height': height,
         'bytesPerRow': bytesPerRow,
         'orientation': orientation,
+        'accurate': accurate,
       },
     );
     if (result == null) return const [];

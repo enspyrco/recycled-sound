@@ -96,6 +96,14 @@ class VisionOcrPlugin: NSObject {
         // the value at the time of the call, not a torn read.
         let wordsForFrame = self.customWords
 
+        // Recognition level is caller-chosen. The LIVE per-frame path passes
+        // false (.fast) — it runs on the camera hot path where throughput is
+        // sacred. Off-hot-path STILL OCR (post-capture identify) should pass
+        // true (.accurate): a 2026-06-18 spike showed .accurate reads brand
+        // labels off captured stills that .fast misses entirely. Default false
+        // so an omitted arg can never silently regress the live path.
+        let accurate = args["accurate"] as? Bool ?? false
+
         workQueue.async { [weak self] in
             guard let self = self else { return }
             self.performRecognition(
@@ -105,6 +113,7 @@ class VisionOcrPlugin: NSObject {
                 bytesPerRow: bytesPerRow,
                 orientationRaw: orientationRaw,
                 customWords: wordsForFrame,
+                accurate: accurate,
                 result: result
             )
         }
@@ -117,6 +126,7 @@ class VisionOcrPlugin: NSObject {
         bytesPerRow: Int,
         orientationRaw: Int,
         customWords: [String],
+        accurate: Bool,
         result: @escaping FlutterResult
     ) {
         // Build a CGImage from the BGRA8888 byte buffer the camera
@@ -214,10 +224,12 @@ class VisionOcrPlugin: NSObject {
             }
         }
 
-        // .fast is the speed-optimised path (vs .accurate which uses a
-        // heavier model). For our use case the model name will appear
-        // in customWords, so .fast + bias is the right tradeoff.
-        request.recognitionLevel = .fast
+        // .fast is the speed-optimised path; .accurate uses a heavier model.
+        // .fast + customWords bias is the right tradeoff ON THE LIVE HOT PATH
+        // (per-frame, throughput-sacred). But for off-hot-path still OCR the
+        // 2026-06-18 spike found .accurate reads labels .fast misses entirely
+        // (e.g. "Resouno"→ReSound where .fast returned nothing). Caller picks.
+        request.recognitionLevel = accurate ? .accurate : .fast
         // Language correction is *bad* for product/model names — it
         // would push "Moxi" toward "Moxie" or similar. Off.
         request.usesLanguageCorrection = false

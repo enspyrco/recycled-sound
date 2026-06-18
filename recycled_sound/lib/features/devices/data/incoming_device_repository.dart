@@ -187,6 +187,7 @@ class IncomingDeviceRepository {
     DraftDevice draft, {
     List<String> localPhotoPaths = const [],
     Map<String, String> namedPhotoPaths = const {},
+    void Function(String key, int bytesTransferred, int totalBytes)? onProgress,
   }) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) {
@@ -201,19 +202,27 @@ class IncomingDeviceRepository {
     final uploaded = <Reference>[];
     try {
       // Parallel uploads: ~max(upload latency) instead of sum of all.
+      // [onProgress] (optional) reports each file's byte progress keyed by the
+      // SAME key used for its filename, so a UI can show a per-photo bar; it is
+      // pure observation and changes neither the upload set nor the atomicity
+      // boundary below (upload all → one `set` → compensate on any failure).
       final uploads = <Future<String>>[];
       for (var i = 0; i < localPhotoPaths.length; i++) {
         // captures/{uid}/{deviceId}/{slot}.jpg — uid is the security boundary,
         // the doc id is the device, `$i` is the slot/index filename.
         final storageRef = _storage.ref('captures/$uid/$id/$i.jpg');
-        uploads.add(_uploadPhoto(storageRef, localPhotoPaths[i], uploaded));
+        uploads.add(
+          _uploadPhoto(storageRef, localPhotoPaths[i], uploaded, '$i', onProgress),
+        );
       }
       // Slot-keyed uploads: the filename IS the slot identity, so a skipped
       // slot never shifts another photo's label.
       for (final entry in namedPhotoPaths.entries) {
         final storageRef =
             _storage.ref('captures/$uid/$id/${entry.key}.jpg');
-        uploads.add(_uploadPhoto(storageRef, entry.value, uploaded));
+        uploads.add(
+          _uploadPhoto(storageRef, entry.value, uploaded, entry.key, onProgress),
+        );
       }
       final photoUris = await Future.wait(uploads);
 
@@ -239,15 +248,33 @@ class IncomingDeviceRepository {
   /// [uploaded] (so a later failure can compensate by deleting it). Returns
   /// the gs:// URI. The explicit `contentType` keeps the Storage rule's
   /// `image/.*` predicate satisfied independent of file-extension inference.
+  ///
+  /// When [onProgress] is given, the task's `snapshotEvents` are forwarded as
+  /// `(key, bytesTransferred, totalBytes)` so a caller can render a live
+  /// per-photo progress bar. The subscription is cancelled once the upload
+  /// settles (success or throw) so it can't outlive the task.
   Future<String> _uploadPhoto(
     Reference storageRef,
     String localPath,
     List<Reference> uploaded,
+    String key,
+    void Function(String, int, int)? onProgress,
   ) async {
-    await storageRef.putFile(
+    final task = storageRef.putFile(
       File(localPath),
       SettableMetadata(contentType: 'image/jpeg'),
     );
+    final sub = onProgress == null
+        ? null
+        : task.snapshotEvents.listen(
+            (s) => onProgress(key, s.bytesTransferred, s.totalBytes),
+            onError: (_) {},
+          );
+    try {
+      await task;
+    } finally {
+      await sub?.cancel();
+    }
     uploaded.add(storageRef);
     return 'gs://${storageRef.bucket}/${storageRef.fullPath}';
   }

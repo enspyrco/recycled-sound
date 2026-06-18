@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:camera/camera.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,12 +9,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
-import '../../devices/providers/device_providers.dart';
 import '../data/capture_ocr.dart';
 import '../data/focus_control.dart';
 import '../providers/capture_seed.dart';
+import '../providers/upload_job.dart';
 import 'capture_slot.dart';
 import 'widgets/capture_guide_hand.dart';
 
@@ -411,7 +409,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     // Resolve context-bound handles up front — `_editDetails` awaits below, so
     // any `of(context)` lookup after it would cross an async gap.
     final messenger = ScaffoldMessenger.of(context);
-    final repo = ref.read(incomingDeviceRepositoryProvider);
+    final router = GoRouter.of(context);
 
     // The box number is the link from this photo set back to the physical box
     // in the register — saving without it orphans the capture. Prompt for it,
@@ -440,46 +438,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       location: _location,
     );
 
-    try {
-      final box = _location;
-      final count = slotPhotos.length;
-      await repo.createIncoming(draft, namedPhotoPaths: slotPhotos);
-      if (!mounted) return;
-      // Reset for the NEXT box — a volunteer photographing many devices stays
-      // in the capture loop rather than landing on the clinical device screen.
-      setState(() {
-        _captured.clear();
-        _currentStep = 0;
-        _location = '';
-        _brand = '';
-        _model = '';
-        _colour = '';
-        _detecting = false;
-        _saving = false;
-      });
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Saved $box ($count photos) · ready for the next box'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    } on FirebaseException catch (e) {
-      if (mounted) setState(() => _saving = false);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(PersistErrorKind.fromCode(e.code).userMessage),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } catch (_) {
-      if (mounted) setState(() => _saving = false);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(PersistErrorKind.unknown.userMessage),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
+    // Hand the upload to the provider (NOT awaited here) so it survives this
+    // screen disposing, then `go` to the progress screen — which observes the
+    // job, shows per-photo bars, and routes to `/scan` for the next device on
+    // success. Uploading 14 full-res stills inline would otherwise freeze this
+    // screen for ~10s with no feedback (it reads as a crash to a volunteer).
+    unawaited(
+      ref.read(uploadJobProvider.notifier).start(
+            draft: draft,
+            namedPhotoPaths: slotPhotos,
+            box: _location,
+          ),
+    );
+    router.go('/capture/uploading');
   }
 
   @override

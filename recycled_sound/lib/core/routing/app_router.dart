@@ -8,6 +8,7 @@ import '../../features/scanner/presentation/confirmation_screen.dart';
 import '../../features/scanner/presentation/capture_3d_screen.dart';
 import '../../features/scanner/presentation/results_screen.dart';
 import '../../features/capture/presentation/capture_screen.dart';
+import '../../features/capture/presentation/upload_progress_screen.dart';
 import '../../features/devices/presentation/device_list_screen.dart';
 import '../../features/devices/presentation/device_detail_screen.dart';
 import '../../features/devices/presentation/photo_detail_screen.dart';
@@ -106,6 +107,11 @@ GoRouter createAppRouter({String initialLocation = '/boot'}) => GoRouter(
       path: '/capture',
       parentNavigatorKey: _rootNavigatorKey,
       builder: (context, state) => const CaptureScreen(),
+    ),
+    GoRoute(
+      path: '/capture/uploading',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (context, state) => const UploadProgressScreen(),
     ),
     GoRoute(
       path: '/devices/:id',

@@ -123,12 +123,22 @@ void main() {
   // NOTE: no pumpAndSettle after these taps — LiveScanScreen runs
   // boot-sequence timers and ConfirmationScreen has an infinite pulse
   // animation, so settle would time out. Fixed pumps instead.
-  testWidgets('Scan to identify navigates to the live scanner',
-      (tester) async {
+  testWidgets(
+      'Scan to identify opens the box-first modal, then navigates to the live '
+      'scanner once a box is entered (#96)', (tester) async {
     await tester.pumpWidget(testApp());
     await tester.pumpAndSettle();
 
+    // Box-first reorg (#96): tapping the CTA opens the box modal FIRST — it
+    // does not navigate yet.
     await tester.tap(find.text('Scan to identify'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LiveScanScreen), findsNothing,
+        reason: 'must not navigate before a box is entered');
+
+    // Enter the box and confirm — only now does it route to the scanner.
+    await tester.enterText(find.byType(TextField).first, 'b07');
+    await tester.tap(find.text('OK'));
     await tester.pump(); // start navigation
     await tester.pump(const Duration(milliseconds: 600)); // route transition
 

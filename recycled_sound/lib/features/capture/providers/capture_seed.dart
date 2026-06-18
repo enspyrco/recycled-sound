@@ -15,12 +15,19 @@ class CaptureSeed {
     required this.brand,
     required this.model,
     required this.box,
+    this.colour = '',
     this.needsInputFields = const [],
   });
 
   final String brand;
   final String model;
   final String box;
+
+  /// Device colour confirmed on the scan-confirm screen (the single place
+  /// colour is collected). Carried into capture so the created device's colour
+  /// matches what the volunteer just confirmed; empty for a standalone capture
+  /// (no confirm screen) — the audiologist sets it later.
+  final String colour;
 
   /// Identity fields a volunteer deliberately flagged Unknown on the confirm
   /// screen (e.g. `[ClinicalField.model]` for a Signia whose model isn't
@@ -35,3 +42,11 @@ class CaptureSeed {
 /// Set by the scanner-confirm flow before routing to `/capture` for a novel
 /// device; `null` for a standalone capture entered directly from home.
 final captureSeedProvider = StateProvider<CaptureSeed?>((ref) => null);
+
+/// The box/bag number the volunteer enters in the box-first modal dialog when
+/// they tap a home button (Scan or Capture) — the FIRST thing they do, and the
+/// ONLY place a box number is entered. Read by the confirm screen (to seed the
+/// created device's `location`) and by a standalone capture (entered directly
+/// from home, with no scanner/confirm in between). Defaults to '' and is set by
+/// the modal before navigation.
+final scanBoxProvider = StateProvider<String>((ref) => '');

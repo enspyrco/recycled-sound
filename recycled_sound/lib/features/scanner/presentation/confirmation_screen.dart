@@ -41,10 +41,6 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   late final AnimationController _completionController;
   bool _completionFired = false;
 
-  /// Free-text physical storage location (box/bag, e.g. B07). Metadata, not a
-  /// clinical field — never gates the "Add to Register" completion button.
-  final TextEditingController _locationController = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -63,7 +59,6 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   void dispose() {
     _pulseController.dispose();
     _completionController.dispose();
-    _locationController.dispose();
     super.dispose();
   }
 
@@ -204,10 +199,10 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .updateField(ScanField.colour, v),
                   ),
 
-                  // LOCATION — physical storage box/bag (metadata, optional).
-                  // Not one of the 7 clinical fields and not counted toward the
-                  // completion gate; purely "where does this device live".
-                  _LocationField(controller: _locationController),
+                  // NB: the box/bag number is NOT collected here. It is the
+                  // FIRST thing the volunteer enters (the box-first modal on the
+                  // home screen, stored in `scanBoxProvider`), so the confirm
+                  // screen just reads it through to the created device.
                 ],
               ),
             ),
@@ -261,7 +256,13 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
 
     final brand = result.brand.value;
     final model = result.model.value;
-    final box = _locationController.text.trim().toUpperCase();
+    // Box was entered up front in the box-first home modal (the single source
+    // for the box number); read it straight through to the created device.
+    final box = ref.read(scanBoxProvider).trim().toUpperCase();
+    // Colour is confirmed ONLY here, on the confirm screen. Carry it into the
+    // capture flow so the created device's colour matches what was just
+    // confirmed (capture has no colour picker of its own).
+    final colour = result.colour?.value ?? '';
 
     // Capture-all-uniformly: every confirmed scan goes on to shoot a full photo
     // set — training data wants many sets per model, not one, so we NEVER skip.
@@ -284,14 +285,17 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       brand: brand,
       model: model,
       box: box,
+      colour: colour,
       needsInputFields: result.volunteerUnknownFields,
     );
     final label = [brand, model].where((s) => s.isNotEmpty).join(' ');
     messenger.showSnackBar(
       SnackBar(
-        content: Text(label.isEmpty
-            ? 'Let\'s photograph this device'
-            : 'Set #${existing + 1} of $label — let\'s get photos'),
+        content: Text(
+          label.isEmpty
+              ? 'Let\'s photograph this device'
+              : 'Set #${existing + 1} of $label — let\'s get photos',
+        ),
         backgroundColor: AppColors.accent,
       ),
     );
@@ -820,73 +824,6 @@ class _ColourSwatchField extends StatelessWidget {
             }).toList(),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Location Field — free-text physical storage box/bag (metadata)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// A single labelled free-text field for the physical storage Location ID
-/// (box/bag number, e.g. `B07`, `C10`). Deliberately NOT a chip selector: the
-/// storage layout is open-ended and not a clinical spec. It does not count
-/// toward the 7-field completion gate — purely "where does this device live".
-///
-/// Uppercasing happens at persist time (see `_confirmAndPersist`), so the
-/// raw text is shown as typed and normalised only on save.
-class _LocationField extends StatelessWidget {
-  const _LocationField({required this.controller});
-
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 2),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: const Color(0xFF151515),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(width: 3, color: const Color(0xFF3A3A3A)),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        const _FieldLabel(label: 'BOX'),
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            textCapitalization:
-                                TextCapitalization.characters,
-                            style: _valueStyle(true),
-                            cursorColor: AppColors.success,
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              border: InputBorder.none,
-                              hintText: 'Location ID — e.g. B07 (optional)',
-                              hintStyle: TextStyle(
-                                color: Color(0xFF555555),
-                                fontSize: 14,
-                              ),
-                              contentPadding: EdgeInsets.symmetric(vertical: 4),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

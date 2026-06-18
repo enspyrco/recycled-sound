@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:recycled_sound/core/clinical_field.dart';
 import 'package:recycled_sound/features/scanner/data/models/scan_result.dart';
 import 'package:recycled_sound/features/scanner/presentation/confirmation_screen.dart';
 import 'package:recycled_sound/features/scanner/providers/scanner_providers.dart';

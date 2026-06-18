@@ -1,17 +1,46 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/rs_button.dart';
 import '../../../core/widgets/rs_card.dart';
+import '../../capture/providers/capture_seed.dart';
 
 /// Home screen (Screen 1A) — hero CTA + stats overview.
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
+  /// Box-first entry: the box/bag number is the FIRST thing a volunteer enters,
+  /// before any camera opens. Both home CTAs route through this modal — on OK we
+  /// stash the box in [scanBoxProvider] and navigate; on Cancel we do nothing.
+  ///
+  /// The dialog is explicitly dark-themed (not a default light AlertDialog):
+  /// the app's text theme paints body text white, so a default light dialog
+  /// renders white-on-white — invisible. Mirror the capture-dialog fix.
+  Future<void> _startWithBox(
+    BuildContext context,
+    WidgetRef ref,
+    String destination,
+  ) async {
+    final box = await showDialog<String>(
+      context: context,
+      builder: (context) => const _BoxEntryDialog(),
+    );
+    // Null = Cancel (or dismissed): do not navigate, do not touch the provider.
+    if (box == null) return;
+    ref.read(scanBoxProvider.notifier).state = box.trim().toUpperCase();
+    if (!context.mounted) return;
+    if (destination == '/scan') {
+      context.go(destination);
+    } else {
+      context.push(destination);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Recycled Sound'),
@@ -52,8 +81,9 @@ class HomeScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       'Two ways to add a donated hearing aid — pick the one that fits.',
-                      style:
-                          AppTypography.body.copyWith(color: AppColors.textMuted),
+                      style: AppTypography.body.copyWith(
+                        color: AppColors.textMuted,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
@@ -66,7 +96,7 @@ class HomeScreen extends StatelessWidget {
                     RsButton(
                       label: 'Scan to identify',
                       icon: Icons.center_focus_strong,
-                      onPressed: () => context.go('/scan'),
+                      onPressed: () => _startWithBox(context, ref, '/scan'),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -74,8 +104,9 @@ class HomeScreen extends StatelessWidget {
                       'model and specs on the spot. It is still learning, so '
                       'some scans fill every field and others only the brand — '
                       'that is expected, not a fault.',
-                      style: AppTypography.caption
-                          .copyWith(color: AppColors.textMuted),
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textMuted,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
@@ -88,7 +119,7 @@ class HomeScreen extends StatelessWidget {
                       label: 'Capture photos for later',
                       icon: Icons.photo_camera_outlined,
                       variant: RsButtonVariant.outline,
-                      onPressed: () => context.push('/capture'),
+                      onPressed: () => _startWithBox(context, ref, '/capture'),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -96,8 +127,9 @@ class HomeScreen extends StatelessWidget {
                       'device — it just saves a clear set of photos for an '
                       'audiologist to review later. Use this when scanning is '
                       'hard or you just want a good photo record.',
-                      style: AppTypography.caption
-                          .copyWith(color: AppColors.textMuted),
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textMuted,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -111,17 +143,25 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: _StatCard(value: '20', label: 'Devices collected')),
+                  Expanded(
+                    child: _StatCard(value: '20', label: 'Devices collected'),
+                  ),
                   const SizedBox(width: 12),
-                  Expanded(child: _StatCard(value: '8', label: 'Brands on register')),
+                  Expanded(
+                    child: _StatCard(value: '8', label: 'Brands on register'),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: _StatCard(value: '0', label: 'Devices matched')),
+                  Expanded(
+                    child: _StatCard(value: '0', label: 'Devices matched'),
+                  ),
                   const SizedBox(width: 12),
-                  Expanded(child: _StatCard(value: '0', label: 'Active recipients')),
+                  Expanded(
+                    child: _StatCard(value: '0', label: 'Active recipients'),
+                  ),
                 ],
               ),
 
@@ -151,6 +191,90 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+/// Box-first entry dialog: the volunteer enters the box/bag number before any
+/// camera opens. Pops the entered text on OK, `null` on Cancel.
+///
+/// A `StatefulWidget` so it owns its `TextEditingController` and disposes it in
+/// `State.dispose` (which runs after the route is fully gone), avoiding the
+/// use-after-dispose that disposing right after `await showDialog` causes
+/// during the exit animation.
+///
+/// Explicitly dark-styled (dark background, white text, visible field borders):
+/// the app theme paints body text white, so a default light AlertDialog renders
+/// white-on-white. Every text surface here sets an explicit colour.
+class _BoxEntryDialog extends StatefulWidget {
+  const _BoxEntryDialog();
+
+  @override
+  State<_BoxEntryDialog> createState() => _BoxEntryDialogState();
+}
+
+class _BoxEntryDialogState extends State<_BoxEntryDialog> {
+  final TextEditingController _box = TextEditingController();
+
+  @override
+  void dispose() {
+    _box.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const white = Colors.white;
+    const muted = Color(0xFF888888);
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1A1A1A),
+      titleTextStyle: AppTypography.h3.copyWith(color: white),
+      contentTextStyle: AppTypography.body.copyWith(color: white),
+      title: const Text('Box number'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Enter the number on the box or bag before you start.',
+            style: AppTypography.caption.copyWith(color: muted),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _box,
+            autofocus: true,
+            textCapitalization: TextCapitalization.characters,
+            style: const TextStyle(color: white),
+            cursorColor: AppColors.primary,
+            // Enter from the keyboard confirms, matching the OK button.
+            onSubmitted: (v) => Navigator.of(context).pop(v),
+            decoration: const InputDecoration(
+              labelText: 'Box number',
+              labelStyle: TextStyle(color: muted),
+              hintText: 'e.g. B07, C10',
+              hintStyle: TextStyle(color: Color(0xFF555555)),
+              helperText: 'The label on the box or bag',
+              helperStyle: TextStyle(color: muted),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF444444)),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel', style: TextStyle(color: muted)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_box.text),
+          child: const Text('OK', style: TextStyle(color: AppColors.primary)),
+        ),
+      ],
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   const _StatCard({required this.value, required this.label});
 
@@ -162,9 +286,16 @@ class _StatCard extends StatelessWidget {
     return RsCard(
       child: Column(
         children: [
-          Text(value, style: AppTypography.h1.copyWith(color: AppColors.primary)),
+          Text(
+            value,
+            style: AppTypography.h1.copyWith(color: AppColors.primary),
+          ),
           const SizedBox(height: 4),
-          Text(label, style: AppTypography.caption, textAlign: TextAlign.center),
+          Text(
+            label,
+            style: AppTypography.caption,
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );

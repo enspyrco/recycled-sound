@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:recycled_sound/features/capture/presentation/capture_screen.dart';
 import 'package:recycled_sound/features/capture/presentation/capture_slot.dart';
+import 'package:recycled_sound/features/capture/providers/capture_seed.dart';
 
 import 'support/google_fonts_test_asset.dart';
 
@@ -57,10 +58,14 @@ void main() {
   WidgetsBindingObserver observer(WidgetTester tester) =>
       tester.state(find.byType(CaptureScreen)) as WidgetsBindingObserver;
 
-  Future<void> pumpCapture(WidgetTester tester) async {
+  Future<void> pumpCapture(WidgetTester tester, {String box = ''}) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(home: CaptureScreen()),
+      ProviderScope(
+        // Box-first reorg (#96): the box arrives via scanBoxProvider (set by the
+        // home modal), not an in-screen dialog. Default '' exercises the
+        // bypassed-modal state.
+        overrides: [scanBoxProvider.overrideWith((ref) => box)],
+        child: const MaterialApp(home: CaptureScreen()),
       ),
     );
   }
@@ -159,32 +164,30 @@ void main() {
   }, skip: !fontReady);
 
   // The box/bag number is the only handle that ties a capture's photo set back
-  // to its physical device in the register — it MUST be enterable in this flow.
-  // (Before this it lived only in the scan-confirm screen, so photo-day captures
-  // saved with an empty location and orphaned the photos.) This pins the entry
-  // UI contract; the save-gate that blocks an empty box is verified on-device.
-  testWidgets(
-      'details bar prompts when unset and shows a summary once entered',
+  // to its physical device in the register. Box-first reorg (#96): it is now
+  // entered up front in the home box-first modal (stored in scanBoxProvider),
+  // NOT in this screen — the in-screen details dialog is gone. The bar is now a
+  // READ-ONLY summary: it shows the seeded box and, when somehow unset, a
+  // restart nudge rather than a tappable call-to-action.
+  testWidgets('details bar nudges back to home when the box is unset',
       (tester) async {
+    // The box-first modal was bypassed — the bar nudges back to home, and the
+    // removed in-screen details dialog is not reachable.
     await pumpCapture(tester);
     await settle(tester); // camera ready, live UI painted
-
-    // Unset: the bar reads as a call to action.
-    expect(find.text('Tap to add box number (required)'),
+    expect(find.text('No box number — restart from the home screen'),
         findsOneWidget);
+    expect(find.text('Device details'), findsNothing);
+  }, skip: !fontReady);
 
-    // Open the dialog, type a lowercase box label into the first field, accept.
-    await tester.tap(
-        find.text('Tap to add box number (required)'));
-    await tester.pumpAndSettle();
-    expect(find.text('Device details'), findsOneWidget); // dialog title
-    await tester.enterText(find.byType(TextField).first, 'b07');
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-
-    // Box input is trimmed + uppercased and summarised on the now-solid bar.
+  testWidgets('details bar summarises the box once seeded from scanBoxProvider',
+      (tester) async {
+    // The normal path: the home modal stored the box in scanBoxProvider; the
+    // bar reads it through and shows it, with no nudge.
+    await pumpCapture(tester, box: 'B07');
+    await settle(tester);
     expect(find.text('Box B07'), findsOneWidget);
-    expect(find.text('Tap to add box number (required)'),
+    expect(find.text('No box number — restart from the home screen'),
         findsNothing);
   }, skip: !fontReady);
 

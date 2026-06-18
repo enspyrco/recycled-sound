@@ -32,3 +32,6 @@ database-debug.log
 
 # Local hearing-aid capture data — large binaries, kept local (accidentally committed in #83, untracked in this commit)
 data/photos_nick_aids/
+
+# macOS
+.DS_Store

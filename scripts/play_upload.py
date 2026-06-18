@@ -87,14 +87,26 @@ def main() -> int:
     except HttpError as e:
         status = getattr(e, "status_code", None) or (e.resp.status if e.resp else "?")
         print(f"\nERROR: Android Publisher API returned {status}", file=sys.stderr)
+        # ALWAYS surface Google's real reason — a 403 on bundle upload (vs. on the
+        # edit insert) is usually NOT a missing user grant; printing only the
+        # canned "authorize the SA" message hides the actual cause (e.g. the app
+        # needs its first manual upload, a versionCode clash, or a signing-key
+        # mismatch). The reason string in e.content is what you actually need.
+        detail = None
+        try:
+            detail = e.content.decode() if isinstance(e.content, bytes) else e.content
+        except Exception:
+            detail = str(e)
+        print(f"  reason: {detail}", file=sys.stderr)
         if str(status) in ("401", "403"):
-            print("  → The service account isn't authorized yet. In Play Console:\n"
+            print("  → If this is an authorization problem, in Play Console:\n"
                   "    Users & permissions > Invite new users >\n"
                   "    play-publisher@recycled-sound-app.iam.gserviceaccount.com\n"
                   "    Grant app access to recycled-sound with at least\n"
-                  "    'Release to testing tracks'. Then re-run.", file=sys.stderr)
-        else:
-            print(f"  {e}", file=sys.stderr)
+                  "    'Release to testing tracks'. Then re-run.\n"
+                  "    (But if the SA already has access, read the reason above —\n"
+                  "    a bundle-upload 403 is often a first-upload/signing issue.)",
+                  file=sys.stderr)
         return 1
 
 

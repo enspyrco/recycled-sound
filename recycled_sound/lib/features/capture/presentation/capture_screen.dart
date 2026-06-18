@@ -94,6 +94,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   String _brand = '';
   String _model = '';
 
+  /// Identity fields the volunteer flagged Unknown on the confirm screen, carried
+  /// via [CaptureSeed] so the created device records the volunteer→audiologist
+  /// handoff (`needsInputFields`), not just a bare `'Unknown'` value string.
+  List<ClinicalField> _needsInputFields = const [];
+
   /// True while OCR is running on a freshly-captured brand-label shot, so the
   /// details bar can show an "identifying…" hint.
   bool _detecting = false;
@@ -118,6 +123,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       _brand = seed.brand;
       _model = seed.model;
       _location = seed.box;
+      _needsInputFields = seed.needsInputFields;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) ref.read(captureSeedProvider.notifier).state = null;
       });
@@ -434,6 +440,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       model: _model,
       colour: _colour,
       location: _location,
+      needsInputFields: _needsInputFields,
     );
 
     // Hand the upload to the provider (NOT awaited here) so it survives this

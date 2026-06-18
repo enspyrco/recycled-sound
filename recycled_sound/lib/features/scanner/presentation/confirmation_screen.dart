@@ -280,8 +280,12 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     await _submitCorrections(result);
     if (!mounted) return;
 
-    ref.read(captureSeedProvider.notifier).state =
-        CaptureSeed(brand: brand, model: model, box: box);
+    ref.read(captureSeedProvider.notifier).state = CaptureSeed(
+      brand: brand,
+      model: model,
+      box: box,
+      needsInputFields: result.volunteerUnknownFields,
+    );
     final label = [brand, model].where((s) => s.isNotEmpty).join(' ');
     messenger.showSnackBar(
       SnackBar(
@@ -513,6 +517,24 @@ class _AiTextFieldState extends State<_AiTextField> {
             ),
             if (hasFill) _ConfidenceBadge(confidence: confidence),
             const SizedBox(width: 8),
+            // Unknown escape valve so a volunteer who can't determine a free-text
+            // identity field (e.g. a Signia whose model isn't legible) can flag
+            // it for the audiologist rather than guessing. Saving routes through
+            // `updateField`, which stamps [FieldSource.human], so it reads as a
+            // deliberate handoff (`isVolunteerUnknown`), not an AI read failure
+            // that shares the string. Hidden once the field already reads Unknown.
+            if (widget.field.value != kUnknownValue) ...[
+              _ActionButton(
+                icon: Icons.help_outline,
+                color: _amberColor,
+                tooltip: 'Mark Unknown — the audiologist will determine it',
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  widget.onSave(kUnknownValue);
+                },
+              ),
+              const SizedBox(width: 4),
+            ],
             _ActionButton(
               icon: hasFill ? Icons.edit_outlined : Icons.add,
               color: hasFill ? const Color(0xFF666666) : _amberColor,
@@ -1144,15 +1166,17 @@ class _ActionButton extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onTap,
+    this.tooltip,
   });
 
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final button = GestureDetector(
       onTap: onTap,
       child: Container(
         width: 32,
@@ -1164,6 +1188,7 @@ class _ActionButton extends StatelessWidget {
         child: Icon(icon, size: 16, color: color),
       ),
     );
+    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
   }
 }
 

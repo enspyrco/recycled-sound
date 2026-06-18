@@ -51,3 +51,6 @@ data/spike_sam2b/
 data/spike_loop/
 data/dinov2_catalog.npz
 data/sam2_b.pt
+spike_crop_*.png
+spike_sam3_*/
+spike_in/

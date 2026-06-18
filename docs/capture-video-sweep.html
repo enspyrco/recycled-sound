@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture, reimagined: one sweep — Recycled Sound</title>
+<style>
+  :root{
+    --ink:#1a2b25; --muted:#5b6b64; --line:#d8e0dc; --bg:#f7faf8;
+    --teal:#2a7d5f; --teal-soft:#e6f1ec; --amber:#b9770f; --amber-soft:#fbf1de;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:780px; margin:0 auto; padding:40px 22px 80px}
+  header.hero{border-bottom:2px solid var(--teal); padding-bottom:22px; margin-bottom:8px}
+  .kicker{font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--teal); font-weight:700}
+  h1{font-size:31px; line-height:1.2; margin:.3em 0 .15em}
+  .sub{color:var(--muted); font-size:17px; margin:0}
+  .meta{color:var(--muted); font-size:13px; margin-top:14px}
+  h2{font-size:22px; margin:38px 0 10px; padding-top:10px}
+  h3{font-size:17px; margin:24px 0 6px}
+  p{margin:.6em 0}
+  .lead{font-size:18px}
+  .tldr{background:var(--teal-soft); border:1px solid var(--line); border-left:4px solid var(--teal);
+        border-radius:10px; padding:16px 20px; margin:22px 0}
+  .tldr strong{color:var(--teal)}
+  .flow{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:14px 0; font-size:14px}
+  .step{background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px}
+  .step.old{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .step.now{background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:14.5px}
+  th,td{text-align:left; padding:9px 11px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{color:var(--muted); font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.05em}
+  .yes{color:var(--teal); font-weight:700}
+  .no{color:var(--amber); font-weight:700}
+  details{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:2px 18px; margin:12px 0}
+  summary{cursor:pointer; font-weight:600; padding:13px 0; outline:none}
+  summary::-webkit-details-marker{color:var(--teal)}
+  details[open]{padding-bottom:14px}
+  code{background:#eef3f0; padding:1px 6px; border-radius:5px; font-size:13.5px;
+       font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .callout{background:var(--amber-soft); border:1px solid #ecd9b0; border-left:4px solid var(--amber);
+           border-radius:10px; padding:14px 18px; margin:18px 0}
+  .callout strong{color:var(--amber)}
+  ol.seq{counter-reset:s; list-style:none; padding-left:0; margin:14px 0}
+  ol.seq li{counter-increment:s; position:relative; padding:10px 0 10px 44px; border-bottom:1px solid var(--line)}
+  ol.seq li::before{content:counter(s); position:absolute; left:0; top:9px; width:28px; height:28px;
+       background:var(--teal); color:#fff; border-radius:50%; text-align:center; line-height:28px; font-weight:700; font-size:14px}
+  ol.seq li.gate::before{background:var(--amber)}
+  a{color:var(--teal)}
+  footer{margin-top:46px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:13px}
+  .pill{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px;
+        background:var(--teal-soft); color:var(--teal); vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">Architecture direction</div>
+  <h1>Capture, reimagined: one sweep</h1>
+  <p class="sub">Folding the scanner and the photo-capture into a single gesture — record a slow video sweep of the device, and let it identify itself.</p>
+  <p class="meta">Recycled Sound · decided 18 June 2026 · status: <span class="pill">planned — build after photo-day</span></p>
+</header>
+
+<p class="lead">Today a volunteer does three things to log one hearing aid: <em>scan</em> it to read the brand, <em>confirm</em> what was read, then <em>photograph</em> it from every angle. Two camera screens, a confirmation step in the middle, and the device gets photographed twice. We're collapsing all of that into one motion.</p>
+
+<div class="tldr">
+  <strong>The new flow, in one line:</strong> the volunteer slowly turns the hearing aid through one rotation while the phone records a short video. When they stop, the app reads the brand &amp; model off the footage, pulls discrete photos of each face from the same video, and saves it all. <strong>One camera. One gesture. Identification falls out for free.</strong>
+</div>
+
+<h2>What changes for the volunteer</h2>
+
+<p>Before — three modes, the device photographed twice:</p>
+<div class="flow">
+  <span class="step old">Scan (camera 1)</span><span class="arrow">→</span>
+  <span class="step old">Confirm what it read</span><span class="arrow">→</span>
+  <span class="step old">Photograph 14 shots (camera 2)</span><span class="arrow">→</span>
+  <span class="step old">Save</span>
+</div>
+
+<p>After — one continuous sweep:</p>
+<div class="flow">
+  <span class="step now">Sweep the device once (one camera)</span><span class="arrow">→</span>
+  <span class="step now">It identifies + grabs every face</span><span class="arrow">→</span>
+  <span class="step now">Save</span>
+</div>
+
+<p>No separate "scan" ceremony, no "confirm" screen, no taking the same photos twice. The guided turntable animation that's already built shows the volunteer how fast to rotate.</p>
+
+<h2>The idea that makes it work</h2>
+
+<p>The reason scanning and capture were ever separate is a hardware limit: the phone's camera can either <em>watch continuously and recognise</em>, or <em>record cleanly</em> — doing both at once on one camera starves each other and was the cause of the old "15 seconds to detect" problem. The clever bit here:</p>
+
+<div class="callout">
+  <strong>Identify <em>after</em> the sweep, never during.</strong> The phone just records — it does no recognition while filming. The instant the volunteer stops, the app pulls a handful of frames out of the video and reads them. Recognition happens when the camera is already idle, so the two jobs never compete. It sidesteps the whole problem instead of fighting it.
+</div>
+
+<p>And because we're already filming the face with the printed label, reading the brand and model is simply a by-product of having filmed the device. Identification stops being a step the volunteer performs and becomes something the footage just <em>contains</em>.</p>
+
+<h2>Why this is close, not a moonshot</h2>
+
+<p>Most of this is already built across earlier work — it has never been wired together. The genuinely new piece is a single component.</p>
+
+<table>
+  <tr><th>Piece</th><th>State</th></tr>
+  <tr><td>Video sweep recording + on-screen turntable guide + upload</td><td class="yes">Built (PR&nbsp;#97, awaiting on-device check)</td></tr>
+  <tr><td>Replay engine that turns frames-of-text into a brand+model answer — already tested against real devices</td><td class="yes">Live</td></tr>
+  <tr><td>Brand / model recognition logic</td><td class="yes">Live</td></tr>
+  <tr><td>Video review &amp; storage (the audiologist can watch the clip)</td><td class="yes">Built (PR&nbsp;#97)</td></tr>
+  <tr><td><strong>Pulling still frames out of the recorded video</strong></td><td class="no">The one missing link</td></tr>
+</table>
+
+<p>The recognition engine already expects exactly the input that "pull frames + read them" produces. So the half people assume is hard — making it reliably recognise devices — is the half that's <strong>done and proven</strong>. The keystone is just the connector.</p>
+
+<details>
+  <summary>Technical detail: the frame-extractor (the one thing to build)</summary>
+  <p>A thin platform channel that takes the recorded <code>.mp4</code> path plus a list of timestamps and returns extracted JPEG frame paths.</p>
+  <ul>
+    <li><strong>iOS:</strong> <code>AVAssetImageGenerator</code></li>
+    <li><strong>Android:</strong> <code>MediaMetadataRetriever</code></li>
+  </ul>
+  <p><strong>On-device, deliberately not cloud.</strong> No <code>ffmpeg</code> (retired / licensing-fraught) and no server-side function — those would add a cloud dependency, make the volunteer wait for an upload before seeing the result, and cut against the project's offline, human-in-the-loop ethos. Native extraction gives the answer a heartbeat after the sweep, with no network.</p>
+  <p><strong>One extraction pass, three payoffs:</strong> (1) read the frames to identify brand/model; (2) keep the best frame per anatomical face as discrete reference stills for the audiologist and the register; (3) sample colour from the frames.</p>
+</details>
+
+<details>
+  <summary>Technical detail: where the clinical fields come from</summary>
+  <p>Style, power source, battery size and tubing are <em>not</em> read live. Once the brand+model is resolved from the footage, the app does a <strong>catalog lookup on that confirmed identity</strong> and stamps the known clinical fields. This is more reliable than the old live-scanner guess (it's keyed off a confirmed make/model, not a noisy single frame), and the audiologist still confirms everything — the human-in-the-loop rule is preserved. It also cleanly resolves the long-standing "scanner data gets lost at the capture hand-off" issue, because nothing is handed across a seam any more: there is no seam.</p>
+</details>
+
+<details>
+  <summary>How we de-risk recognition before writing any new UI</summary>
+  <p>The replay engine takes a sequence of per-frame text and reports <em>which frame</em> the brand and model locked on. That means we can take real sweep footage, extract its frames, and tune recognition <strong>entirely offline, without a phone</strong> — the expensive, fiddly part of any detection system is already a solved, test-covered harness. New capture UI gets built only once recognition is proven on real footage.</p>
+</details>
+
+<h2>The plan, in order</h2>
+
+<ol class="seq">
+  <li class="gate"><strong>Photo-day first.</strong> The current, working flow ships for the 300-device day. None of this touches that.</li>
+  <li class="gate"><strong>Prove the recording.</strong> Verify PR&nbsp;#97 records a smooth ~12-second sweep on a real device (no overheating / dropped frames). Everything below sits on this.</li>
+  <li>Merge the sweep recorder.</li>
+  <li><strong>Build the frame-extractor</strong> — the keystone.</li>
+  <li>Wire "extract → read → identify", tuned offline against real footage first.</li>
+  <li>Save the per-face stills pulled from the sweep, alongside the video.</li>
+  <li>Retire the scanner + confirm screens from the volunteer path.</li>
+</ol>
+
+<p>The live scanner itself <strong>isn't deleted</strong> — its live recognition and bounding-box display are genuinely good for demos and a quick "what is this?" look, so it stays as a standalone tool. It just steps out of the volunteer's way.</p>
+
+<div class="callout">
+  <strong>Safety net.</strong> If pulling frames out of video proves harder than expected on some phones, there's a graceful fallback: keep discrete photos but make the photo flow itself do the recognition (read the label off the shots as they're taken). Same architecture — identity emerging from capture — at lower fidelity. So this is a direction with a floor, not a single fragile bet.</p>
+</div>
+
+<h2>How you can help, tomorrow</h2>
+<p>Nothing that risks photo-day. But if it's easy: record <strong>a few plain ~12-second video sweeps</strong> of devices on your phone's normal camera. That footage becomes the raw material to build and tune the frame-extractor against — real devices, real lighting — before any new screen exists.</p>
+
+<footer>
+  Recycled Sound · capture architecture direction · 18 June 2026 ·
+  <a href="https://github.com/enspyrco/recycled-sound">github.com/enspyrco/recycled-sound</a> ·
+  recording groundwork: PR&nbsp;#97 (<code>feat/capture-video-sweep-engine</code>)
+</footer>
+
+</div>
+</body>
+</html>

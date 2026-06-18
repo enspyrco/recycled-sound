@@ -242,8 +242,11 @@ class _BoxEntryDialogState extends State<_BoxEntryDialog> {
             textCapitalization: TextCapitalization.characters,
             style: const TextStyle(color: white),
             cursorColor: AppColors.primary,
-            // Enter from the keyboard confirms, matching the OK button.
-            onSubmitted: (v) => Navigator.of(context).pop(v),
+            // Enter from the keyboard confirms — but only with a non-empty box,
+            // matching the disabled-when-empty OK button (the box is required).
+            onSubmitted: (v) {
+              if (v.trim().isNotEmpty) Navigator.of(context).pop(v);
+            },
             decoration: const InputDecoration(
               labelText: 'Box number',
               labelStyle: TextStyle(color: muted),
@@ -266,9 +269,25 @@ class _BoxEntryDialogState extends State<_BoxEntryDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel', style: TextStyle(color: muted)),
         ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_box.text),
-          child: const Text('OK', style: TextStyle(color: AppColors.primary)),
+        // OK is disabled until a box number is entered — the box is required,
+        // so enforce it here at the single entry point rather than letting an
+        // empty box flow through to a dead-end block at capture-save.
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _box,
+          builder: (context, value, _) {
+            final hasText = value.text.trim().isNotEmpty;
+            return TextButton(
+              onPressed: hasText
+                  ? () => Navigator.of(context).pop(_box.text)
+                  : null,
+              child: Text(
+                'OK',
+                style: TextStyle(
+                  color: hasText ? AppColors.primary : muted,
+                ),
+              ),
+            );
+          },
         ),
       ],
     );

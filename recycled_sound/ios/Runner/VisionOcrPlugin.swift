@@ -1,6 +1,7 @@
 import Flutter
 import Vision
 import CoreGraphics
+import ImageIO
 import UIKit
 
 /// Native iOS OCR via Apple's Vision framework.
@@ -71,8 +72,61 @@ class VisionOcrPlugin: NSObject {
         case "recognizeText":
             handleRecognize(call: call, result: result)
 
+        case "recognizeFile":
+            handleRecognizeFile(call: call, result: result)
+
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    /// OCR a still image already on disk (a captured brand-label shot), rather
+    /// than a live camera frame. Loads via CGImageSource so EXIF orientation is
+    /// honored — phone JPEGs are typically orient=6, and ignoring it yields zero
+    /// tokens (a 2026-06-18 spike bug). Off the camera hot path, so the caller
+    /// should pass accurate:true (.accurate reads labels .fast misses).
+    private func handleRecognizeFile(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String else {
+            result(FlutterError(
+                code: "BAD_ARGS",
+                message: "recognizeFile requires path: String",
+                details: nil
+            ))
+            return
+        }
+        let accurate = args["accurate"] as? Bool ?? true
+        let wordsForFrame = self.customWords
+
+        workQueue.async { [weak self] in
+            guard let self = self else { return }
+            guard let src = CGImageSourceCreateWithURL(
+                    URL(fileURLWithPath: path) as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "LOAD_FAIL",
+                        message: "Failed to load image at \(path)",
+                        details: nil
+                    ))
+                }
+                return
+            }
+            // Read the embedded EXIF orientation; default .up if absent.
+            var cgOrientation: CGImagePropertyOrientation = .up
+            if let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil)
+                    as? [CFString: Any],
+               let raw = props[kCGImagePropertyOrientation] as? UInt32,
+               let parsed = CGImagePropertyOrientation(rawValue: raw) {
+                cgOrientation = parsed
+            }
+            self.runRecognition(
+                cgImage: cgImage,
+                orientation: cgOrientation,
+                customWords: wordsForFrame,
+                accurate: accurate,
+                result: result
+            )
         }
     }
 
@@ -190,6 +244,26 @@ class VisionOcrPlugin: NSObject {
         default:  cgOrientation = .up
         }
 
+        runRecognition(
+            cgImage: cgImage,
+            orientation: cgOrientation,
+            customWords: customWords,
+            accurate: accurate,
+            result: result
+        )
+    }
+
+    /// Shared Vision OCR core: build + perform a VNRecognizeTextRequest on a
+    /// CGImage, marshal the results back to Flutter. Both the live-frame
+    /// (bytes) and the still-file (path) entry points funnel through here so
+    /// the recognition config stays identical between them.
+    private func runRecognition(
+        cgImage: CGImage,
+        orientation cgOrientation: CGImagePropertyOrientation,
+        customWords: [String],
+        accurate: Bool,
+        result: @escaping FlutterResult
+    ) {
         let request = VNRecognizeTextRequest { (request, error) in
             if let error = error {
                 DispatchQueue.main.async {

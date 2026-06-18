@@ -81,6 +81,34 @@ class VisionOcr {
         .map(VisionTextBlock._fromMap)
         .toList(growable: false);
   }
+
+  /// Run OCR on a still image already saved on disk (a captured brand-label
+  /// shot). The native side loads the file via `CGImageSource` and honors the
+  /// embedded EXIF orientation, so the caller passes only the path — no bytes,
+  /// dimensions, or orientation needed.
+  ///
+  /// [accurate] defaults to **true**: this path is for off-hot-path still OCR,
+  /// where the 2026-06-18 spike showed `.accurate` reads brand labels that
+  /// `.fast` misses entirely. (The live per-frame path is the only place
+  /// `.fast` is mandatory.)
+  ///
+  /// iOS-only — the channel has no Android implementation, so a call on Android
+  /// throws [MissingPluginException]; the caller is responsible for catching it
+  /// and falling back (see `CaptureOcr`).
+  static Future<List<VisionTextBlock>> recognizeFile({
+    required String path,
+    bool accurate = true,
+  }) async {
+    final result = await _channel.invokeMethod<List<Object?>>(
+      'recognizeFile',
+      {'path': path, 'accurate': accurate},
+    );
+    if (result == null) return const [];
+    return result
+        .whereType<Map<Object?, Object?>>()
+        .map(VisionTextBlock._fromMap)
+        .toList(growable: false);
+  }
 }
 
 /// A recognized line of text returned by Apple's Vision framework.

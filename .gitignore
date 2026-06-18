@@ -60,3 +60,7 @@ data/spike_cvs/
 data/spike_cvs_sweep/
 data/spike_cvs_sweep2/
 data/spike_scale/
+
+# #56 OCR-first certification captures (raw HEIC + converted)
+data/certify_raw/
+data/certify_set/

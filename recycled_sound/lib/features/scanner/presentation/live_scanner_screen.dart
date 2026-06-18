@@ -170,6 +170,10 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   final ValueNotifier<({bool atRest, double delta})?> _stillTelemetry =
       ValueNotifier(null);
 
+  // Tap-to-focus reticle position (preview coords) + its auto-clear timer.
+  Offset? _focusReticle;
+  Timer? _focusReticleTimer;
+
   // ── Captures & upload ──────────────────────────────────────────────
   final List<CapturedFeature> _captures = [];
   final List<SnapEvent> _snapEvents = [];
@@ -284,6 +288,7 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     _textRecognizer.close();
     _brandClassifier.dispose();
     _stillTelemetry.dispose();
+    _focusReticleTimer?.cancel();
     super.dispose();
   }
 
@@ -1561,6 +1566,38 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
   /// Navigate directly to results with the on-device detection data.
   /// Skips the old cloud analysis flow — everything is already identified.
+  /// Re-point focus + exposure at the tapped location and flash a reticle.
+  /// [localPos] is in preview-widget coordinates; [size] is the preview's size.
+  void _onFocusTap(Offset localPos, Size size) {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final normalized = Offset(
+      (localPos.dx / size.width).clamp(0.0, 1.0),
+      (localPos.dy / size.height).clamp(0.0, 1.0),
+    );
+    HapticFeedback.selectionClick();
+
+    // Fire-and-forget — a device that doesn't support focus/exposure points
+    // throws; we swallow it (the reticle still shows the tap registered).
+    () async {
+      try {
+        await controller.setFocusPoint(normalized);
+        await controller.setExposurePoint(normalized);
+        await controller.setFocusMode(FocusMode.auto);
+      } catch (e) {
+        _log('tap-to-focus: $e');
+      }
+    }();
+
+    setState(() => _focusReticle = localPos);
+    _focusReticleTimer?.cancel();
+    _focusReticleTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _focusReticle = null);
+    });
+  }
+
   Future<void> _captureAndReview() async {
     if (!mounted) return;
 
@@ -1813,11 +1850,39 @@ class _LiveScanScreenState extends State<LiveScanScreen>
           children: [
             // Camera preview or fallback states
             if (_cameraReady && _cameraController != null)
-              _buildCameraPreview()
+              LayoutBuilder(
+                builder: (context, constraints) => GestureDetector(
+                  // Tap-to-focus: Android has no macro/near-focus restriction
+                  // (that's the iOS-only FocusControlPlugin), so a close-held
+                  // aid can sit blurry under continuous AF → garbage OCR reads
+                  // ("Drubu" instead of "Signia"). Tapping the label re-points
+                  // focus + exposure there to grab a sharp frame on demand.
+                  onTapDown: (d) =>
+                      _onFocusTap(d.localPosition, constraints.biggest),
+                  child: _buildCameraPreview(),
+                ),
+              )
             else if (_cameraError != null)
               _buildError()
             else
               Container(color: Colors.black),
+
+            // Tap-to-focus reticle — brief confirmation the refocus registered.
+            if (_focusReticle != null)
+              Positioned(
+                left: _focusReticle!.dx - 28,
+                top: _focusReticle!.dy - 28,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.success, width: 2),
+                    ),
+                  ),
+                ),
+              ),
 
             // Boot sequence overlay
             if (_phase == _ScanPhase.booting) _buildBootSequence(),

@@ -705,6 +705,13 @@ class _DetailsDialogState extends State<_DetailsDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // Explicit dark surface + light text: the app's text theme is white, but a
+      // default AlertDialog renders on a LIGHT surface — leaving the box-number
+      // TextField white-on-white (invisible). Pin both so the dialog is readable
+      // regardless of the ambient theme.
+      backgroundColor: const Color(0xFF1A1A1A),
+      titleTextStyle: AppTypography.h3.copyWith(color: AppColors.white),
+      contentTextStyle: TextStyle(color: AppColors.white.withValues(alpha: 0.9)),
       title: const Text('Device details'),
       content: SingleChildScrollView(
         child: Column(
@@ -715,10 +722,21 @@ class _DetailsDialogState extends State<_DetailsDialog> {
               controller: _box,
               autofocus: true,
               textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
+              style: const TextStyle(color: Colors.white),
+              cursorColor: AppColors.success,
+              decoration: InputDecoration(
                 labelText: 'Box number *',
+                labelStyle: TextStyle(color: AppColors.white.withValues(alpha: 0.7)),
                 hintText: 'e.g. B07, C10',
+                hintStyle: const TextStyle(color: Color(0xFF888888)),
                 helperText: 'Required — the label on the box',
+                helperStyle: TextStyle(color: AppColors.white.withValues(alpha: 0.5)),
+                enabledBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: Color(0xFF555555)),
+                ),
+                focusedBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: AppColors.success),
+                ),
               ),
             ),
             const SizedBox(height: 20),

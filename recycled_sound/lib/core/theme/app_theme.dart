@@ -7,16 +7,19 @@ import 'app_typography.dart';
 abstract final class AppTheme {
   static ThemeData get light => ThemeData(
         useMaterial3: true,
+        brightness: Brightness.dark,
         scaffoldBackgroundColor: AppColors.background,
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.primary,
+          brightness: Brightness.dark,
           primary: AppColors.primary,
           secondary: AppColors.accent,
           surface: AppColors.surface,
+          onSurface: AppColors.text,
           error: AppColors.error,
         ),
         appBarTheme: AppBarTheme(
-          backgroundColor: AppColors.white,
+          backgroundColor: AppColors.surface,
           foregroundColor: AppColors.text,
           elevation: 0,
           centerTitle: true,
@@ -53,7 +56,7 @@ abstract final class AppTheme {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: AppColors.white,
+          fillColor: const Color(0xFF242424),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
@@ -71,7 +74,7 @@ abstract final class AppTheme {
           hintStyle: AppTypography.body.copyWith(color: AppColors.textMuted),
         ),
         cardTheme: CardThemeData(
-          color: AppColors.white,
+          color: AppColors.surface,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
@@ -84,7 +87,7 @@ abstract final class AppTheme {
           thickness: 0.5,
         ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: AppColors.white,
+          backgroundColor: AppColors.surface,
           selectedItemColor: AppColors.primary,
           unselectedItemColor: AppColors.textMuted,
           type: BottomNavigationBarType.fixed,

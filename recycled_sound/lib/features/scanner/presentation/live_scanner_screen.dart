@@ -1295,6 +1295,15 @@ class _LiveScanScreenState extends State<LiveScanScreen>
   /// 2. ML Kit OCR → brand/model from text on the device (if readable)
   /// Neural net result is primary; OCR can override or add model info.
   Future<void> _autoCapturForOcr() async {
+    // iOS-only, same reason as `_captureSnapshot`: this stops and restarts the
+    // image stream to grab a full-res still for the neural-net classifier, and
+    // on Android that unbinds/rebinds the camerax use-case and risks wedging the
+    // camera. On Android the 5s colour-gate-timeout fallback (which only fires
+    // there, since colour confirmation is iOS-gated) would otherwise trigger one
+    // such stop per scan. Android detection runs on live-stream OCR frames (the
+    // strongest signal anyway), so skipping the neural-net snapshot costs no
+    // detection. Re-enable via the no-stop stream-frame path in task #20.
+    if (!Platform.isIOS) return;
     if (_ocrCaptureInProgress || _cameraController == null) return;
     _ocrCaptureInProgress = true;
 

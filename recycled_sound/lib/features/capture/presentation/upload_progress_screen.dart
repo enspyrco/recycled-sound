@@ -12,8 +12,11 @@ import 'capture_slot.dart';
 /// Reached via `context.go('/capture/uploading')` after [UploadJobController.start]
 /// has been kicked off — the upload runs in the provider, so this screen only
 /// *observes* it and the camera screen behind it is free to dispose. On success
-/// it auto-navigates to `/scan` (the next device in the scanner-first loop);
-/// on failure it offers a retry that reuses the captured photos.
+/// it holds on a "Saved" state with a "Scan next device" button (no
+/// auto-navigate — the volunteer advances when ready); on failure it offers a
+/// retry that reuses the captured photos. If there is no job (deep link,
+/// browser back, hot restart, or a return after `clear()`), it redirects to
+/// `/scan` rather than stranding the user on a blank screen.
 class UploadProgressScreen extends ConsumerStatefulWidget {
   const UploadProgressScreen({super.key});
 
@@ -23,8 +26,8 @@ class UploadProgressScreen extends ConsumerStatefulWidget {
 }
 
 class _UploadProgressScreenState extends ConsumerState<UploadProgressScreen> {
-  // One-shot guard: ref.listen can fire more than once for the success state,
-  // but we must navigate-and-clear exactly once.
+  // One-shot guard: navigate-and-clear (or the no-job redirect) must run
+  // exactly once even though build() can run many times.
   bool _navigated = false;
 
   void _goToNext() {
@@ -43,8 +46,18 @@ class _UploadProgressScreenState extends ConsumerState<UploadProgressScreen> {
     // "Scan next device" when ready (the footer button calls _goToNext).
     final job = ref.watch(uploadJobProvider);
 
-    // No job (e.g. hot reload onto a cleared state) — bail to scanner.
+    // No job (deep link, browser back, hot restart, or a return after the job
+    // was cleared) — redirect to the scanner rather than stranding the user on
+    // a blank screen. Navigation can't run during build, so schedule it for
+    // after this frame; the empty scaffold shows for that single frame only.
     if (job == null) {
+      if (!_navigated) {
+        _navigated = true;
+        final router = GoRouter.of(context);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) router.go('/scan');
+        });
+      }
       return const Scaffold(backgroundColor: AppColors.background);
     }
 

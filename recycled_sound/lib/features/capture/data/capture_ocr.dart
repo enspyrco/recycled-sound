@@ -59,7 +59,8 @@ class CaptureOcr {
   Future<CaptureId?> identify(List<String> imagePaths) async {
     final expanded = await _expandWithCrops(imagePaths);
     try {
-      final mlkitTokens = await _mlkitTokens(expanded.paths);
+      final mlkitByPath = await _mlkitTokensByPath(expanded.paths);
+      final mlkitTokens = [for (final t in mlkitByPath.values) ...t];
       final visionTokens = await _visionTokens(expanded.paths);
 
       final fused = <String>[...mlkitTokens, ...visionTokens];
@@ -68,21 +69,38 @@ class CaptureOcr {
       // Shadow A/B: log what each engine would have found on its own, so a real
       // device capture session tells us whether Vision .accurate is pulling its
       // weight vs ML Kit (or whether either alone would suffice). Fires on both
-      // platforms — on Android `vision` is null (channel is iOS-only), but the
-      // mlkit/fused reads still expose whether the crop pyramid recovered a hard
-      // label that full-frame missed (the #58 on-device verification signal).
+      // platforms — on Android `vision` is null (channel is iOS-only).
       if (kDebugMode) {
         final mlkitOnly = _matchTokens(mlkitTokens);
         final visionOnly = _matchTokens(visionTokens);
         debugPrint('CaptureOcr A/B over ${imagePaths.length} still(s), '
             '${expanded.paths.length} frame(s) incl. crops: '
             'mlkit=$mlkitOnly  vision=$visionOnly  fused=$result');
+
+        // #58 attribution: the A/B line above unions full-frame + crops, so it
+        // can't say WHICH scale read a hard label. This logs the ML Kit match
+        // per individual frame (full / f40 / f60 / f80) from the SAME OCR pass,
+        // so a real capture shows whether a crop recovered a brand the full
+        // frame missed — the actual on-device #58 signal, not an inference.
+        final attribution = [
+          for (final e in mlkitByPath.entries)
+            '${_scaleLabel(e.key)}=${_matchTokens(e.value) ?? "-"}'
+        ].join('  ');
+        debugPrint('CaptureOcr #58 per-scale (mlkit): $attribution');
       }
 
       return result;
     } finally {
       await expanded.dispose();
     }
+  }
+
+  /// Short label for a frame path: 'full' for an original still, or 'f40'/'f60'/
+  /// 'f80' for a crop (named `<base>_f<pct>.jpg` by [writeOcrCropPyramid]).
+  String _scaleLabel(String path) {
+    final base = path.split(Platform.pathSeparator).last;
+    final m = RegExp(r'_f(\d+)\.jpg$').firstMatch(base);
+    return m != null ? 'f${m.group(1)}' : 'full';
   }
 
   /// Expand each still into itself + its center-crop pyramid. Crops are written
@@ -104,10 +122,14 @@ class CaptureOcr {
     return _ExpandedStills(paths: paths, tempDir: tempDir);
   }
 
-  /// ML Kit tokens from every readable still (best-effort, both platforms).
-  Future<List<String>> _mlkitTokens(List<String> imagePaths) async {
-    final tokens = <String>[];
+  /// ML Kit tokens per frame (best-effort, both platforms). Keyed by image path
+  /// so the caller can both union the tokens (for matching) and attribute a read
+  /// to a specific scale (#58). A frame that fails to OCR maps to an empty list.
+  Future<Map<String, List<String>>> _mlkitTokensByPath(
+      List<String> imagePaths) async {
+    final byPath = <String, List<String>>{};
     for (final path in imagePaths) {
+      final tokens = <String>[];
       try {
         final recognized =
             await _r.processImage(InputImage.fromFilePath(path));
@@ -120,8 +142,9 @@ class CaptureOcr {
       } catch (_) {
         // Best-effort — skip an unreadable frame, keep whatever else we got.
       }
+      byPath[path] = tokens;
     }
-    return tokens;
+    return byPath;
   }
 
   /// Apple Vision `.accurate` tokens (iOS only; off the camera hot path).

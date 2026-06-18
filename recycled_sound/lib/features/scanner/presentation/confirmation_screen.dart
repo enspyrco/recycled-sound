@@ -159,14 +159,15 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .updateField(ScanField.tubing, v),
                   ),
 
-                  // 5. POWER — toggle (battery vs rechargeable). No Unknown
-                  // chip: power source is almost always visually determinable,
-                  // so an Unknown here would mean "didn't look", not "ambiguous".
+                  // 5. POWER — Battery / Rechargeable / Unknown. Volunteers
+                  // can't always tell battery vs rechargeable at a glance (a
+                  // sealed rechargeable looks like a battery door), so give them
+                  // the same Unknown escape valve as the other fields rather
+                  // than forcing a guess.
                   _ChipSelectorField(
                     label: 'POWER',
                     field: result.powerSource,
                     options: const ['Battery', 'Rechargeable'],
-                    allowUnknown: false,
                     pulseController: _pulseController,
                     onSelect: (v) {
                       final notifier = ref.read(scanResultProvider.notifier);
@@ -620,7 +621,6 @@ class _ChipSelectorField extends StatelessWidget {
     required this.onSelect,
     this.aiConfidence,
     this.enabled = true,
-    this.allowUnknown = true,
   });
 
   final String label;
@@ -631,23 +631,18 @@ class _ChipSelectorField extends StatelessWidget {
   final int? aiConfidence;
   final bool enabled;
 
-  /// Appends an amber "Unknown" chip so a volunteer who genuinely can't
-  /// determine a constrained field can flag it for the audiologist rather than
-  /// guessing or stalling the completion gate. Disabled for fields that are
-  /// almost always visually determinable (e.g. Power), where an `Unknown`
-  /// tends to mean "didn't look" more than "ambiguous".
-  final bool allowUnknown;
-
   @override
   Widget build(BuildContext context) {
     final current = field?.value ?? '';
     final hasFill = current.isNotEmpty && current != '—';
 
-    // The real options plus the Unknown escape valve, de-duplicated in case a
-    // caller already lists it explicitly.
+    // The real options plus the amber "Unknown" escape valve — a volunteer who
+    // genuinely can't determine a constrained field flags it for the audiologist
+    // rather than guessing or stalling the completion gate. De-duplicated in case
+    // a caller already lists it explicitly.
     final chips = [
       ...options,
-      if (allowUnknown && !options.contains(kUnknownValue)) kUnknownValue,
+      if (!options.contains(kUnknownValue)) kUnknownValue,
     ];
 
     return _FieldContainer(

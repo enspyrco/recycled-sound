@@ -45,6 +45,25 @@
 <h1>Photo capture protocols</h1>
 <p class="sub">Reference shoot guides for the Recycled Sound device register. Pick the section that matches the device shape you're capturing - you only need ONE set per device.</p>
 
+<!-- ============================================================ -->
+<!-- 0. SCANNER IDENTIFY PROTOCOL (the 6 rules)                   -->
+<!-- ============================================================ -->
+<div class="winner-callout" style="margin-top: 16px; background:#eaf5ee; border-left-color:#1f6f43;">
+  <b>Scanner identify protocol - the 6 rules that make a scan succeed.</b> This is separate from the full reference shoot below (which captures all six faces for the register). To <i>identify</i> a device, the app only needs <b>one good photo of the brand-label face</b> - but it must follow these six rules. Validated 2026-06-18 against real hand-held photos: when all six held, the scanner read the brand ("ReSound"); when the device was held in a fist or shown thin-edge-on, nothing read at all - and no smarter model fixes a label that isn't pointing at the camera.
+</div>
+
+<div class="order">
+  <ol style="margin:6px 0; padding-left:20px; line-height:1.6;">
+    <li><b>Show the brand-label face.</b> Brand and model are read by OCR off the printed label. Depending on the make it's on the inner (medial) face or the battery-door end - point <i>that</i> face at the camera. If the label isn't visible, there is nothing to read. <span style="color:#888">(In testing, a device shown battery-door-up read only "CE"; the same device label-up read the brand.)</span></li>
+    <li><b>Hold at the fingertips - never fist it.</b> Fingers wrapping the body hide the device outline, so the scanner sees "an object in a hand" and can't lock on. Pinch one end so the whole body and label are exposed. <span style="color:#888">(Occlusion - not poor light - was the difference between a read and a blank in testing.)</span></li>
+    <li><b>Fill the frame - move in close.</b> The label text is tiny; at arm's length it's only a few dozen pixels wide and OCR grabs fragments ("Rel" instead of "ReSound"). Get the device filling most of the frame. <span style="color:#888">(You can't fix this afterwards - enlarging a far-away photo does NOT recover the detail.)</span></li>
+    <li><b>Get it sharp.</b> Tap to focus or use macro; hold ~10-15 cm away. A soft, blurry label is unreadable no matter how good the lighting.</li>
+    <li><b>Plain, contrasting background.</b> A dark device against a dark couch or skin blurs the edge. A plain, light surface gives a clean outline. <span style="color:#888">(Helps the device stand out; brightness alone is not the lever - presentation is.)</span></li>
+    <li><b>Hold still a beat.</b> The app waits for the device to stop moving before it captures - a still frame is sharp by construction. Rest your hand and pause.</li>
+  </ol>
+  <p style="margin:8px 0 2px;"><b>What kills a scan</b> (each one cost a failed identify in testing): label face hidden (showing the shell or battery door instead) &middot; fingers wrapping the body &middot; device shown thin-edge-on &middot; device tiny in the frame &middot; motion blur.</p>
+</div>
+
 <div class="winner-callout" style="margin-top: 16px;">
   <b>One set per shape class.</b> The two BTE protocols below cover the same 6 anatomical orientations - they're not additive. Default to the <b>hand-held naturals</b> flow. The table rig is legacy: kept for reference and for the rare case where you specifically want a clean scale-card shot for register display, but real-world testing showed hand-shots outperformed calibrated rig shots for training data (22/22 naturals worked; ~3 scaled-protocol attempts failed). Non-BTE shapes and accessories ARE additional - take those when you encounter them.
 </div>

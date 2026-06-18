@@ -37,3 +37,9 @@ data/photos_nick_aids/
 data/spike_out/
 data/spike_box/
 data/mobile_sam.pt
+data/spike_in/
+data/spike_real_point/
+data/spike_real_box/
+data/spike_dts/
+data/yolov8s-worldv2.pt
+data/yolov8s-world.pt

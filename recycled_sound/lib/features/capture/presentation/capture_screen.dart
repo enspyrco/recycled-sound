@@ -310,11 +310,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         _captured[shotStep] = xFile.path;
         _currentStep = _nextUnshotStep();
       });
-      // A brand-label (medial) shot just landed — read brand/model off it so
-      // the volunteer never types them. Fire-and-forget: OCR must never block
-      // or fail the capture.
-      if (CaptureSlot.pairSequence[shotStep].slot == CaptureSlot.medial) {
-        unawaited(_runOcr());
+      // Read brand/model off whatever face carries the printed label — it is
+      // NOT always the medial side, so OCR the shot we just took rather than
+      // only the medial one. Fire-and-forget: OCR must never block or fail the
+      // capture. Skip once both fields are known.
+      if (_brand.isEmpty || _model.isEmpty) {
+        unawaited(_runOcr(xFile.path));
       }
     } catch (e) {
       if (mounted) {
@@ -358,20 +359,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 _captured[i]!,
       };
 
-  /// Run OCR over the captured brand-label (medial) shots — left and right —
-  /// and fill brand/model from whatever it reads. Best-effort and off the
-  /// camera thread: a failure leaves the fields blank for the audiologist. Does
-  /// not overwrite a brand/model the volunteer already corrected by hand.
-  Future<void> _runOcr() async {
-    final paths = [
-      for (var i = 0; i < CaptureSlot.pairSequence.length; i++)
-        if (CaptureSlot.pairSequence[i].slot == CaptureSlot.medial &&
-            _captured[i] != null)
-          _captured[i]!,
-    ];
-    if (paths.isEmpty) return;
+  /// Run OCR over a single captured shot and fill brand/model from whatever it
+  /// reads. The printed label can be on ANY face (not just the medial side),
+  /// so this fires on every captured shot — the first face whose text resolves
+  /// a brand/model wins. Best-effort and off the camera thread: a failure
+  /// leaves the fields blank for the audiologist, and a brand/model the
+  /// volunteer already entered by hand is never overwritten.
+  Future<void> _runOcr(String path) async {
+    if (_brand.isNotEmpty && _model.isNotEmpty) return;
     setState(() => _detecting = true);
-    final id = await _ocr.identify(paths);
+    final id = await _ocr.identify([path]);
     if (!mounted) return;
     setState(() {
       _detecting = false;

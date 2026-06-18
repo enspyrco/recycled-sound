@@ -32,3 +32,8 @@ database-debug.log
 
 # Local hearing-aid capture data — large binaries, kept local (accidentally committed in #83, untracked in this commit)
 data/photos_nick_aids/
+
+# Option-D segmentation spike artifacts (regenerable)
+data/spike_out/
+data/spike_box/
+data/mobile_sam.pt

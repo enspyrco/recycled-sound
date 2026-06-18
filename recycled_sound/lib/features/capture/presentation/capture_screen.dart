@@ -202,7 +202,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
       controller = CameraController(
         desc,
-        ResolutionPreset.high,
+        // 1080p stills: these photos are the clinical/training record, and the
+        // model number is printed tiny and sideways on the medial face, so 720p
+        // (`.high`) is marginal as an archival still. `.veryHigh` (1920x1080,
+        // ~1.3MB JPEGs) reads the label clearly while keeping the 14-shot save
+        // fast enough for a 300-device photo day — `.max` (12MP, ~4MB) tripled
+        // upload time for no legibility we need.
+        ResolutionPreset.veryHigh,
         enableAudio: false,
         imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
             ? ImageFormatGroup.bgra8888

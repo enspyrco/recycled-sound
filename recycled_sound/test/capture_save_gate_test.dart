@@ -150,6 +150,31 @@ void main() {
         reason: 'the captured shot is handed to the upload by slot key');
     expect(find.text('UPLOADING SCREEN'), findsOneWidget);
   }, skip: !fontReady);
+
+  testWidgets('a tapped colour swatch carries onto the saved device (#22)',
+      (tester) async {
+    await pump(tester);
+    await settle(tester);
+
+    await takeOneShot(tester);
+
+    // Open details, enter the box, then pick a colour from the swatches rather
+    // than typing it (the swatch names match the register's ColourClassifier
+    // palette, so the value is consistent).
+    await tester.tap(find.text('Tap to add box number (required)'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'B07');
+    await tester.tap(find.text('Black')); // a palette swatch label
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(recorder?.draft?.colour, 'Black',
+        reason: 'the chosen swatch name is the device colour');
+  }, skip: !fontReady);
 }
 
 /// Records what [start] was called with instead of running a real upload.

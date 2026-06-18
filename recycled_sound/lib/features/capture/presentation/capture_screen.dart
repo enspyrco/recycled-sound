@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../devices/data/models/device.dart';
+import '../../scanner/data/colour_classifier.dart';
 import '../data/capture_ocr.dart';
 import '../data/focus_control.dart';
 import '../providers/capture_seed.dart';
@@ -679,13 +680,18 @@ class _DetailsDialog extends StatefulWidget {
 class _DetailsDialogState extends State<_DetailsDialog> {
   late final TextEditingController _box =
       TextEditingController(text: widget.initial.box);
-  late final TextEditingController _colour =
-      TextEditingController(text: widget.initial.colour);
+
+  // Colour is chosen from swatches, not typed: free-text produced inconsistent
+  // names ("beige" vs "tan" vs "skin") that don't match the register. The
+  // selected value is a palette NAME (or '' for none); it's matched
+  // case-insensitively against whatever the initial colour was.
+  late String _colour = widget.initial.colour;
+
+  bool _isSelected(String name) => name.toLowerCase() == _colour.toLowerCase();
 
   @override
   void dispose() {
     _box.dispose();
-    _colour.dispose();
     super.dispose();
   }
 
@@ -695,6 +701,7 @@ class _DetailsDialogState extends State<_DetailsDialog> {
       title: const Text('Device details'),
       content: SingleChildScrollView(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
@@ -707,15 +714,29 @@ class _DetailsDialogState extends State<_DetailsDialog> {
                 helperText: 'Required — the label on the box',
               ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _colour,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Colour',
-                hintText: 'e.g. Beige, Grey',
-                helperText: 'Brand & model are read from the photos for you',
-              ),
+            const SizedBox(height: 20),
+            Text('Colour', style: AppTypography.label),
+            const SizedBox(height: 2),
+            Text(
+              'Tap the closest match — brand & model are read from the photos',
+              style: AppTypography.caption,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (final entry in ColourClassifier.palette)
+                  _ColourSwatch(
+                    name: entry.name,
+                    color: entry.color,
+                    selected: _isSelected(entry.name),
+                    // Tapping the selected swatch clears it (colour is optional).
+                    onTap: () => setState(
+                      () => _colour = _isSelected(entry.name) ? '' : entry.name,
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
@@ -727,11 +748,77 @@ class _DetailsDialogState extends State<_DetailsDialog> {
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(
-            _DeviceDetails(box: _box.text, colour: _colour.text),
+            _DeviceDetails(box: _box.text, colour: _colour),
           ),
           child: const Text('OK'),
         ),
       ],
+    );
+  }
+}
+
+/// A single tappable colour swatch: a filled square with the colour name below.
+/// Selected swatches gain a highlight ring and a check mark so the choice reads
+/// clearly against any swatch colour (including the pale beiges).
+class _ColourSwatch extends StatelessWidget {
+  const _ColourSwatch({
+    required this.name,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String name;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 64,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: selected ? AppColors.primary : AppColors.border,
+                  width: selected ? 3 : 1,
+                ),
+              ),
+              // Contrast the check against the swatch — a white tick vanishes
+              // on the pale beiges, a black one on the espressos.
+              child: selected
+                  ? Icon(
+                      Icons.check,
+                      size: 22,
+                      color: color.computeLuminance() > 0.5
+                          ? Colors.black
+                          : Colors.white,
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              name,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.caption.copyWith(
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? AppColors.primary : null,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

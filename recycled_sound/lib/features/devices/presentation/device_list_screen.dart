@@ -256,7 +256,7 @@ class _DeviceCard extends StatelessWidget {
                       if (device.year.isNotEmpty) device.year,
                       if (device.batterySize != BatterySize.unspecified)
                         'Battery ${device.batterySize.wire}',
-                      // Physical storage box/bag (issue #766) — helps a
+                      // Physical storage box (issue #766) — helps a
                       // volunteer or audiologist physically locate the device.
                       if (device.location.isNotEmpty) 'Box ${device.location}',
                     ].join(' · '),

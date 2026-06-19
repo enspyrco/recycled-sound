@@ -330,7 +330,7 @@ class DraftDevice {
   final String donorId;
   final String scanId;
 
-  /// Physical storage location — the box/bag the device lives in (e.g. `B07`,
+  /// Physical storage location — the box the device lives in (e.g. `B07`,
   /// `C10`). Free text, not a constrained set: the storage layout evolves and
   /// new bins appear faster than an enum could track. Uppercased/trimmed on
   /// save. Metadata, not one of the 7 clinical fields — never gates completion.
@@ -474,7 +474,7 @@ class Device {
   final String donorId;
   final String scanId;
 
-  /// Physical storage location — the box/bag the device lives in (e.g. `B07`,
+  /// Physical storage location — the box the device lives in (e.g. `B07`,
   /// `C10`). Free text, not a constrained set. Uppercased/trimmed on save.
   /// Metadata, not one of the 7 clinical fields — never gates completion.
   final String location;

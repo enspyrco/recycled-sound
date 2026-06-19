@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../devices/data/incoming_device_repository.dart';
+import '../../devices/data/models/device.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -40,10 +40,9 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   late final AnimationController _pulseController;
   late final AnimationController _completionController;
   bool _completionFired = false;
-
-  /// Free-text physical storage location (box/bag, e.g. B07). Metadata, not a
-  /// clinical field — never gates the "Add to Register" completion button.
-  final TextEditingController _locationController = TextEditingController();
+  // Reentrancy guard for the async "Add to Register" persist — the button is
+  // only enabled when complete, but a double-tap could still fire two writes.
+  bool _persisting = false;
 
   @override
   void initState() {
@@ -63,7 +62,6 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   void dispose() {
     _pulseController.dispose();
     _completionController.dispose();
-    _locationController.dispose();
     super.dispose();
   }
 
@@ -160,22 +158,37 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .updateField(ScanField.tubing, v),
                   ),
 
-                  // 5. POWER — toggle (battery vs rechargeable). No Unknown
-                  // chip: power source is almost always visually determinable,
-                  // so an Unknown here would mean "didn't look", not "ambiguous".
+                  // 5. POWER — Battery / Rechargeable / Unknown. Volunteers
+                  // can't always tell battery vs rechargeable at a glance (a
+                  // sealed rechargeable looks like a battery door), so give them
+                  // the same Unknown escape valve as the other fields rather
+                  // than forcing a guess.
                   _ChipSelectorField(
                     label: 'POWER',
                     field: result.powerSource,
                     options: const ['Battery', 'Rechargeable'],
-                    allowUnknown: false,
                     pulseController: _pulseController,
                     onSelect: (v) {
                       final notifier = ref.read(scanResultProvider.notifier);
                       notifier.updateField(ScanField.powerSource, v);
-                      // Clear battery size when switching to rechargeable,
-                      // set N/A so the field counts as filled.
                       if (v == 'Rechargeable') {
+                        // Rechargeable has no disposable cell — set the N/A
+                        // sentinel so battery size counts as filled (it parses
+                        // back to BatterySize.rechargeable on save).
                         notifier.updateField(ScanField.batterySize, 'N/A');
+                      } else {
+                        // Leaving Rechargeable (to Battery OR Unknown): the
+                        // coupled N/A battery is now a lie — a stale
+                        // 'Rechargeable' battery size must not outlive the power
+                        // source that implied it. Clearing it forces the
+                        // volunteer to re-answer (or flag) battery rather than
+                        // persisting "power unknown, battery confidently
+                        // rechargeable" — a contradiction the promotion gate
+                        // would otherwise wave through (Carnot, #111 cage-match).
+                        if (ref.read(scanResultProvider).batterySize.value ==
+                            'N/A') {
+                          notifier.updateField(ScanField.batterySize, '');
+                        }
                       }
                     },
                   ),
@@ -204,10 +217,10 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                         .updateField(ScanField.colour, v),
                   ),
 
-                  // LOCATION — physical storage box/bag (metadata, optional).
-                  // Not one of the 7 clinical fields and not counted toward the
-                  // completion gate; purely "where does this device live".
-                  _LocationField(controller: _locationController),
+                  // NB: the box number is NOT collected here. It is the
+                  // FIRST thing the volunteer enters (the box-first modal on the
+                  // home screen, stored in `scanBoxProvider`), so the confirm
+                  // screen just reads it through to the created device.
                 ],
               ),
             ),
@@ -226,13 +239,6 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     );
   }
 
-  /// Persist the confirmed scan to `incoming/`, then route to the register.
-  ///
-  /// The scanner already uploaded the source image to `scans/{uid}/…` (the
-  /// transient scan-mode bucket), so we reference that download URL in
-  /// `photos[]` rather than re-uploading. Intake photos captured via the
-  /// device-intake flow land in the durable `captures/{uid}/{deviceId}/` bucket
-  /// (see [IncomingDeviceRepository.createIncoming]).
   /// Submit scan corrections (training telemetry). Guarded so a failed write
   /// can never strand the volunteer — lost corrections are recoverable from the
   /// scan doc later; the volunteer's flow is not.
@@ -254,6 +260,8 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
   }
 
   Future<void> _confirmAndPersist(ScanResult result) async {
+    if (_persisting) return;
+    _persisting = true;
     HapticFeedback.mediumImpact();
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
@@ -261,37 +269,61 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
 
     final brand = result.brand.value;
     final model = result.model.value;
-    final box = _locationController.text.trim().toUpperCase();
+    // Box was entered up front in the box-first home modal (the single source
+    // for the box number); read it straight through to the created device.
+    final box = ref.read(scanBoxProvider).trim().toUpperCase();
 
-    // Capture-all-uniformly: every confirmed scan goes on to shoot a full photo
-    // set — training data wants many sets per model, not one, so we NEVER skip.
-    // The scanner's job here is auto-IDENTIFICATION; the capture flow creates
-    // the device with the photos, seeded with the identity + box below. We
-    // surface coverage ("set #N of this model") so the day's distribution is
-    // visible, but it never gates the shoot — a count failure is non-fatal.
-    var existing = 0;
-    try {
-      existing = await repo.countReferenceSetsFor(brand, model);
-    } catch (_) {
-      // Coverage is cosmetic — proceed to capture regardless.
-    }
-    if (!mounted) return;
-
+    // Persist the volunteer's field corrections to the scan doc (training
+    // signal) before creating the device.
     await _submitCorrections(result);
     if (!mounted) return;
 
-    ref.read(captureSeedProvider.notifier).state =
-        CaptureSeed(brand: brand, model: model, box: box);
+    // Identify-only: confirming ADDS the device to the register with the
+    // scanned identity and the confirmed 7 fields, but NO photos. Photos are a
+    // separate, optional step the volunteer takes via the home "Capture photos
+    // for later" button — the scanner is an identification tool, not a
+    // photo-capture flow (it no longer chains into /capture). Clinical-value
+    // strings are parsed through the tolerant `fromWire` enums, which map the
+    // `Unknown` sentinel + blanks to `unspecified`; the genuine "needs input"
+    // signal rides on `needsInputFields`, not the value (see
+    // feedback_provenance_not_value).
+    final draft = DraftDevice(
+      brand: brand,
+      model: model,
+      type: Style.fromWire(result.type.value),
+      tubing: Tubing.fromWire(result.tubing?.value),
+      powerSource: PowerSource.fromWire(result.powerSource?.value),
+      batterySize: BatterySize.fromWire(result.batterySize.value),
+      colour: result.colour?.value ?? '',
+      location: box,
+      scanId: result.scanId,
+      needsInputFields: result.volunteerUnknownFields,
+    );
+
     final label = [brand, model].where((s) => s.isNotEmpty).join(' ');
+    try {
+      await repo.createIncoming(draft);
+    } catch (_) {
+      if (!mounted) return;
+      _persisting = false;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not add to register — please try again'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
     messenger.showSnackBar(
       SnackBar(
-        content: Text(label.isEmpty
-            ? 'Let\'s photograph this device'
-            : 'Set #${existing + 1} of $label — let\'s get photos'),
+        content: Text(
+          label.isEmpty ? 'Added to register' : '$label added to register',
+        ),
         backgroundColor: AppColors.accent,
       ),
     );
-    router.go('/capture');
+    router.go('/');
   }
 
   /// Battery size field — null if empty (triggers amber pulse).
@@ -493,6 +525,10 @@ class _AiTextFieldState extends State<_AiTextField> {
                 cursorColor: AppColors.success,
                 decoration: const InputDecoration(
                   isDense: true,
+                  // Transparent — the app's light InputDecorationTheme fills
+                  // white by default, which would paint a white box (and white-
+                  // on-white text) over this dark field container.
+                  filled: false,
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.symmetric(vertical: 4),
                 ),
@@ -505,19 +541,38 @@ class _AiTextFieldState extends State<_AiTextField> {
               onTap: _save,
             ),
           ] else ...[
+            // The value (or the "tap to enter" placeholder) IS the edit
+            // affordance — tapping anywhere on it opens the text field. No
+            // separate "+"/pencil button: the obvious target should be the one
+            // that works. `opaque` so the whole row width is tappable, including
+            // the empty space the placeholder doesn't fill.
             Expanded(
-              child: Text(
-                hasFill ? widget.field.value : '— tap to enter —',
-                style: _valueStyle(hasFill),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _editing = true),
+                child: Text(
+                  hasFill ? widget.field.value : '— tap to enter —',
+                  style: _valueStyle(hasFill),
+                ),
               ),
             ),
             if (hasFill) _ConfidenceBadge(confidence: confidence),
             const SizedBox(width: 8),
-            _ActionButton(
-              icon: hasFill ? Icons.edit_outlined : Icons.add,
-              color: hasFill ? const Color(0xFF666666) : _amberColor,
-              onTap: () => setState(() => _editing = true),
-            ),
+            // Unknown escape valve so a volunteer who can't determine a free-text
+            // identity field (e.g. a Signia whose model isn't legible) can flag
+            // it for the audiologist rather than guessing. Saving routes through
+            // `updateField`, which stamps [FieldSource.human], so it reads as a
+            // deliberate handoff (`isVolunteerUnknown`), not an AI read failure
+            // that shares the string. Same amber "Unknown" pill as the chip
+            // sections (Style/Tubing/Battery), for one consistent gesture across
+            // the whole form. Hidden once the field already reads Unknown.
+            if (widget.field.value != kUnknownValue)
+              _UnknownChip(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  widget.onSave(kUnknownValue);
+                },
+              ),
           ],
         ],
       ),
@@ -529,6 +584,40 @@ class _AiTextFieldState extends State<_AiTextField> {
 // Chip Selector Field — for Style, Tubing, Power, Battery Size
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// The amber "Unknown" pill, styled to match the unselected-Unknown chip in
+/// [_ChipSelectorField] so the free-text fields (Make/Model) flag-as-Unknown
+/// with the exact same gesture and look as the constrained fields. It's an
+/// action, not a toggle — once tapped the field reads "Unknown" and the caller
+/// hides the chip — so it only ever renders in this one (unselected) state.
+class _UnknownChip extends StatelessWidget {
+  const _UnknownChip({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF222222),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: AppColors.warning.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Text(
+          kUnknownValue,
+          style: AppTypography.monoValue.copyWith(
+            color: AppColors.warning.withValues(alpha: 0.8),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ChipSelectorField extends StatelessWidget {
   const _ChipSelectorField({
     required this.label,
@@ -538,7 +627,6 @@ class _ChipSelectorField extends StatelessWidget {
     required this.onSelect,
     this.aiConfidence,
     this.enabled = true,
-    this.allowUnknown = true,
   });
 
   final String label;
@@ -549,23 +637,18 @@ class _ChipSelectorField extends StatelessWidget {
   final int? aiConfidence;
   final bool enabled;
 
-  /// Appends an amber "Unknown" chip so a volunteer who genuinely can't
-  /// determine a constrained field can flag it for the audiologist rather than
-  /// guessing or stalling the completion gate. Disabled for fields that are
-  /// almost always visually determinable (e.g. Power), where an `Unknown`
-  /// tends to mean "didn't look" more than "ambiguous".
-  final bool allowUnknown;
-
   @override
   Widget build(BuildContext context) {
     final current = field?.value ?? '';
     final hasFill = current.isNotEmpty && current != '—';
 
-    // The real options plus the Unknown escape valve, de-duplicated in case a
-    // caller already lists it explicitly.
+    // The real options plus the amber "Unknown" escape valve — a volunteer who
+    // genuinely can't determine a constrained field flags it for the audiologist
+    // rather than guessing or stalling the completion gate. De-duplicated in case
+    // a caller already lists it explicitly.
     final chips = [
       ...options,
-      if (allowUnknown && !options.contains(kUnknownValue)) kUnknownValue,
+      if (!options.contains(kUnknownValue)) kUnknownValue,
     ];
 
     return _FieldContainer(
@@ -798,73 +881,6 @@ class _ColourSwatchField extends StatelessWidget {
             }).toList(),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Location Field — free-text physical storage box/bag (metadata)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// A single labelled free-text field for the physical storage Location ID
-/// (box/bag number, e.g. `B07`, `C10`). Deliberately NOT a chip selector: the
-/// storage layout is open-ended and not a clinical spec. It does not count
-/// toward the 7-field completion gate — purely "where does this device live".
-///
-/// Uppercasing happens at persist time (see `_confirmAndPersist`), so the
-/// raw text is shown as typed and normalised only on save.
-class _LocationField extends StatelessWidget {
-  const _LocationField({required this.controller});
-
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 2),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          color: const Color(0xFF151515),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(width: 3, color: const Color(0xFF3A3A3A)),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        const _FieldLabel(label: 'BOX'),
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            textCapitalization:
-                                TextCapitalization.characters,
-                            style: _valueStyle(true),
-                            cursorColor: AppColors.success,
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              border: InputBorder.none,
-                              hintText: 'Location ID — e.g. B07 (optional)',
-                              hintStyle: TextStyle(
-                                color: Color(0xFF555555),
-                                fontSize: 14,
-                              ),
-                              contentPadding: EdgeInsets.symmetric(vertical: 4),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

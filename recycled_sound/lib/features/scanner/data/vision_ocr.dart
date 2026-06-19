@@ -47,6 +47,13 @@ class VisionOcr {
   /// orientation in degrees (typically 90 for an iPhone back camera in
   /// portrait). The native side maps this to `CGImagePropertyOrientation`.
   ///
+  /// [accurate] picks Vision's recognition level. Leave it **false** on the
+  /// live per-frame path — `.fast` is mandatory there (throughput-sacred).
+  /// Pass **true** only for off-hot-path still OCR (post-capture identify):
+  /// a 2026-06-18 spike found `.accurate` reads brand labels off captured
+  /// stills that `.fast` misses entirely. Defaulting to false guarantees an
+  /// omitted arg can never silently regress the live scanner.
+  ///
   /// Returns the list of recognized text blocks, ordered as Vision
   /// returned them (no sort). Empty list if nothing was found.
   static Future<List<VisionTextBlock>> recognizeText({
@@ -55,6 +62,7 @@ class VisionOcr {
     required int height,
     required int bytesPerRow,
     required int orientation,
+    bool accurate = false,
   }) async {
     final result = await _channel.invokeMethod<List<Object?>>(
       'recognizeText',
@@ -64,7 +72,36 @@ class VisionOcr {
         'height': height,
         'bytesPerRow': bytesPerRow,
         'orientation': orientation,
+        'accurate': accurate,
       },
+    );
+    if (result == null) return const [];
+    return result
+        .whereType<Map<Object?, Object?>>()
+        .map(VisionTextBlock._fromMap)
+        .toList(growable: false);
+  }
+
+  /// Run OCR on a still image already saved on disk (a captured brand-label
+  /// shot). The native side loads the file via `CGImageSource` and honors the
+  /// embedded EXIF orientation, so the caller passes only the path — no bytes,
+  /// dimensions, or orientation needed.
+  ///
+  /// [accurate] defaults to **true**: this path is for off-hot-path still OCR,
+  /// where the 2026-06-18 spike showed `.accurate` reads brand labels that
+  /// `.fast` misses entirely. (The live per-frame path is the only place
+  /// `.fast` is mandatory.)
+  ///
+  /// iOS-only — the channel has no Android implementation, so a call on Android
+  /// throws [MissingPluginException]; the caller is responsible for catching it
+  /// and falling back (see `CaptureOcr`).
+  static Future<List<VisionTextBlock>> recognizeFile({
+    required String path,
+    bool accurate = true,
+  }) async {
+    final result = await _channel.invokeMethod<List<Object?>>(
+      'recognizeFile',
+      {'path': path, 'accurate': accurate},
     );
     if (result == null) return const [];
     return result

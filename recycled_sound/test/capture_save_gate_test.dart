@@ -9,20 +9,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:recycled_sound/features/capture/presentation/capture_screen.dart';
+import 'package:recycled_sound/features/capture/providers/capture_seed.dart';
 import 'package:recycled_sound/features/capture/providers/upload_job.dart';
 import 'package:recycled_sound/features/devices/data/models/device.dart';
 
 import 'support/google_fonts_test_asset.dart';
 
-/// Behavioural tests for CaptureScreen's save gate (#288, follow-up to #104).
+/// Behavioural tests for CaptureScreen's save gate (#288, #96).
 ///
-/// The widget test in capture_camera_lifecycle_test pins the box-number ENTRY
-/// UI; this pins the *save-gate invariant*: a capture with photos but no box
-/// number is blocked, and once a box is entered the upload is kicked with the
-/// box carried into the device. We drive the real production `_save` through a
-/// fake camera whose `takePicture` returns a dummy file (so a shutter tap
-/// populates `_captured`) and a recording [UploadJobController] that captures
-/// what `start` was called with instead of running a real upload.
+/// Box-first reorg (#96): the box number is entered up front in the home
+/// box-first modal, NOT in the capture screen — the capture `_DetailsDialog` is
+/// gone. The box now arrives via [CaptureSeed.box] (scanner→confirm→capture) or
+/// [scanBoxProvider] (direct capture). This pins the *save-gate invariant*: a
+/// capture whose box is somehow empty is blocked with a snackbar (no dialog),
+/// and a capture with a seeded box kicks the upload carrying the box +
+/// CaptureSeed colour into the device. We drive the real production `_save`
+/// through a fake camera whose `takePicture` returns a dummy file (so a shutter
+/// tap populates `_captured`) and a recording [UploadJobController] that
+/// captures what `start` was called with instead of running a real upload.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -59,7 +63,15 @@ void main() {
         .setMockMethodCallHandler(ocrChannel, null);
   });
 
-  Future<void> pump(WidgetTester tester) async {
+  /// Pump the capture screen. [seed] pre-fills the CaptureSeed (the
+  /// scanner→confirm→capture path); when null, [box] seeds [scanBoxProvider]
+  /// (the direct-capture path). Default leaves both empty to exercise the
+  /// no-box block.
+  Future<void> pump(
+    WidgetTester tester, {
+    CaptureSeed? seed,
+    String box = '',
+  }) async {
     final router = GoRouter(
       initialLocation: '/capture',
       routes: [
@@ -79,6 +91,8 @@ void main() {
             recorder = r;
             return r;
           }),
+          captureSeedProvider.overrideWith((ref) => seed),
+          scanBoxProvider.overrideWith((ref) => box),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -100,45 +114,43 @@ void main() {
   }
 
   testWidgets(
-      'saving with photos but no box opens the dialog; cancelling blocks the '
-      'save with a nudge and never starts an upload', (tester) async {
+      'saving with photos but no box (somehow) is blocked with a snackbar and '
+      'never starts an upload — no dialog (#96)', (tester) async {
+    // No seed, no scanBoxProvider box: the box-first modal was bypassed.
     await pump(tester);
     await settle(tester); // camera ready
 
     await takeOneShot(tester);
 
-    // Save with no box entered → the details dialog is forced open.
+    // Save → blocked with a restart nudge. The details dialog is GONE, so the
+    // user is sent back to the home screen rather than offered an inline editor.
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Device details'), findsOneWidget);
 
-    // Cancel without entering a box.
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-
-    // Blocked: the nudge shows, no upload kicked, still on the capture screen.
-    expect(find.text('Enter the box number before saving'), findsOneWidget);
+    expect(
+      find.text('No box number — go back to the home screen and start again'),
+      findsOneWidget,
+    );
+    expect(find.text('Device details'), findsNothing,
+        reason: 'the capture details dialog was removed in #96');
     expect(recorder?.started ?? false, isFalse,
         reason: 'an empty box must not start an upload (provider never read)');
     expect(find.text('UPLOADING SCREEN'), findsNothing);
   }, skip: !fontReady);
 
   testWidgets(
-      'with a box entered, save starts the upload carrying the box and routes '
-      'to the progress screen', (tester) async {
-    await pump(tester);
+      'with a box from scanBoxProvider (direct capture), save starts the '
+      'upload carrying the box and routes to the progress screen (#96)',
+      (tester) async {
+    // Direct "Capture photos for later" home button: the box-first modal stored
+    // the box in scanBoxProvider, no CaptureSeed.
+    await pump(tester, box: 'B07');
     await settle(tester);
 
     await takeOneShot(tester);
 
-    // Enter the box up front via the details bar.
-    await tester.tap(find.text('Tap to add box number (required)'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'b07');
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-
-    // Now save → upload kicked with the trimmed/uppercased box, and we route on.
+    // Save → upload kicked with the box, and we route on. No box entry needed
+    // here — it was entered up front in the home modal.
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -151,29 +163,30 @@ void main() {
     expect(find.text('UPLOADING SCREEN'), findsOneWidget);
   }, skip: !fontReady);
 
-  testWidgets('a tapped colour swatch carries onto the saved device (#22)',
+  testWidgets(
+      'the colour from CaptureSeed carries onto the saved device (#96, was #22)',
       (tester) async {
-    await pump(tester);
+    // Scanner→confirm→capture path: confirm seeds box + the confirmed colour.
+    // Colour is no longer pickable in capture — it flows from the seed.
+    await pump(
+      tester,
+      seed: const CaptureSeed(
+        brand: 'Oticon',
+        model: 'Nera2',
+        box: 'B07',
+        colour: 'Black',
+      ),
+    );
     await settle(tester);
 
     await takeOneShot(tester);
-
-    // Open details, enter the box, then pick a colour from the swatches rather
-    // than typing it (the swatch names match the register's ColourClassifier
-    // palette, so the value is consistent).
-    await tester.tap(find.text('Tap to add box number (required)'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'B07');
-    await tester.tap(find.text('Black')); // a palette swatch label
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(recorder?.draft?.colour, 'Black',
-        reason: 'the chosen swatch name is the device colour');
+        reason: 'the confirmed colour flows from CaptureSeed to the device');
+    expect(recorder?.draft?.location, 'B07');
   }, skip: !fontReady);
 }
 

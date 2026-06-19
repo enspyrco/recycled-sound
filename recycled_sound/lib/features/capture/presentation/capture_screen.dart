@@ -10,7 +10,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../devices/data/models/device.dart';
-import '../../scanner/data/colour_classifier.dart';
 import '../data/capture_ocr.dart';
 import '../data/focus_control.dart';
 import '../providers/capture_seed.dart';
@@ -94,6 +93,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   String _brand = '';
   String _model = '';
 
+  /// Identity fields the volunteer flagged Unknown on the confirm screen, carried
+  /// via [CaptureSeed] so the created device records the volunteer→audiologist
+  /// handoff (`needsInputFields`), not just a bare `'Unknown'` value string.
+  List<ClinicalField> _needsInputFields = const [];
+
   /// True while OCR is running on a freshly-captured brand-label shot, so the
   /// details bar can show an "identifying…" hint.
   bool _detecting = false;
@@ -111,16 +115,25 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     WidgetsBinding.instance.addObserver(this);
     _scheduleInit();
     // If the scanner routed here for a novel device, pre-fill the identity it
-    // already read + the box number, so the volunteer just shoots. Consume the
-    // seed (after this frame) so a later standalone capture starts blank.
+    // already read + the box + the confirmed colour, so the volunteer just
+    // shoots. Consume the seed (after this frame) so a later standalone capture
+    // starts blank.
     final seed = ref.read(captureSeedProvider);
     if (seed != null) {
       _brand = seed.brand;
       _model = seed.model;
       _location = seed.box;
+      _colour = seed.colour;
+      _needsInputFields = seed.needsInputFields;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) ref.read(captureSeedProvider.notifier).state = null;
       });
+    } else {
+      // Standalone capture (the direct "Capture photos for later" home button,
+      // no scanner/confirm in between): the box was entered up front in the
+      // box-first home modal, so read it from there. There is no confirm screen
+      // and hence no colour — colour stays '' and the audiologist sets it later.
+      _location = ref.read(scanBoxProvider);
     }
   }
 
@@ -190,7 +203,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       final backCameras = cameras
           .where((c) => c.lensDirection == CameraLensDirection.back)
           .toList(growable: false);
-      final desc = backCameras
+      final desc =
+          backCameras
               .where((c) => c.lensType == CameraLensType.ultraWide)
               .firstOrNull ??
           backCameras
@@ -231,8 +245,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       // doesn't add yet another Web-incompatible reference; the channel
       // itself is iOS-only anyway and resolves to false elsewhere.
       final nearApplied = await FocusControl.setNearFocus(
-        deviceUniqueId:
-            defaultTargetPlatform == TargetPlatform.iOS ? desc.name : null,
+        deviceUniqueId: defaultTargetPlatform == TargetPlatform.iOS
+            ? desc.name
+            : null,
       );
       if (_disposed || gen != _initGen) {
         await _safeDispose(controller);
@@ -353,12 +368,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   /// position. The storage filename is derived from this key, so a skipped
   /// step can never shift another shot onto the wrong label.
   Map<String, String> get _capturedByKey => {
-        for (var i = 0; i < CaptureSlot.pairSequence.length; i++)
-          if (_captured[i] != null)
-            '${CaptureSlot.pairSequence[i].side.name}_'
-                    '${CaptureSlot.pairSequence[i].slot.name}':
-                _captured[i]!,
-      };
+    for (var i = 0; i < CaptureSlot.pairSequence.length; i++)
+      if (_captured[i] != null)
+        '${CaptureSlot.pairSequence[i].side.name}_'
+                '${CaptureSlot.pairSequence[i].slot.name}':
+            _captured[i]!,
+  };
 
   /// Run OCR over a single captured shot and fill brand/model from whatever it
   /// reads. The printed label can be on ANY face (not just the medial side),
@@ -380,49 +395,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     });
   }
 
-  /// Prompt for the volunteer-enterable details (box number + the easy
-  /// identification fields). The dialog ([_DetailsDialog]) owns its own
-  /// controllers and disposes them in *its* `State.dispose` — disposing right
-  /// after `await showDialog` would touch a controller the `TextField` still
-  /// rebuilds during the route's exit animation (a real crash).
-  Future<void> _editDetails() async {
-    final result = await showDialog<_DeviceDetails>(
-      context: context,
-      builder: (context) => _DetailsDialog(
-        initial: _DeviceDetails(box: _location, colour: _colour),
-      ),
-    );
-    if (result != null && mounted) {
-      setState(() {
-        _location = result.box.trim().toUpperCase();
-        _colour = result.colour.trim();
-      });
-    }
-  }
-
   Future<void> _save() async {
     final slotPhotos = _capturedByKey;
     if (slotPhotos.isEmpty || _saving) return;
 
-    // Resolve context-bound handles up front — `_editDetails` awaits below, so
-    // any `of(context)` lookup after it would cross an async gap.
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
 
     // The box number is the link from this photo set back to the physical box
-    // in the register — saving without it orphans the capture. Prompt for it,
-    // and bail (with a clear nudge) if the volunteer still skips it.
+    // in the register — saving without it orphans the capture. It is now
+    // entered up front in the box-first home modal (and seeded here via the
+    // CaptureSeed / scanBoxProvider), so by here it should always be set. If it
+    // is somehow empty, we cannot recover it on this screen (the entry point is
+    // gone), so block the save and tell the volunteer to restart from home.
     if (_location.isEmpty) {
-      await _editDetails();
-      if (_location.isEmpty) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Enter the box number before saving'),
-            backgroundColor: AppColors.error,
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No box number — go back to the home screen and start again',
           ),
-        );
-        return;
-      }
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
     }
 
     setState(() => _saving = true);
@@ -434,6 +429,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       model: _model,
       colour: _colour,
       location: _location,
+      needsInputFields: _needsInputFields,
     );
 
     // Hand the upload to the provider (NOT awaited here) so it survives this
@@ -442,11 +438,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     // success. Uploading 14 full-res stills inline would otherwise freeze this
     // screen for ~10s with no feedback (it reads as a crash to a volunteer).
     unawaited(
-      ref.read(uploadJobProvider.notifier).start(
-            draft: draft,
-            namedPhotoPaths: slotPhotos,
-            box: _location,
-          ),
+      ref
+          .read(uploadJobProvider.notifier)
+          .start(draft: draft, namedPhotoPaths: slotPhotos, box: _location),
     );
     router.go('/capture/uploading');
   }
@@ -459,8 +453,8 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         child: _cameraError != null
             ? _ErrorView(message: _cameraError!)
             : !_cameraReady || _controller == null
-                ? const Center(child: CircularProgressIndicator())
-                : _buildCamera(context),
+            ? const Center(child: CircularProgressIndicator())
+            : _buildCamera(context),
       ),
     );
   }
@@ -497,15 +491,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                   Flexible(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         'Photo capture · no live ID',
-                        style: AppTypography.caption
-                            .copyWith(color: Colors.white70),
+                        style: AppTypography.caption.copyWith(
+                          color: Colors.white70,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -513,7 +510,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(20),
@@ -527,15 +526,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
               ),
               const SizedBox(height: 8),
 
-              // Details bar — box number (required) + the easy identification
-              // fields. Amber call-to-action until a box number is set.
+              // Details bar — shows the box number (entered up front in the
+              // home box-first modal, read-only here) plus what OCR read off
+              // the brand-label shots. Not editable: the box is the single
+              // source of truth set before capture, and brand/model are the
+              // audiologist's to confirm later.
               _DetailsBar(
                 box: _location,
                 colour: _colour,
                 brand: _brand,
                 model: _model,
                 detecting: _detecting,
-                onTap: _editDetails,
               ),
               const SizedBox(height: 12),
 
@@ -557,23 +558,26 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                           const SizedBox(height: 4),
                           Text(
                             'Photo ${_currentStep + 1} of $total · ${_currentSlot.title}',
-                            style: AppTypography.label
-                                .copyWith(color: Colors.white60),
+                            style: AppTypography.label.copyWith(
+                              color: Colors.white60,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           // What to shoot — the action, in plain language.
                           Text(
                             _currentSlot.hint,
-                            style:
-                                AppTypography.h4.copyWith(color: Colors.white),
+                            style: AppTypography.h4.copyWith(
+                              color: Colors.white,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           // Why it matters — keeps the step from feeling
                           // arbitrary to a non-expert volunteer.
                           Text(
                             'Why: ${_currentSlot.why}',
-                            style: AppTypography.caption
-                                .copyWith(color: Colors.white70),
+                            style: AppTypography.caption.copyWith(
+                              color: Colors.white70,
+                            ),
                           ),
                         ],
                       ),
@@ -614,10 +618,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                           )
                         : const SizedBox.shrink(),
                   ),
-                  _ShutterButton(
-                    busy: _isCapturing,
-                    onTap: _capture,
-                  ),
+                  _ShutterButton(busy: _isCapturing, onTap: _capture),
                   // Save (enabled once at least one photo exists).
                   SizedBox(
                     width: 72,
@@ -653,182 +654,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   }
 }
 
-/// The volunteer-enterable device details, carried between the dialog and the
-/// screen as one value. Brand + model are deliberately absent — those are read
-/// by OCR off the brand-label shots, not typed.
-class _DeviceDetails {
-  const _DeviceDetails({required this.box, required this.colour});
-
-  final String box;
-  final String colour;
-}
-
-/// Modal for entering the device details a volunteer can actually provide: the
-/// box number (required) and optionally the colour. A `StatefulWidget` so it
-/// owns its controllers and disposes them in `State.dispose` — which runs only
-/// after the route is fully gone, avoiding the use-after-dispose that disposing
-/// in the caller (right after `await showDialog`) causes during the exit anim.
-class _DetailsDialog extends StatefulWidget {
-  const _DetailsDialog({required this.initial});
-
-  final _DeviceDetails initial;
-
-  @override
-  State<_DetailsDialog> createState() => _DetailsDialogState();
-}
-
-class _DetailsDialogState extends State<_DetailsDialog> {
-  late final TextEditingController _box =
-      TextEditingController(text: widget.initial.box);
-
-  // Colour is chosen from swatches, not typed: free-text produced inconsistent
-  // names ("beige" vs "tan" vs "skin") that don't match the register. The
-  // selected value is a palette NAME (or '' for none); it's matched
-  // case-insensitively against whatever the initial colour was.
-  late String _colour = widget.initial.colour;
-
-  bool _isSelected(String name) => name.toLowerCase() == _colour.toLowerCase();
-
-  @override
-  void dispose() {
-    _box.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Device details'),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _box,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Box number *',
-                hintText: 'e.g. B07, C10',
-                helperText: 'Required — the label on the box',
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text('Colour', style: AppTypography.label),
-            const SizedBox(height: 2),
-            Text(
-              'Tap the closest match — brand & model are read from the photos',
-              style: AppTypography.caption,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                for (final entry in ColourClassifier.palette)
-                  _ColourSwatch(
-                    name: entry.name,
-                    color: entry.color,
-                    selected: _isSelected(entry.name),
-                    // Tapping the selected swatch clears it (colour is optional).
-                    onTap: () => setState(
-                      () => _colour = _isSelected(entry.name) ? '' : entry.name,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(
-            _DeviceDetails(box: _box.text, colour: _colour),
-          ),
-          child: const Text('OK'),
-        ),
-      ],
-    );
-  }
-}
-
-/// A single tappable colour swatch: a filled square with the colour name below.
-/// Selected swatches gain a highlight ring and a check mark so the choice reads
-/// clearly against any swatch colour (including the pale beiges).
-class _ColourSwatch extends StatelessWidget {
-  const _ColourSwatch({
-    required this.name,
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String name;
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 64,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: selected ? AppColors.primary : AppColors.border,
-                  width: selected ? 3 : 1,
-                ),
-              ),
-              // Contrast the check against the swatch — a white tick vanishes
-              // on the pale beiges, a black one on the espressos.
-              child: selected
-                  ? Icon(
-                      Icons.check,
-                      size: 22,
-                      color: color.computeLuminance() > 0.5
-                          ? Colors.black
-                          : Colors.white,
-                    )
-                  : null,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              name,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.caption.copyWith(
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                color: selected ? AppColors.primary : null,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The device-details bar at the top of the capture flow. The top line is the
-/// volunteer-entered part (box number, required, + optional colour): amber call
-/// to action until a box number is set, solid once it is, tappable to edit. A
-/// second line shows what OCR read off the brand-label shots (brand + model) —
-/// not editable here, since the audiologist confirms it; this is just feedback
-/// that the auto-identify worked.
+/// The device-details bar at the top of the capture flow. The top line shows
+/// the box number (entered up front in the home box-first modal, read-only
+/// here) plus the optional colour. A second line shows what OCR read off the
+/// brand-label shots (brand + model) — not editable here, since the audiologist
+/// confirms it; this is just feedback that the auto-identify worked.
 class _DetailsBar extends StatelessWidget {
   const _DetailsBar({
     required this.box,
@@ -836,7 +666,6 @@ class _DetailsBar extends StatelessWidget {
     required this.brand,
     required this.model,
     required this.detecting,
-    required this.onTap,
   });
 
   final String box;
@@ -844,85 +673,78 @@ class _DetailsBar extends StatelessWidget {
   final String brand;
   final String model;
   final bool detecting;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final isSet = box.isNotEmpty;
-    final entered = [
-      if (isSet) 'Box $box',
-      if (colour.isNotEmpty) colour,
-    ];
+    final entered = [if (isSet) 'Box $box', if (colour.isNotEmpty) colour];
     final detected = [brand, model].where((s) => s.isNotEmpty).join(' ');
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSet
-              ? Colors.black54
-              : AppColors.warning.withValues(alpha: 0.22),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSet ? Colors.white24 : AppColors.warning,
-            width: isSet ? 1 : 2,
-          ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: isSet
+            ? Colors.black54
+            : AppColors.warning.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSet ? Colors.white24 : AppColors.warning,
+          width: isSet ? 1 : 2,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isSet ? Icons.inventory_2 : Icons.label_important_outline,
+                color: isSet ? Colors.white : AppColors.warning,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isSet
+                      ? entered.join('  ·  ')
+                      : 'No box number — restart from the home screen',
+                  style: AppTypography.body.copyWith(
+                    color: Colors.white,
+                    fontWeight: isSet ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          // OCR feedback line — only once there's something to say.
+          if (detecting || detected.isNotEmpty) ...[
+            const SizedBox(height: 4),
             Row(
               children: [
+                const SizedBox(width: 30),
                 Icon(
-                  isSet ? Icons.inventory_2 : Icons.label_important_outline,
-                  color: isSet ? Colors.white : AppColors.warning,
-                  size: 20,
+                  detected.isNotEmpty ? Icons.auto_awesome : Icons.search,
+                  color: AppColors.accent,
+                  size: 14,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
+                const SizedBox(width: 6),
+                Flexible(
                   child: Text(
-                    isSet
-                        ? entered.join('  ·  ')
-                        : 'Tap to add box number (required)',
-                    style: AppTypography.body.copyWith(
-                      color: Colors.white,
-                      fontWeight: isSet ? FontWeight.bold : FontWeight.normal,
+                    detected.isNotEmpty
+                        ? 'Read from photo: $detected'
+                        : 'Reading brand & model…',
+                    style: AppTypography.caption.copyWith(
+                      color: Colors.white70,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const Icon(Icons.edit, color: Colors.white54, size: 16),
               ],
             ),
-            // OCR feedback line — only once there's something to say.
-            if (detecting || detected.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const SizedBox(width: 30),
-                  Icon(
-                    detected.isNotEmpty ? Icons.auto_awesome : Icons.search,
-                    color: AppColors.accent,
-                    size: 14,
-                  ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      detected.isNotEmpty
-                          ? 'Read from photo: $detected'
-                          : 'Reading brand & model…',
-                      style: AppTypography.caption
-                          .copyWith(color: Colors.white70),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ],
           ],
-        ),
+        ],
       ),
     );
   }
@@ -937,8 +759,7 @@ class _SideChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colour =
-        side == AidSide.left ? AppColors.accent : AppColors.success;
+    final colour = side == AidSide.left ? AppColors.accent : AppColors.success;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
@@ -985,8 +806,9 @@ class _StepStrip extends StatelessWidget {
           final step = CaptureSlot.pairSequence[i];
           final shot = captured[i];
           final active = i == currentStep;
-          final sideColour =
-              step.side == AidSide.left ? AppColors.accent : AppColors.success;
+          final sideColour = step.side == AidSide.left
+              ? AppColors.accent
+              : AppColors.success;
           return GestureDetector(
             onTap: () => onSelect(i),
             child: Container(
@@ -1007,7 +829,9 @@ class _StepStrip extends StatelessWidget {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: sideColour.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(4),

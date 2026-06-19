@@ -1,6 +1,7 @@
 import Flutter
 import Vision
 import CoreGraphics
+import ImageIO
 import UIKit
 
 /// Native iOS OCR via Apple's Vision framework.
@@ -71,8 +72,61 @@ class VisionOcrPlugin: NSObject {
         case "recognizeText":
             handleRecognize(call: call, result: result)
 
+        case "recognizeFile":
+            handleRecognizeFile(call: call, result: result)
+
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    /// OCR a still image already on disk (a captured brand-label shot), rather
+    /// than a live camera frame. Loads via CGImageSource so EXIF orientation is
+    /// honored — phone JPEGs are typically orient=6, and ignoring it yields zero
+    /// tokens (a 2026-06-18 spike bug). Off the camera hot path, so the caller
+    /// should pass accurate:true (.accurate reads labels .fast misses).
+    private func handleRecognizeFile(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String else {
+            result(FlutterError(
+                code: "BAD_ARGS",
+                message: "recognizeFile requires path: String",
+                details: nil
+            ))
+            return
+        }
+        let accurate = args["accurate"] as? Bool ?? true
+        let wordsForFrame = self.customWords
+
+        workQueue.async { [weak self] in
+            guard let self = self else { return }
+            guard let src = CGImageSourceCreateWithURL(
+                    URL(fileURLWithPath: path) as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "LOAD_FAIL",
+                        message: "Failed to load image at \(path)",
+                        details: nil
+                    ))
+                }
+                return
+            }
+            // Read the embedded EXIF orientation; default .up if absent.
+            var cgOrientation: CGImagePropertyOrientation = .up
+            if let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil)
+                    as? [CFString: Any],
+               let raw = props[kCGImagePropertyOrientation] as? UInt32,
+               let parsed = CGImagePropertyOrientation(rawValue: raw) {
+                cgOrientation = parsed
+            }
+            self.runRecognition(
+                cgImage: cgImage,
+                orientation: cgOrientation,
+                customWords: wordsForFrame,
+                accurate: accurate,
+                result: result
+            )
         }
     }
 
@@ -96,6 +150,14 @@ class VisionOcrPlugin: NSObject {
         // the value at the time of the call, not a torn read.
         let wordsForFrame = self.customWords
 
+        // Recognition level is caller-chosen. The LIVE per-frame path passes
+        // false (.fast) — it runs on the camera hot path where throughput is
+        // sacred. Off-hot-path STILL OCR (post-capture identify) should pass
+        // true (.accurate): a 2026-06-18 spike showed .accurate reads brand
+        // labels off captured stills that .fast misses entirely. Default false
+        // so an omitted arg can never silently regress the live path.
+        let accurate = args["accurate"] as? Bool ?? false
+
         workQueue.async { [weak self] in
             guard let self = self else { return }
             self.performRecognition(
@@ -105,6 +167,7 @@ class VisionOcrPlugin: NSObject {
                 bytesPerRow: bytesPerRow,
                 orientationRaw: orientationRaw,
                 customWords: wordsForFrame,
+                accurate: accurate,
                 result: result
             )
         }
@@ -117,6 +180,7 @@ class VisionOcrPlugin: NSObject {
         bytesPerRow: Int,
         orientationRaw: Int,
         customWords: [String],
+        accurate: Bool,
         result: @escaping FlutterResult
     ) {
         // Build a CGImage from the BGRA8888 byte buffer the camera
@@ -180,6 +244,26 @@ class VisionOcrPlugin: NSObject {
         default:  cgOrientation = .up
         }
 
+        runRecognition(
+            cgImage: cgImage,
+            orientation: cgOrientation,
+            customWords: customWords,
+            accurate: accurate,
+            result: result
+        )
+    }
+
+    /// Shared Vision OCR core: build + perform a VNRecognizeTextRequest on a
+    /// CGImage, marshal the results back to Flutter. Both the live-frame
+    /// (bytes) and the still-file (path) entry points funnel through here so
+    /// the recognition config stays identical between them.
+    private func runRecognition(
+        cgImage: CGImage,
+        orientation cgOrientation: CGImagePropertyOrientation,
+        customWords: [String],
+        accurate: Bool,
+        result: @escaping FlutterResult
+    ) {
         let request = VNRecognizeTextRequest { (request, error) in
             if let error = error {
                 DispatchQueue.main.async {
@@ -214,10 +298,12 @@ class VisionOcrPlugin: NSObject {
             }
         }
 
-        // .fast is the speed-optimised path (vs .accurate which uses a
-        // heavier model). For our use case the model name will appear
-        // in customWords, so .fast + bias is the right tradeoff.
-        request.recognitionLevel = .fast
+        // .fast is the speed-optimised path; .accurate uses a heavier model.
+        // .fast + customWords bias is the right tradeoff ON THE LIVE HOT PATH
+        // (per-frame, throughput-sacred). But for off-hot-path still OCR the
+        // 2026-06-18 spike found .accurate reads labels .fast misses entirely
+        // (e.g. "Resouno"→ReSound where .fast returned nothing). Caller picks.
+        request.recognitionLevel = accurate ? .accurate : .fast
         // Language correction is *bad* for product/model names — it
         // would push "Moxi" toward "Moxie" or similar. Off.
         request.usesLanguageCorrection = false

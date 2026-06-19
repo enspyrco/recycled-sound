@@ -32,3 +32,35 @@ database-debug.log
 
 # Local hearing-aid capture data — large binaries, kept local (accidentally committed in #83, untracked in this commit)
 data/photos_nick_aids/
+
+# Option-D segmentation spike artifacts (regenerable)
+data/spike_out/
+data/spike_box/
+data/mobile_sam.pt
+data/spike_in/
+data/spike_real_point/
+data/spike_real_box/
+data/spike_dts/
+data/yolov8s-worldv2.pt
+data/yolov8s-world.pt
+data/spike_sam3/
+data/spike_sam3_lo/
+data/spike_sam3_lo2/
+data/spike_reticle/
+data/spike_sam2b/
+data/spike_loop/
+data/dinov2_catalog.npz
+data/sam2_b.pt
+spike_crop_*.png
+spike_sam3_*/
+spike_in/
+
+# Task #57 EdgeSAM-vs-crop spike outputs (reproducible from spike_crop_vs_segment.py)
+data/spike_cvs/
+data/spike_cvs_sweep/
+data/spike_cvs_sweep2/
+data/spike_scale/
+
+# #56 OCR-first certification captures (raw HEIC + converted)
+data/certify_raw/
+data/certify_set/

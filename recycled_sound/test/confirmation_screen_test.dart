@@ -1,8 +1,18 @@
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
+import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
+import 'package:recycled_sound/features/capture/providers/capture_seed.dart';
+import 'package:recycled_sound/features/devices/data/incoming_device_repository.dart';
+import 'package:recycled_sound/features/devices/data/models/device.dart';
+import 'package:recycled_sound/features/devices/providers/device_providers.dart';
+import 'package:recycled_sound/features/scanner/data/models/scan_result.dart';
 import 'package:recycled_sound/features/scanner/presentation/confirmation_screen.dart';
+import 'package:recycled_sound/features/scanner/providers/scanner_providers.dart';
 
 void main() {
   // Regression test for the black "4 OF 7" screen (issue #70, second half).
@@ -42,4 +52,199 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 2));
   });
+
+  // #94: a Signia whose model isn't legible — the volunteer marks MODEL Unknown
+  // rather than guessing. The tap must register as a *deliberate* handoff
+  // (human-sourced Unknown), not an AI read failure that shares the string.
+  testWidgets('tapping Unknown on MODEL flags a volunteer handoff (#94)',
+      (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    // A normal AI result with a real model value, so the Unknown valve shows.
+    container.read(scanResultProvider.notifier).setResult(
+          ScanResult.mock().copyWith(
+            model: const SpecField(value: 'More 1', confidence: 90),
+          ),
+        );
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: ConfirmationScreen()),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // The amber "Unknown" pill inside the MODEL row (replaced the old help-icon
+    // button — same handoff, now styled like the chip sections).
+    final modelRow =
+        find.ancestor(of: find.text('MODEL'), matching: find.byType(Row)).first;
+    final modelUnknown =
+        find.descendant(of: modelRow, matching: find.text(kUnknownValue));
+    expect(modelUnknown, findsOneWidget);
+
+    await tester.tap(modelUnknown);
+    await tester.pump();
+
+    final result = container.read(scanResultProvider);
+    expect(result.model.value, kUnknownValue);
+    expect(result.model.source, FieldSource.human,
+        reason: 'a tapped Unknown is a human verdict, not an AI default');
+    expect(result.model.isVolunteerUnknown, isTrue);
+    expect(result.volunteerUnknownFields, contains(ClinicalField.model),
+        reason: 'so the created device records needsInputFields:[model]');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  // #25 / Option B: the scanner is an identification tool, not a photo-capture
+  // flow. Confirming a complete scan ADDS an identity-only device to the
+  // register (the 7 confirmed fields + box, NO photos) and returns home — it no
+  // longer chains into /capture. Photos are a separate step via the home
+  // "Capture photos for later" button.
+  testWidgets('Add to Register creates an identity-only device (no photos) and '
+      'routes home', (tester) async {
+    final repo = _RecordingRepo();
+    final container = ProviderContainer(overrides: [
+      incomingDeviceRepositoryProvider.overrideWithValue(repo),
+      scanBoxProvider.overrideWith((ref) => 'B07'),
+    ]);
+    addTearDown(container.dispose);
+    // A fully-resolved 7-field result so the "Add to Register" button enables
+    // (isComplete) and every clinical value parses to a real enum.
+    container.read(scanResultProvider.notifier).setResult(
+          ScanResult.mock().copyWith(
+            brand: const SpecField(value: 'Oticon', confidence: 95),
+            model: const SpecField(value: 'More 1', confidence: 92),
+            type: const SpecField(value: 'BTE', confidence: 90),
+            tubing: const SpecField(value: 'Slim', confidence: 88),
+            powerSource: const SpecField(value: 'Battery', confidence: 88),
+            batterySize: const SpecField(value: '312', confidence: 88),
+            colour: const SpecField(value: 'Black', confidence: 88),
+          ),
+        );
+
+    final router = GoRouter(
+      initialLocation: '/scan/confirm',
+      routes: [
+        GoRoute(
+          path: '/scan/confirm',
+          builder: (_, _) => const ConfirmationScreen(),
+        ),
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Scaffold(body: Text('HOME')),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Add to Register'));
+    await tester.pump(); // run the async persist
+    await tester.pump(const Duration(milliseconds: 600)); // route transition
+
+    expect(repo.createCalls, 1, reason: 'confirming persists exactly one device');
+    final draft = repo.lastDraft!;
+    expect(draft.brand, 'Oticon');
+    expect(draft.model, 'More 1');
+    expect(draft.type, Style.bte);
+    expect(draft.tubing, Tubing.slim);
+    expect(draft.powerSource, PowerSource.battery);
+    expect(draft.batterySize, BatterySize.size312);
+    expect(draft.colour, 'Black');
+    expect(draft.location, 'B07',
+        reason: 'the box-first box number lands as the device location');
+    expect(draft.needsInputFields, isEmpty,
+        reason: 'every field was resolved, so nothing is flagged');
+    expect(repo.lastLocalPaths, isEmpty);
+    expect(repo.lastNamedPaths, isEmpty,
+        reason: 'identity-only: the scan path uploads NO photos');
+    expect(find.text('HOME'), findsOneWidget,
+        reason: 'after adding to the register the scanner returns home, '
+            'NOT into the capture flow');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  // #111 cage-match (Carnot, HIGH): POWER=Rechargeable couples BATTERY to the
+  // 'N/A' sentinel (which parses to BatterySize.rechargeable). Switching POWER
+  // AWAY from Rechargeable — to Unknown or Battery — must CLEAR that coupled
+  // N/A, otherwise the device persists "power unresolved/changed, battery still
+  // confidently Rechargeable", a contradiction the promotion gate waves through.
+  testWidgets('switching POWER off Rechargeable clears the coupled N/A battery '
+      '(#111)', (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(scanResultProvider.notifier).setResult(ScanResult.mock());
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: ConfirmationScreen()),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // 'Rechargeable' and 'Battery' are POWER-only chip labels (BATTERY uses
+    // 10/13/312/675), so they're unambiguous finders. The POWER 'Unknown' valve
+    // is scoped via the Column that also holds the 'Rechargeable' chip.
+    await tester.scrollUntilVisible(find.text('Rechargeable'), 200);
+    await tester.tap(find.text('Rechargeable'));
+    await tester.pump();
+    expect(container.read(scanResultProvider).batterySize.value, 'N/A',
+        reason: 'Rechargeable couples battery to the N/A sentinel');
+
+    final powerColumn = find
+        .ancestor(of: find.text('Rechargeable'), matching: find.byType(Column))
+        .first;
+    await tester.tap(
+        find.descendant(of: powerColumn, matching: find.text(kUnknownValue)));
+    await tester.pump();
+
+    expect(container.read(scanResultProvider).powerSource?.value, kUnknownValue);
+    expect(container.read(scanResultProvider).batterySize.value, '',
+        reason: 'leaving Rechargeable must clear the N/A battery so it is not '
+            'persisted as resolved while the power source is unknown');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
+}
+
+/// Records what [createIncoming] was called with instead of touching Firebase.
+/// Subclasses the real repo only to satisfy the provider's type — the mock
+/// Firebase handles passed to `super` are never used (createIncoming is fully
+/// overridden).
+class _RecordingRepo extends IncomingDeviceRepository {
+  _RecordingRepo()
+      : super(
+          firestore: FakeFirebaseFirestore(),
+          storage: MockFirebaseStorage(),
+          auth: MockFirebaseAuth(
+            signedIn: true,
+            mockUser: MockUser(uid: 'u-1'),
+          ),
+        );
+
+  int createCalls = 0;
+  DraftDevice? lastDraft;
+  List<String>? lastLocalPaths;
+  Map<String, String>? lastNamedPaths;
+
+  @override
+  Future<String> createIncoming(
+    DraftDevice draft, {
+    List<String> localPhotoPaths = const [],
+    Map<String, String> namedPhotoPaths = const {},
+    void Function(String key, int bytesTransferred, int totalBytes)? onProgress,
+  }) async {
+    createCalls++;
+    lastDraft = draft;
+    lastLocalPaths = localPhotoPaths;
+    lastNamedPaths = namedPhotoPaths;
+    return 'dev-1';
+  }
 }

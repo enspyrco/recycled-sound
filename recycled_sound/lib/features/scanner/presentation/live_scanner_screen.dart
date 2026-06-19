@@ -30,6 +30,7 @@ import '../data/frame_preprocessor.dart';
 import '../data/insight_engine.dart';
 import '../data/ocr_token_accumulator.dart';
 import '../data/scan_tracker.dart';
+import '../data/stillness_detector.dart';
 import '../data/vision_ocr.dart';
 import 'widgets/capture_animator.dart';
 import 'widgets/capture_stack.dart';
@@ -154,6 +155,25 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     threshold: 8, // 8/12 consensus — stricter than 5/8 for muted palette
   );
 
+  // ── Option D: motion-stop trigger ──────────────────────────────────
+  // The cheap, always-on change signal. Downstream (segment → identify)
+  // will eventually fire ONCE when the aid comes to rest. For now this only
+  // surfaces live telemetry (debug overlay) so we can watch it fire on a real
+  // held-then-rested device before building the heavy stage on top.
+  final StillnessDetector _stillness = StillnessDetector();
+  // Debug-only telemetry: the two-state signal as a record, NOT a string. The
+  // hot path sets two primitives; the debug widget formats them. (The #108 cage
+  // match flagged the earlier "AT REST  Δ2.3"-then-startsWith design as a
+  // stringly-typed closed set built on the frame loop.) A ValueNotifier so only
+  // the tiny telemetry widget rebuilds — NOT the whole Stack every frame, which
+  // would itself eat the frame budget we hold sacred. Null until the first frame.
+  final ValueNotifier<({bool atRest, double delta})?> _stillTelemetry =
+      ValueNotifier(null);
+
+  // Tap-to-focus reticle position (preview coords) + its auto-clear timer.
+  Offset? _focusReticle;
+  Timer? _focusReticleTimer;
+
   // ── Captures & upload ──────────────────────────────────────────────
   final List<CapturedFeature> _captures = [];
   final List<SnapEvent> _snapEvents = [];
@@ -267,6 +287,8 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     _stopCamera();
     _textRecognizer.close();
     _brandClassifier.dispose();
+    _stillTelemetry.dispose();
+    _focusReticleTimer?.cancel();
     super.dispose();
   }
 
@@ -447,6 +469,26 @@ class _LiveScanScreenState extends State<LiveScanScreen>
     int colourUs = 0, prepUs = 0, ocrUs = 0, matchUs = 0, stateUs = 0;
     int ocrBlocks = 0;
     try {
+      // Option D motion-stop signal — runs on raw bytes, both platforms,
+      // a few thousand byte subtractions (resolution-independent). This is the
+      // cheap trigger half of "motion-stop → segment → identify"; the heavy
+      // segment/identify pass will hang off the rising edge of isStill later.
+      if (image.planes.isNotEmpty) {
+        final atRest = _stillness.push(image.planes[0].bytes);
+        if (kDebugMode) {
+          // Two primitives only — no string work on the hot path. Skip the
+          // notify when neither value changed meaningfully so a stable view
+          // doesn't churn the listener every frame.
+          final prev = _stillTelemetry.value;
+          final delta = _stillness.lastDelta;
+          if (prev == null ||
+              prev.atRest != atRest ||
+              (prev.delta - delta).abs() > 0.1) {
+            _stillTelemetry.value = (atRest: atRest, delta: delta);
+          }
+        }
+      }
+
       // Colour sampling — runs on raw bytes, sub-millisecond.
       // Gated: only starts once ML Kit has found at least one text block,
       // which means something interesting (a hearing aid) is in frame.
@@ -1524,6 +1566,38 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
   /// Navigate directly to results with the on-device detection data.
   /// Skips the old cloud analysis flow — everything is already identified.
+  /// Re-point focus + exposure at the tapped location and flash a reticle.
+  /// [localPos] is in preview-widget coordinates; [size] is the preview's size.
+  void _onFocusTap(Offset localPos, Size size) {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final normalized = Offset(
+      (localPos.dx / size.width).clamp(0.0, 1.0),
+      (localPos.dy / size.height).clamp(0.0, 1.0),
+    );
+    HapticFeedback.selectionClick();
+
+    // Fire-and-forget — a device that doesn't support focus/exposure points
+    // throws; we swallow it (the reticle still shows the tap registered).
+    () async {
+      try {
+        await controller.setFocusPoint(normalized);
+        await controller.setExposurePoint(normalized);
+        await controller.setFocusMode(FocusMode.auto);
+      } catch (e) {
+        _log('tap-to-focus: $e');
+      }
+    }();
+
+    setState(() => _focusReticle = localPos);
+    _focusReticleTimer?.cancel();
+    _focusReticleTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _focusReticle = null);
+    });
+  }
+
   Future<void> _captureAndReview() async {
     if (!mounted) return;
 
@@ -1910,6 +1984,43 @@ class _LiveScanScreenState extends State<LiveScanScreen>
                 child: _buildMlkitDebugOverlay(),
               ),
 
+            // Option D motion-stop telemetry (debug only) — top-right.
+            // Watch Δ drop and the badge flip to AT REST when a held aid
+            // comes to rest. Rebuilds only this tiny widget, not the Stack.
+            if (kDebugMode)
+              Positioned(
+                right: 12,
+                top: MediaQuery.of(context).padding.top + 60,
+                child: ValueListenableBuilder<({bool atRest, double delta})?>(
+                  valueListenable: _stillTelemetry,
+                  builder: (context, telemetry, _) {
+                    if (telemetry == null) return const SizedBox.shrink();
+                    final atRest = telemetry.atRest;
+                    final deltaText = telemetry.delta.isFinite
+                        ? telemetry.delta.toStringAsFixed(1)
+                        : '—';
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: (atRest ? Colors.green : Colors.black)
+                            .withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${atRest ? 'AT REST' : 'MOVING '}  Δ$deltaText',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
             // Capture animations + thumbnail dock
             if (_captureAnimations.isNotEmpty ||
                 _dockedThumbnails.isNotEmpty)
@@ -1926,6 +2037,40 @@ class _LiveScanScreenState extends State<LiveScanScreen>
 
             // Completion overlay
             if (_showCompletion) _buildCompletionOverlay(),
+
+            // Tap-to-focus: a full-screen catcher layered ABOVE the decorative
+            // overlays (feature boxes, capture animations) but BELOW the bottom
+            // HUD that follows, so button taps still win. Android has no macro/
+            // near-focus restriction (that's the iOS-only FocusControlPlugin),
+            // so a close-held aid sits blurry under continuous AF and OCR reads
+            // garbage ("Drubu" not "Signia"); tapping the label re-points focus
+            // + exposure there to grab a sharp frame on demand. Translucent so a
+            // tap that isn't on a control still reaches anything beneath it.
+            if (_cameraReady && _cameraController != null)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTapDown: (d) =>
+                      _onFocusTap(d.localPosition, MediaQuery.of(context).size),
+                ),
+              ),
+
+            // Tap-to-focus reticle — drawn above the catcher so it's visible.
+            if (_focusReticle != null)
+              Positioned(
+                left: _focusReticle!.dx - 28,
+                top: _focusReticle!.dy - 28,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.success, width: 2),
+                    ),
+                  ),
+                ),
+              ),
 
             // Bottom HUD + insights + capture controls
             if (_phase != _ScanPhase.booting && _cameraReady)

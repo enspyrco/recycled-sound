@@ -45,6 +45,25 @@
 <h1>Photo capture protocols</h1>
 <p class="sub">Reference shoot guides for the Recycled Sound device register. Pick the section that matches the device shape you're capturing - you only need ONE set per device.</p>
 
+<!-- ============================================================ -->
+<!-- 0. SCANNER IDENTIFY PROTOCOL (the 6 rules)                   -->
+<!-- ============================================================ -->
+<div class="winner-callout" style="margin-top: 16px; background:#eaf5ee; border-left-color:#1f6f43;">
+  <b>Scanner identify protocol - the 6 rules that make a scan succeed.</b> This is separate from the full reference shoot below (which captures all six faces for the register). To <i>identify</i> a device, the app only needs <b>one good photo of the brand-label face</b> - but it must follow these six rules. Validated 2026-06-18 against real hand-held photos: when all six held, the scanner read the brand ("ReSound"); when the device was held in a fist or shown thin-edge-on, nothing read at all - and no smarter model fixes a label that isn't pointing at the camera.
+</div>
+
+<div class="order">
+  <ol style="margin:6px 0; padding-left:20px; line-height:1.6;">
+    <li><b>Show the brand-label face.</b> Brand and model are read by OCR off the printed label. Depending on the make it's on the inner (medial) face or the battery-door end - point <i>that</i> face at the camera. If the label isn't visible, there is nothing to read. <span style="color:#888">(In testing, a device shown battery-door-up read only "CE"; the same device label-up read the brand.)</span></li>
+    <li><b>Hold at the fingertips - never fist it.</b> Fingers wrapping the body hide the device outline, so the scanner sees "an object in a hand" and can't lock on. Pinch one end so the whole body and label are exposed. <span style="color:#888">(Occlusion - not poor light - was the difference between a read and a blank in testing.)</span></li>
+    <li><b>Fill the frame - move in close.</b> The label text is tiny; at arm's length it's only a few dozen pixels wide and OCR grabs fragments ("Rel" instead of "ReSound"). Get the device filling most of the frame. <span style="color:#888">(You can't fix this afterwards - enlarging a far-away photo does NOT recover the detail.)</span></li>
+    <li><b>Get it sharp.</b> Tap to focus or use macro; hold ~10-15 cm away. A soft, blurry label is unreadable no matter how good the lighting.</li>
+    <li><b>Plain, contrasting background.</b> A dark device against a dark couch or skin blurs the edge. A plain, light surface gives a clean outline. <span style="color:#888">(Helps the device stand out; brightness alone is not the lever - presentation is.)</span></li>
+    <li><b>Hold still a beat.</b> The app waits for the device to stop moving before it captures - a still frame is sharp by construction. Rest your hand and pause.</li>
+  </ol>
+  <p style="margin:8px 0 2px;"><b>What kills a scan</b> (each one cost a failed identify in testing): label face hidden (showing the shell or battery door instead) &middot; fingers wrapping the body &middot; device shown thin-edge-on &middot; device tiny in the frame &middot; motion blur.</p>
+</div>
+
 <div class="winner-callout" style="margin-top: 16px;">
   <b>One set per shape class.</b> The two BTE protocols below cover the same 6 anatomical orientations - they're not additive. Default to the <b>hand-held naturals</b> flow. The table rig is legacy: kept for reference and for the rare case where you specifically want a clean scale-card shot for register display, but real-world testing showed hand-shots outperformed calibrated rig shots for training data (22/22 naturals worked; ~3 scaled-protocol attempts failed). Non-BTE shapes and accessories ARE additional - take those when you encounter them.
 </div>
@@ -73,7 +92,7 @@
   <br>
   <b>Lighting:</b> indoor diffuse light. Avoid harsh shadows from overhead bulbs - face a window or use a soft lamp.
   <br>
-  <b>Framing:</b> phone camera at arm's length, device fills roughly 60% of frame. Hand is the scale reference - no card needed.
+  <b>Framing:</b> phone camera at arm's length, device fills roughly 60% of frame. Keep a scale card next to the device for size reference.
 </div>
 
 <div class="panels">
@@ -118,6 +137,8 @@
         <path d="M 110 60 C 118 55 135 55 145 61 C 170 73 190 100 192 135 C 190 152 172 158 150 154 C 128 148 110 130 104 105 C 100 85 102 70 110 60 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
         <path d="M 128 75 C 140 73 158 80 170 97 C 182 115 182 135 170 148 C 155 154 136 150 124 134 C 116 117 118 93 128 75 Z" fill="url(#inset-lat2)" opacity="0.9"/>
         <path d="M 113 61 Q 108 35 128 27 Q 152 23 162 41" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -144,6 +165,8 @@
         <rect x="125" y="106" width="34" height="2" fill="#e0d6c8" opacity="0.7"/>
         <rect x="125" y="112" width="26" height="2" fill="#e0d6c8" opacity="0.7"/>
         <rect x="125" y="118" width="22" height="1.5" fill="#e0d6c8" opacity="0.6"/>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -162,6 +185,8 @@
         <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
         <path d="M 128 55 Q 125 35 142 28 Q 160 26 166 40" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.9"/>
         <path d="M 130 58 C 123 70 120 105 128 140 C 134 156 150 156 156 145 C 162 110 158 75 146 58 C 142 54 134 54 130 58 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -179,6 +204,8 @@
         <rect width="300" height="180" fill="#f0ece4"/>
         <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
         <path d="M 130 45 C 123 60 120 105 128 140 C 134 156 150 156 156 145 C 162 105 158 60 146 45 C 142 41 134 41 130 45 Z" fill="url(#rim2)" stroke="#4a4641" stroke-width="1.2"/>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -197,6 +224,8 @@
         <path d="M 40 175 Q 60 130 110 130 L 170 130 Q 215 135 230 175 Z" fill="url(#skin)" stroke="#a87850" stroke-width="1"/>
         <ellipse cx="150" cy="100" rx="36" ry="24" fill="url(#cross2)" stroke="#5e5a55" stroke-width="1"/>
         <path d="M 148 80 Q 144 62 160 55 Q 178 52 184 66" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -216,6 +245,8 @@
         <ellipse cx="150" cy="100" rx="38" ry="26" fill="url(#cross2)" stroke="#5e5a55" stroke-width="1"/>
         <rect x="138" y="86" width="24" height="14" fill="none" stroke="#444" stroke-width="1.2" rx="2"/>
         <rect x="148" y="90" width="3" height="2" fill="#333"/>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -287,8 +318,8 @@
         <path d="M 63 56 Q 58 30 78 22 Q 102 18 112 36" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.5"/>
         <rect x="68" y="60" width="9" height="2" fill="#1a1a1a" rx="1" transform="rotate(-12 72 61)"/>
         <rect x="85" y="58" width="9" height="2" fill="#1a1a1a" rx="1" transform="rotate(-10 89 59)"/>
-        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
-        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -312,8 +343,8 @@
         <rect x="65" y="106" width="32" height="2" fill="#e0d6c8" rx="0.5" opacity="0.7"/>
         <rect x="65" y="112" width="24" height="2" fill="#e0d6c8" rx="0.5" opacity="0.7"/>
         <rect x="65" y="118" width="20" height="1.5" fill="#e0d6c8" rx="0.5" opacity="0.6"/>
-        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
-        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -330,8 +361,8 @@
         <rect width="300" height="180" fill="url(#wood)"/>
         <path d="M 78 55 Q 75 35 92 28 Q 110 26 116 40" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.9"/>
         <path d="M 80 58 C 73 70 70 105 78 140 C 84 162 100 162 106 145 C 112 110 108 75 96 58 C 92 54 84 54 80 58 Z" fill="url(#rim)" stroke="#4a4641" stroke-width="1.2"/>
-        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
-        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -348,8 +379,8 @@
       <svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
         <rect width="300" height="180" fill="url(#wood)"/>
         <path d="M 80 45 C 73 60 70 105 78 140 C 84 162 100 162 106 145 C 112 105 108 60 96 45 C 92 41 84 41 80 45 Z" fill="url(#rim)" stroke="#4a4641" stroke-width="1.2"/>
-        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
-        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -369,8 +400,8 @@
         <path d="M 88 80 Q 84 65 100 58 Q 116 55 120 68" stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.9"/>
         <rect x="76" y="92" width="6" height="2" fill="#222" rx="0.5"/>
         <rect x="98" y="92" width="6" height="2" fill="#222" rx="0.5"/>
-        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
-        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>
@@ -390,8 +421,8 @@
         <rect x="78" y="86" width="24" height="14" fill="none" stroke="#444" stroke-width="1.2" rx="2"/>
         <rect x="88" y="90" width="3" height="2" fill="#333"/>
         <text x="135" y="100" font-size="8" fill="#666">battery door</text>
-        <rect x="175" y="75" width="105" height="65" fill="#1a1a1a" rx="3"/>
-        <text x="210" y="112" font-size="9" fill="#999">CARD</text>
+        <rect x="195" y="58" width="100" height="63" fill="#1a1a1a" rx="3"/>
+        <text x="245" y="94" font-size="9" fill="#999" text-anchor="middle">CARD</text>
       </svg>
     </div>
   </div>

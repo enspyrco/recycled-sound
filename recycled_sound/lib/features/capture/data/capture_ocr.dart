@@ -87,6 +87,18 @@ class CaptureOcr {
             '${_scaleLabel(e.key)}=${_matchTokens(e.value) ?? "-"}'
         ].join('  ');
         debugPrint('CaptureOcr #58 per-scale (mlkit): $attribution');
+
+        // Raw tokens per scale — so a `-` match is diagnosable: "read nothing"
+        // (focus/framing, #95) vs "read a near-miss the fuzzy match rejected"
+        // (e.g. "Tignia"→ tighten fuzzy). Without this the match-only log can't
+        // tell those apart, which is the exact signal the spike turned on.
+        for (final e in mlkitByPath.entries) {
+          final words = e.value
+              .where((t) => t.trim().isNotEmpty && !t.contains(' '))
+              .take(8)
+              .join('|');
+          debugPrint('CaptureOcr #58 raw ${_scaleLabel(e.key)}: [$words]');
+        }
       }
 
       return result;

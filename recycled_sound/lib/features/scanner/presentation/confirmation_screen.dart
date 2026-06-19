@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../devices/data/incoming_device_repository.dart';
 import '../../devices/data/models/device.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -172,10 +171,24 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
                     onSelect: (v) {
                       final notifier = ref.read(scanResultProvider.notifier);
                       notifier.updateField(ScanField.powerSource, v);
-                      // Clear battery size when switching to rechargeable,
-                      // set N/A so the field counts as filled.
                       if (v == 'Rechargeable') {
+                        // Rechargeable has no disposable cell — set the N/A
+                        // sentinel so battery size counts as filled (it parses
+                        // back to BatterySize.rechargeable on save).
                         notifier.updateField(ScanField.batterySize, 'N/A');
+                      } else {
+                        // Leaving Rechargeable (to Battery OR Unknown): the
+                        // coupled N/A battery is now a lie — a stale
+                        // 'Rechargeable' battery size must not outlive the power
+                        // source that implied it. Clearing it forces the
+                        // volunteer to re-answer (or flag) battery rather than
+                        // persisting "power unknown, battery confidently
+                        // rechargeable" — a contradiction the promotion gate
+                        // would otherwise wave through (Carnot, #111 cage-match).
+                        if (ref.read(scanResultProvider).batterySize.value ==
+                            'N/A') {
+                          notifier.updateField(ScanField.batterySize, '');
+                        }
                       }
                     },
                   ),
@@ -226,13 +239,6 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
     );
   }
 
-  /// Persist the confirmed scan to `incoming/`, then route to the register.
-  ///
-  /// The scanner already uploaded the source image to `scans/{uid}/…` (the
-  /// transient scan-mode bucket), so we reference that download URL in
-  /// `photos[]` rather than re-uploading. Intake photos captured via the
-  /// device-intake flow land in the durable `captures/{uid}/{deviceId}/` bucket
-  /// (see [IncomingDeviceRepository.createIncoming]).
   /// Submit scan corrections (training telemetry). Guarded so a failed write
   /// can never strand the volunteer — lost corrections are recoverable from the
   /// scan doc later; the volunteer's flow is not.

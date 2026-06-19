@@ -170,6 +170,48 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 2));
   });
+
+  // #111 cage-match (Carnot, HIGH): POWER=Rechargeable couples BATTERY to the
+  // 'N/A' sentinel (which parses to BatterySize.rechargeable). Switching POWER
+  // AWAY from Rechargeable — to Unknown or Battery — must CLEAR that coupled
+  // N/A, otherwise the device persists "power unresolved/changed, battery still
+  // confidently Rechargeable", a contradiction the promotion gate waves through.
+  testWidgets('switching POWER off Rechargeable clears the coupled N/A battery '
+      '(#111)', (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(scanResultProvider.notifier).setResult(ScanResult.mock());
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: ConfirmationScreen()),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // 'Rechargeable' and 'Battery' are POWER-only chip labels (BATTERY uses
+    // 10/13/312/675), so they're unambiguous finders. The POWER 'Unknown' valve
+    // is scoped via the Column that also holds the 'Rechargeable' chip.
+    await tester.scrollUntilVisible(find.text('Rechargeable'), 200);
+    await tester.tap(find.text('Rechargeable'));
+    await tester.pump();
+    expect(container.read(scanResultProvider).batterySize.value, 'N/A',
+        reason: 'Rechargeable couples battery to the N/A sentinel');
+
+    final powerColumn = find
+        .ancestor(of: find.text('Rechargeable'), matching: find.byType(Column))
+        .first;
+    await tester.tap(
+        find.descendant(of: powerColumn, matching: find.text(kUnknownValue)));
+    await tester.pump();
+
+    expect(container.read(scanResultProvider).powerSource?.value, kUnknownValue);
+    expect(container.read(scanResultProvider).batterySize.value, '',
+        reason: 'leaving Rechargeable must clear the N/A battery so it is not '
+            'persisted as resolved while the power source is unknown');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
 }
 
 /// Records what [createIncoming] was called with instead of touching Firebase.

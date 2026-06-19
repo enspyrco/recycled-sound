@@ -1,8 +1,17 @@
-name: Play Internal
+name: Play Publish (Android AAB)
 
 # Android counterpart to testflight.yml — builds a signed AAB and pushes it to a
-# Play testing track via the Android Publisher API. Manual trigger only (like the
+# Play track via the Android Publisher API. Manual trigger only (like the
 # TestFlight workflow), with the target track + release status as inputs.
+#
+# ⚠️ TRACK AUDIENCE — the track value is NOT just "internal". Play's track names
+# map to audiences of very different sizes (this workflow was previously named
+# "Play Internal", which understated the blast radius of `beta`):
+#   internal = Internal testing  — small named list
+#   alpha    = Closed testing    — invite/opt-in list
+#   beta     = Open testing      — PUBLIC. Anyone with the invite link
+#              (https://play.google.com/apps/testing/co.enspyr.recycledsound)
+#              can join. Dispatching with track=beta publishes PUBLICLY.
 #
 # Required repo secrets (set once):
 #   ANDROID_UPLOAD_KEYSTORE_BASE64   base64 of android/app/upload-keystore.jks
@@ -14,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       track:
-        description: "Play track"
+        description: "Play track — internal=Internal testing, alpha=Closed testing, beta=Open testing (PUBLIC invite link!)"
         default: "internal"
         type: choice
         options: [internal, alpha, beta]

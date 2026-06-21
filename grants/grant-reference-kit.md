@@ -392,9 +392,13 @@ Based on this project's profile, consider applying to:
 ## 10. LESSONS LEARNED
 
 ### From the March 2026 Medium Grant Application
-- [TO UPDATE after outcome notification in June 2026]
-- Application submitted: [DATE]
-- Stream: Community Development
-- Amount requested: $10,000
-- Outcome: [PENDING]
-- Feedback received: [TO UPDATE]
+- **Outcome: SUCCESSFUL — grant awarded (notified June 2026).** 🎉
+- Stream: Community Development (CGD Medium Grants)
+- Amount requested: $10,000 — **awarded $10,000**
+- Co-contribution: Rotary Club of Springvale City $2,000 (mandatory minimum for a $10k request)
+- Total project value (incl. in-kind): $27,240
+- Project period: 1 July 2026 – 30 June 2027
+- Application submitted: Round 1, 2026 (closed 10 March 2026)
+- **Precedent for future applications:** this exact draft (`grant-application-draft.md`) was the winning text — reuse its structure, framing, and budget approach. The Rotary + Arches partnership model, the ~80-beneficiary target, and the e-waste/circular-economy angle all landed.
+- Feedback received: [TO UPDATE if council provides assessor feedback]
+- Next opportunity: Large Partnership Grants ($50k) open 2027 — a delivered, working project strengthens that bid.

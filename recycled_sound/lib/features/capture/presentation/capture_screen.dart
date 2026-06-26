@@ -107,6 +107,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   PowerSource _powerSource = PowerSource.unspecified;
   BatterySize _batterySize = BatterySize.unspecified;
 
+  /// The originating scan's document id, carried via [CaptureSeed] so the saved
+  /// device threads back to the scan event + the volunteer's corrections (the
+  /// training-data audit trail). Empty for a standalone capture (no scan).
+  String _scanId = '';
+
   /// True while OCR is running on a freshly-captured brand-label shot, so the
   /// details bar can show an "identifying…" hint.
   bool _detecting = false;
@@ -138,6 +143,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       _tubing = seed.tubing;
       _powerSource = seed.powerSource;
       _batterySize = seed.batterySize;
+      _scanId = seed.scanId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) ref.read(captureSeedProvider.notifier).state = null;
       });
@@ -448,6 +454,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       batterySize: _batterySize,
       colour: _colour,
       location: _location,
+      scanId: _scanId,
       needsInputFields: _needsInputFields,
     );
 

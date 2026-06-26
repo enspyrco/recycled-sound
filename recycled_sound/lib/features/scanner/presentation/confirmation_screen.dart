@@ -356,6 +356,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       powerSource: PowerSource.fromWire(result.powerSource?.value),
       batterySize: BatterySize.fromWire(result.batterySize.value),
       colour: result.colour?.value ?? '',
+      scanId: result.scanId,
       needsInputFields: result.volunteerUnknownFields,
     );
     router.go('/capture');

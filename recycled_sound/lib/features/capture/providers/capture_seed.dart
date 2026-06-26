@@ -20,6 +20,7 @@ class CaptureSeed {
     this.powerSource = PowerSource.unspecified,
     this.batterySize = BatterySize.unspecified,
     this.colour = '',
+    this.scanId = '',
     this.needsInputFields = const [],
   });
 
@@ -27,17 +28,28 @@ class CaptureSeed {
   final String model;
   final String box;
 
-  /// The four CLOSED-SET clinical fields the audiologist confirmed on the
-  /// scan-confirm screen — Seray's fields 3/4/5/6 (Style, Tubing, Power source,
-  /// Battery size). Carried across the seam so a seeded capture's 14-shot bundle
-  /// lands in `captures/` tagged with the confirmed ground-truth label, not just
-  /// brand/model + a box number — i.e. usable as training data. Each defaults to
+  /// The four CLOSED-SET clinical fields as resolved on the scan-confirm screen
+  /// — Seray's fields 3/4/5/6 (Style, Tubing, Power source, Battery size).
+  /// Carried across the seam so a seeded capture's 14-shot bundle lands in
+  /// `captures/` tagged with the confirmed label, not just brand/model + a box
+  /// number — i.e. usable as training data. A field the volunteer flagged
+  /// Unknown parses to `unspecified` here, with the flag itself carried in
+  /// [needsInputFields] (see `feedback_provenance_not_value`) — so `unspecified`
+  /// is "not yet determined", NOT a false confirmation. Each defaults to
   /// `unspecified` for a standalone capture (no confirm screen), where the
   /// audiologist sets them later.
   final Style type;
   final Tubing tubing;
   final PowerSource powerSource;
   final BatterySize batterySize;
+
+  /// The originating scan's document id. Carried so the captured device threads
+  /// back to the scan event and the volunteer's field corrections — the
+  /// provenance/audit link that makes the photo bundle usable training data, not
+  /// an orphaned set of pixels. Mirrors the identify-only path, which sets
+  /// `DraftDevice.scanId` from the same source. Empty for a standalone capture
+  /// (no scan).
+  final String scanId;
 
   /// Device colour confirmed on the scan-confirm screen (the single place
   /// colour is collected). Carried into capture so the created device's colour

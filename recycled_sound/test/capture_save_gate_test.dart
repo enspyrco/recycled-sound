@@ -198,14 +198,18 @@ void main() {
     // so the uploaded 14-shot bundle is labeled ground truth.
     await pump(
       tester,
+      // A clinically coherent label: a battery-powered RIC takes a 312 cell
+      // (a rechargeable device would coerce battery size to rechargeable/N/A,
+      // so pairing rechargeable with 312 would test an impossible state).
       seed: const CaptureSeed(
         brand: 'Phonak',
         model: 'Audeo',
         box: 'C25',
         type: Style.ric,
         tubing: Tubing.slim,
-        powerSource: PowerSource.rechargeable,
+        powerSource: PowerSource.battery,
         batterySize: BatterySize.size312,
+        scanId: 'scan-abc123',
       ),
     );
     await settle(tester);
@@ -219,10 +223,13 @@ void main() {
         reason: 'Style flows from CaptureSeed to the device');
     expect(recorder?.draft?.tubing, Tubing.slim,
         reason: 'Tubing flows from CaptureSeed to the device');
-    expect(recorder?.draft?.powerSource, PowerSource.rechargeable,
+    expect(recorder?.draft?.powerSource, PowerSource.battery,
         reason: 'Power source flows from CaptureSeed to the device');
     expect(recorder?.draft?.batterySize, BatterySize.size312,
         reason: 'Battery size flows from CaptureSeed to the device');
+    expect(recorder?.draft?.scanId, 'scan-abc123',
+        reason: 'scan provenance survives scanner→confirm→capture — the audit '
+            'trail linking the photo bundle to the scan + human corrections');
   }, skip: !fontReady);
 }
 

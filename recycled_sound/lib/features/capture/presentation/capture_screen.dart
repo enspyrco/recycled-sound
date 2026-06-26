@@ -98,6 +98,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   /// handoff (`needsInputFields`), not just a bare `'Unknown'` value string.
   List<ClinicalField> _needsInputFields = const [];
 
+  /// The four closed-set clinical fields confirmed on the scan-confirm screen,
+  /// carried via [CaptureSeed]. They stay `unspecified` for a standalone capture
+  /// (no confirm screen); when seeded, they ride onto the created device so the
+  /// uploaded photo bundle is labeled training data, not box-number-only.
+  Style _type = Style.unspecified;
+  Tubing _tubing = Tubing.unspecified;
+  PowerSource _powerSource = PowerSource.unspecified;
+  BatterySize _batterySize = BatterySize.unspecified;
+
+  /// The originating scan's document id, carried via [CaptureSeed] so the saved
+  /// device threads back to the scan event + the volunteer's corrections (the
+  /// training-data audit trail). Empty for a standalone capture (no scan).
+  String _scanId = '';
+
   /// True while OCR is running on a freshly-captured brand-label shot, so the
   /// details bar can show an "identifying…" hint.
   bool _detecting = false;
@@ -125,6 +139,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       _location = seed.box;
       _colour = seed.colour;
       _needsInputFields = seed.needsInputFields;
+      _type = seed.type;
+      _tubing = seed.tubing;
+      _powerSource = seed.powerSource;
+      _batterySize = seed.batterySize;
+      _scanId = seed.scanId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) ref.read(captureSeedProvider.notifier).state = null;
       });
@@ -422,13 +441,20 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
     setState(() => _saving = true);
 
-    // No scan result, so clinical fields start blank; the volunteer fills the
-    // easy identification fields and the audiologist resolves the rest later.
+    // When seeded from the scan-confirm screen these carry the audiologist's
+    // confirmed closed-set fields (so the uploaded bundle is labeled training
+    // data); for a standalone capture they stay `unspecified` and the
+    // audiologist resolves them later.
     final draft = DraftDevice(
       brand: _brand,
       model: _model,
+      type: _type,
+      tubing: _tubing,
+      powerSource: _powerSource,
+      batterySize: _batterySize,
       colour: _colour,
       location: _location,
+      scanId: _scanId,
       needsInputFields: _needsInputFields,
     );
 

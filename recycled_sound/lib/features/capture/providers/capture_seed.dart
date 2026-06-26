@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/clinical_field.dart';
+import '../../devices/data/models/device.dart';
 
 /// Identity carried from the scanner into the capture flow when a NOVEL device
 /// needs its reference photo set.
@@ -15,13 +15,41 @@ class CaptureSeed {
     required this.brand,
     required this.model,
     required this.box,
+    this.type = Style.unspecified,
+    this.tubing = Tubing.unspecified,
+    this.powerSource = PowerSource.unspecified,
+    this.batterySize = BatterySize.unspecified,
     this.colour = '',
+    this.scanId = '',
     this.needsInputFields = const [],
   });
 
   final String brand;
   final String model;
   final String box;
+
+  /// The four CLOSED-SET clinical fields as resolved on the scan-confirm screen
+  /// — Seray's fields 3/4/5/6 (Style, Tubing, Power source, Battery size).
+  /// Carried across the seam so a seeded capture's 14-shot bundle lands in
+  /// `captures/` tagged with the confirmed label, not just brand/model + a box
+  /// number — i.e. usable as training data. A field the volunteer flagged
+  /// Unknown parses to `unspecified` here, with the flag itself carried in
+  /// [needsInputFields] (see `feedback_provenance_not_value`) — so `unspecified`
+  /// is "not yet determined", NOT a false confirmation. Each defaults to
+  /// `unspecified` for a standalone capture (no confirm screen), where the
+  /// audiologist sets them later.
+  final Style type;
+  final Tubing tubing;
+  final PowerSource powerSource;
+  final BatterySize batterySize;
+
+  /// The originating scan's document id. Carried so the captured device threads
+  /// back to the scan event and the volunteer's field corrections — the
+  /// provenance/audit link that makes the photo bundle usable training data, not
+  /// an orphaned set of pixels. Mirrors the identify-only path, which sets
+  /// `DraftDevice.scanId` from the same source. Empty for a standalone capture
+  /// (no scan).
+  final String scanId;
 
   /// Device colour confirmed on the scan-confirm screen (the single place
   /// colour is collected). Carried into capture so the created device's colour
@@ -34,8 +62,10 @@ class CaptureSeed {
   /// legible). Carried so the created device records the volunteer→audiologist
   /// handoff in `needsInputFields`, not just the bare `'Unknown'` value string
   /// (which alone can't be told apart from an AI read failure — see
-  /// `feedback_provenance_not_value`). The clinical fields beyond identity are
-  /// still NOT carried across this seam (task #14/#73).
+  /// `feedback_provenance_not_value`). The four closed-set clinical fields
+  /// (Style/Tubing/Power/Battery) ARE now carried — see [type]/[tubing]/
+  /// [powerSource]/[batterySize] above (closes task #14/#73 for the seedable
+  /// fields); the remaining free-text clinical detail is still set later.
   final List<ClinicalField> needsInputFields;
 }
 

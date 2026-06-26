@@ -188,6 +188,42 @@ void main() {
         reason: 'the confirmed colour flows from CaptureSeed to the device');
     expect(recorder?.draft?.location, 'B07');
   }, skip: !fontReady);
+
+  testWidgets(
+      'the confirmed clinical fields from CaptureSeed carry onto the saved '
+      'device — labeled training data, not box-number-only (#14/#73)',
+      (tester) async {
+    // Scanner→confirm→capture path: confirm seeds the four closed-set clinical
+    // fields the audiologist confirmed. They must ride onto the created device
+    // so the uploaded 14-shot bundle is labeled ground truth.
+    await pump(
+      tester,
+      seed: const CaptureSeed(
+        brand: 'Phonak',
+        model: 'Audeo',
+        box: 'C25',
+        type: Style.ric,
+        tubing: Tubing.slim,
+        powerSource: PowerSource.rechargeable,
+        batterySize: BatterySize.size312,
+      ),
+    );
+    await settle(tester);
+
+    await takeOneShot(tester);
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(recorder?.draft?.type, Style.ric,
+        reason: 'Style flows from CaptureSeed to the device');
+    expect(recorder?.draft?.tubing, Tubing.slim,
+        reason: 'Tubing flows from CaptureSeed to the device');
+    expect(recorder?.draft?.powerSource, PowerSource.rechargeable,
+        reason: 'Power source flows from CaptureSeed to the device');
+    expect(recorder?.draft?.batterySize, BatterySize.size312,
+        reason: 'Battery size flows from CaptureSeed to the device');
+  }, skip: !fontReady);
 }
 
 /// Records what [start] was called with instead of running a real upload.

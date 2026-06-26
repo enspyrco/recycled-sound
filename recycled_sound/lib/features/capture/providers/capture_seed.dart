@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/clinical_field.dart';
+import '../../devices/data/models/device.dart';
 
 /// Identity carried from the scanner into the capture flow when a NOVEL device
 /// needs its reference photo set.
@@ -15,6 +15,10 @@ class CaptureSeed {
     required this.brand,
     required this.model,
     required this.box,
+    this.type = Style.unspecified,
+    this.tubing = Tubing.unspecified,
+    this.powerSource = PowerSource.unspecified,
+    this.batterySize = BatterySize.unspecified,
     this.colour = '',
     this.needsInputFields = const [],
   });
@@ -22,6 +26,18 @@ class CaptureSeed {
   final String brand;
   final String model;
   final String box;
+
+  /// The four CLOSED-SET clinical fields the audiologist confirmed on the
+  /// scan-confirm screen — Seray's fields 3/4/5/6 (Style, Tubing, Power source,
+  /// Battery size). Carried across the seam so a seeded capture's 14-shot bundle
+  /// lands in `captures/` tagged with the confirmed ground-truth label, not just
+  /// brand/model + a box number — i.e. usable as training data. Each defaults to
+  /// `unspecified` for a standalone capture (no confirm screen), where the
+  /// audiologist sets them later.
+  final Style type;
+  final Tubing tubing;
+  final PowerSource powerSource;
+  final BatterySize batterySize;
 
   /// Device colour confirmed on the scan-confirm screen (the single place
   /// colour is collected). Carried into capture so the created device's colour
@@ -34,8 +50,10 @@ class CaptureSeed {
   /// legible). Carried so the created device records the volunteer→audiologist
   /// handoff in `needsInputFields`, not just the bare `'Unknown'` value string
   /// (which alone can't be told apart from an AI read failure — see
-  /// `feedback_provenance_not_value`). The clinical fields beyond identity are
-  /// still NOT carried across this seam (task #14/#73).
+  /// `feedback_provenance_not_value`). The four closed-set clinical fields
+  /// (Style/Tubing/Power/Battery) ARE now carried — see [type]/[tubing]/
+  /// [powerSource]/[batterySize] above (closes task #14/#73 for the seedable
+  /// fields); the remaining free-text clinical detail is still set later.
   final List<ClinicalField> needsInputFields;
 }
 

@@ -231,6 +231,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
               unknownCount: result.unknownFieldCount,
               completionAnimation: _completionController,
               onConfirm: () => _confirmAndPersist(result),
+              onCapture: () => _captureForDevice(result),
               onScanAnother: () => context.pushReplacement('/scan'),
             ),
           ],
@@ -324,6 +325,40 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
       ),
     );
     router.go('/');
+  }
+
+  /// Seed the capture flow with the CONFIRMED label and route to `/capture` so
+  /// the volunteer shoots the 14-photo reference set for THIS device — the
+  /// labeled-training-data path. Unlike [_confirmAndPersist] this does NOT create
+  /// the device here: the capture flow creates it on upload with the photos
+  /// attached, so persisting here too would duplicate it. The seed carries the
+  /// audiologist's confirmed closed-set fields across the seam (parsed through
+  /// the same tolerant `fromWire` enums) so the uploaded bundle is labeled
+  /// training data, not box-number-only. `go()` (not `push`) per the
+  /// scanner-route law — a pushed LiveScanner never disposes and starves the
+  /// next screen's UI thread.
+  Future<void> _captureForDevice(ScanResult result) async {
+    if (_persisting) return;
+    _persisting = true;
+    HapticFeedback.mediumImpact();
+    final router = GoRouter.of(context);
+    final box = ref.read(scanBoxProvider).trim().toUpperCase();
+    // Persist the volunteer's field corrections (training signal) before
+    // leaving — same as the identify-only path.
+    await _submitCorrections(result);
+    if (!mounted) return;
+    ref.read(captureSeedProvider.notifier).state = CaptureSeed(
+      brand: result.brand.value,
+      model: result.model.value,
+      box: box,
+      type: Style.fromWire(result.type.value),
+      tubing: Tubing.fromWire(result.tubing?.value),
+      powerSource: PowerSource.fromWire(result.powerSource?.value),
+      batterySize: BatterySize.fromWire(result.batterySize.value),
+      colour: result.colour?.value ?? '',
+      needsInputFields: result.volunteerUnknownFields,
+    );
+    router.go('/capture');
   }
 
   /// Battery size field — null if empty (triggers amber pulse).
@@ -895,6 +930,7 @@ class _BottomAction extends StatelessWidget {
     required this.isComplete,
     required this.completionAnimation,
     required this.onConfirm,
+    required this.onCapture,
     required this.onScanAnother,
     this.unknownCount = 0,
   });
@@ -907,6 +943,11 @@ class _BottomAction extends StatelessWidget {
   final int unknownCount;
   final AnimationController completionAnimation;
   final VoidCallback onConfirm;
+
+  /// Seed the capture flow with this confirmed label and shoot the 14-photo
+  /// reference set for the device — the labeled-training-data path. Enabled on
+  /// the same `isComplete` gate as [onConfirm].
+  final VoidCallback onCapture;
   final VoidCallback onScanAnother;
 
   @override
@@ -955,6 +996,37 @@ class _BottomAction extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
               ],
+              // Capture photos — the labeled-training-data path: seed THIS
+              // confirmed label and shoot the 14-photo reference set for the
+              // device. Same `isComplete` gate as Add to Register. The capture
+              // flow creates the device on upload (with photos + this label), so
+              // it is offered instead of, not in addition to, Add to Register.
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: isComplete ? onCapture : null,
+                  icon: const Icon(Icons.photo_camera, size: 18),
+                  label: Text(
+                    'Capture photos',
+                    style: AppTypography.monoValue,
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: isComplete
+                        ? AppColors.accent
+                        : const Color(0xFF333333),
+                    foregroundColor: isComplete
+                        ? Colors.white
+                        : const Color(0xFF666666),
+                    disabledBackgroundColor: const Color(0xFF333333),
+                    disabledForegroundColor: const Color(0xFF666666),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   // Scan Another (always available)

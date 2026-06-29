@@ -94,6 +94,21 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
         ? BrandColourPalettes.forBrand(result.brand.value)
         : null;
 
+    // Coverage signal: how many reference sets this exact model already has, so
+    // the volunteer can chase diversity at the capture decision point. Only
+    // meaningful once both brand+model are known — and only THEN do we watch the
+    // provider, so a blank identity never instantiates the Firestore query. Key
+    // on TRIMMED values so a trailing-space edit doesn't spawn a redundant cache
+    // entry (the repo trims internally anyway).
+    final brandKey = result.brand.value.trim();
+    final modelKey = result.model.value.trim();
+    final hasIdentity = brandKey.isNotEmpty && modelKey.isNotEmpty;
+    final coverage = hasIdentity
+        ? ref.watch(
+            referenceSetCountProvider((brand: brandKey, model: modelKey)),
+          )
+        : null;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
       body: SafeArea(
@@ -233,6 +248,7 @@ class _ConfirmationScreenState extends ConsumerState<ConfirmationScreen>
               onConfirm: () => _confirmAndPersist(result),
               onCapture: () => _captureForDevice(result),
               onScanAnother: () => context.pushReplacement('/scan'),
+              coverage: coverage,
             ),
           ],
         ),
@@ -934,6 +950,7 @@ class _BottomAction extends StatelessWidget {
     required this.onCapture,
     required this.onScanAnother,
     this.unknownCount = 0,
+    this.coverage,
   });
 
   final bool isComplete;
@@ -950,6 +967,12 @@ class _BottomAction extends StatelessWidget {
   /// the same `isComplete` gate as [onConfirm].
   final VoidCallback onCapture;
   final VoidCallback onScanAnother;
+
+  /// Reference-set coverage for the identified model (async). `null` when the
+  /// device has no brand+model yet (nothing meaningful to count). Surfaced as a
+  /// diversity nudge above the capture CTA: 0 sets → "your photos add new
+  /// coverage"; N sets → "already has N".
+  final AsyncValue<int>? coverage;
 
   @override
   Widget build(BuildContext context) {
@@ -997,11 +1020,53 @@ class _BottomAction extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
               ],
+              // Coverage nudge — how many reference sets this model already has,
+              // so the volunteer chases diversity. Hidden until identity known
+              // and while the count is loading/errored (no noise).
+              if (coverage != null)
+                coverage!.maybeWhen(
+                  data: (count) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        Icon(
+                          count == 0
+                              ? Icons.auto_awesome
+                              : Icons.photo_library_outlined,
+                          size: 14,
+                          color: count == 0
+                              ? AppColors.accent
+                              : AppColors.warning.withValues(alpha: 0.9),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            count == 0
+                                ? 'No reference sets yet — your photos add new '
+                                      'coverage'
+                                : '$count reference set${count == 1 ? '' : 's'} '
+                                      'already captured for this model',
+                            style: AppTypography.monoStatus.copyWith(
+                              color: count == 0
+                                  ? AppColors.accent
+                                  : AppColors.warning.withValues(alpha: 0.9),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  orElse: () => const SizedBox.shrink(),
+                ),
               // Capture photos — the labeled-training-data path: seed THIS
               // confirmed label and shoot the 14-photo reference set for the
               // device. Same `isComplete` gate as Add to Register. The capture
-              // flow creates the device on upload (with photos + this label), so
-              // it is offered instead of, not in addition to, Add to Register.
+              // flow creates the device on upload (with photos + this label).
+              // NOTE: this currently renders ALONGSIDE "Add to Register" — the
+              // volunteer picks one (the `_persisting` guard makes them mutually
+              // exclusive at tap time). Whether the data-collection build should
+              // make capture the primary/only terminal action is an open design
+              // call (task #3); until then both are offered.
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(

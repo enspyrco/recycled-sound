@@ -46,3 +46,26 @@ final deviceByIdProvider =
     StreamProvider.family<Device?, String>((ref, id) {
   return ref.watch(incomingDeviceRepositoryProvider).watchDeviceById(id);
 });
+
+/// How many reference photo-sets already exist for a given (brand, model) —
+/// the coverage signal surfaced on the confirm screen so the volunteer can
+/// chase DIVERSITY (capture models with few/no sets) instead of piling
+/// redundant shots onto a well-covered model. Keyed on a (brand, model) record
+/// so it recomputes as the confirm fields are edited. Counts only records WITH
+/// photos, across both the curated register and the incoming queue.
+///
+/// `autoDispose` is load-bearing for CORRECTNESS, not just memory: without it a
+/// key's count caches for the whole app session, so scan P90 (0 sets) → capture
+/// photos → scan P90 again would still read "0" from the stale cache. Disposing
+/// when unwatched (leaving the confirm screen) means the next scan re-queries
+/// and reflects the just-captured set. Callers should key on TRIMMED values so
+/// whitespace edits don't spawn redundant cache entries.
+final referenceSetCountProvider =
+    FutureProvider.autoDispose.family<int, ({String brand, String model})>((
+  ref,
+  key,
+) {
+  return ref
+      .watch(incomingDeviceRepositoryProvider)
+      .countReferenceSetsFor(key.brand, key.model);
+});

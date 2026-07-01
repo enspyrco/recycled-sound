@@ -12,6 +12,7 @@ import '../../features/capture/presentation/capture_screen.dart';
 import '../../features/capture/presentation/upload_progress_screen.dart';
 import '../../features/devices/presentation/device_list_screen.dart';
 import '../../features/devices/presentation/device_detail_screen.dart';
+import '../../features/devices/presentation/edit_incoming_device_screen.dart';
 import '../../features/devices/presentation/photo_detail_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
@@ -125,6 +126,14 @@ GoRouter createAppRouter({String initialLocation = '/boot'}) => GoRouter(
       builder: (context, state) {
         final id = state.pathParameters['id']!;
         return DeviceDetailScreen(deviceId: id);
+      },
+    ),
+    GoRoute(
+      path: '/devices/:id/edit',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (context, state) {
+        final id = state.pathParameters['id']!;
+        return EditIncomingDeviceScreen(deviceId: id);
       },
     ),
     GoRoute(

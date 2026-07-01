@@ -195,6 +195,13 @@ class _DetailViewState extends ConsumerState<_DetailView> {
             variant: _qaVariant(device.qaStatus),
           ),
           IconButton(
+            tooltip: 'Edit device',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: _deleting
+                ? null
+                : () => context.push('/devices/${device.id}/edit'),
+          ),
+          IconButton(
             tooltip: 'Delete device',
             icon: const Icon(Icons.delete_outline),
             // While a delete is in flight the handler is null so the

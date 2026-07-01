@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Recycled Sound Works - the real architecture</title>
+<meta name="description" content="A component-by-component teardown of Recycled Sound: how a phone camera identifies a donated hearing aid on-device in seconds, then hands it to an audiologist. Diagrams included.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#17241f; --bg:#faf8f3; --paper:#ffffff;
+    --green:#1c8a63; --green-deep:#0e5c40; --green-wash:#e7f3ec;
+    --accent:#e0603c; --accent-wash:#fbe9e2;
+    --amber:#c98a1e; --muted:#5f6f68; --line:#e6e2d8;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --serif:'Fraunces',Georgia,serif; --sans:'Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:18px;line-height:1.7;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:0 24px}
+
+  /* Hero */
+  header.hero{background:
+      radial-gradient(1200px 500px at 80% -10%, rgba(28,138,99,.18), transparent 60%),
+      linear-gradient(180deg,#0e2a22 0%, #133c30 100%);
+    color:#eef6f1;padding:76px 0 60px;border-bottom:4px solid var(--green)}
+  header.hero .wrap{max-width:820px}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.12em;text-transform:uppercase;
+    color:#7fd6b0;margin:0 0 18px}
+  h1{font-family:var(--serif);font-weight:600;font-size:clamp(34px,6vw,56px);line-height:1.05;
+    margin:0 0 20px;letter-spacing:-.01em}
+  .hero p.lede{font-size:21px;line-height:1.55;color:#cfe6da;margin:0;max-width:64ch}
+  .hero .meta{margin-top:28px;font-family:var(--mono);font-size:13px;color:#8fbfa9;
+    display:flex;gap:18px;flex-wrap:wrap}
+
+  /* Typography */
+  main{padding:8px 0 40px}
+  h2{font-family:var(--serif);font-weight:600;font-size:30px;line-height:1.15;
+    margin:64px 0 4px;letter-spacing:-.01em;scroll-margin-top:20px}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--green);
+    display:block;margin-bottom:8px;letter-spacing:.1em}
+  h3{font-family:var(--sans);font-weight:700;font-size:20px;margin:38px 0 2px}
+  p{margin:16px 0}
+  a{color:var(--green-deep);text-decoration:underline;text-underline-offset:2px;
+    text-decoration-thickness:1px;text-decoration-color:rgba(28,138,99,.4)}
+  a:hover{text-decoration-color:var(--green)}
+  strong{font-weight:600}
+  code{font-family:var(--mono);font-size:.86em;background:#eef1ec;padding:1.5px 6px;
+    border-radius:5px;color:#0e5c40}
+  em{color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:48px 0}
+
+  /* TL;DR card */
+  .tldr{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--green);
+    border-radius:12px;padding:24px 28px;margin:36px 0;box-shadow:0 1px 0 rgba(0,0,0,.02)}
+  .tldr h4{margin:0 0 10px;font-family:var(--mono);font-size:13px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--green)}
+  .tldr p{margin:8px 0}
+
+  /* TOC */
+  nav.toc{background:var(--paper);border:1px solid var(--line);border-radius:12px;
+    padding:22px 26px;margin:32px 0 12px}
+  nav.toc h4{margin:0 0 12px;font-family:var(--mono);font-size:13px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--muted)}
+  nav.toc ol{margin:0;padding:0;list-style:none;counter-reset:toc}
+  nav.toc li{counter-increment:toc;margin:7px 0;padding-left:34px;position:relative;line-height:1.4}
+  nav.toc li::before{content:counter(toc,decimal-leading-zero);position:absolute;left:0;top:1px;
+    font-family:var(--mono);font-size:13px;color:var(--green);font-weight:500}
+  nav.toc a{text-decoration:none;color:var(--ink);font-weight:500}
+  nav.toc a:hover{color:var(--green-deep)}
+  nav.toc .sub{color:var(--muted);font-weight:400;font-size:15px}
+
+  /* Callouts */
+  .drop{background:linear-gradient(180deg,var(--accent-wash),#fff);
+    border:1px solid #f2cdbf;border-radius:12px;padding:20px 24px;margin:28px 0}
+  .drop .tag{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .drop p{margin:6px 0}
+  .aside{background:#f3f5f1;border-radius:10px;padding:16px 20px;margin:24px 0;font-size:16px;
+    color:var(--muted)}
+  .aside strong{color:var(--ink)}
+
+  /* Figures / diagrams */
+  figure{margin:34px 0;background:var(--paper);border:1px solid var(--line);border-radius:14px;
+    padding:26px 22px 14px;overflow-x:auto}
+  figure .mermaid{display:flex;justify-content:center;min-width:min-content}
+  figcaption{font-size:14.5px;color:var(--muted);text-align:center;margin-top:14px;
+    font-family:var(--sans);line-height:1.5}
+  figcaption b{color:var(--ink);font-weight:600}
+
+  /* details */
+  details{margin:22px 0;border:1px solid var(--line);border-radius:10px;background:var(--paper);
+    overflow:hidden}
+  details>summary{cursor:pointer;padding:14px 20px;font-weight:600;font-size:16px;
+    list-style:none;display:flex;align-items:center;gap:10px;background:#f6f8f4}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:'▸';color:var(--green);transition:transform .15s}
+  details[open]>summary::before{transform:rotate(90deg)}
+  details .body{padding:4px 20px 16px}
+  details .body p:first-child{margin-top:12px}
+
+  /* number stat row */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:30px 0}
+  .stat{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .stat .n{font-family:var(--serif);font-weight:700;font-size:30px;color:var(--green-deep);line-height:1}
+  .stat .l{font-size:14px;color:var(--muted);margin-top:6px;line-height:1.35}
+
+  footer{background:#0e2a22;color:#bcd8cc;padding:48px 0 60px;margin-top:60px;font-size:15px}
+  footer .wrap{max-width:820px}
+  footer a{color:#7fd6b0}
+  footer .sig{font-family:var(--serif);font-size:20px;color:#eef6f1;margin-bottom:8px}
+
+  @media(max-width:600px){
+    body{font-size:17px}
+    header.hero{padding:52px 0 40px}
+    figure{padding:18px 12px 10px}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Recycled Sound · Engineering teardown</p>
+    <h1>A phone that recognises a hearing aid</h1>
+    <p class="lede">Point a camera at a used hearing aid the size of a coffee bean, and in a few seconds the app knows the brand, the model, and a dozen things an audiologist would need to fit it - running entirely on the phone, for effectively zero dollars a month. Here's exactly how every piece fits together.</p>
+    <div class="meta">
+      <span>~18 min read</span>
+      <span>Flutter · Firebase · on-device ML</span>
+      <span>9 diagrams</span>
+    </div>
+  </div>
+</header>
+
+<main>
+<div class="wrap">
+
+  <div class="tldr">
+    <h4>The one-paragraph version</h4>
+    <p>Recycled Sound collects donated hearing aids and gives them to refugees and low-income residents who can't afford them. The hard part is that a donated aid arrives as anonymous plastic - no box, no papers. So the hero feature is a <strong>Google-Lens-style scanner</strong>: it reads the tiny printed label, cross-references a bundled catalogue, and pre-fills a device record - then an <strong>audiologist confirms it</strong>. Around that scanner sits a mobile app, a web admin console, a Firebase backend, and an offline machine-learning pipeline that trains the models the phone runs. No automated system ever touches a recipient. That last sentence is a design decision, not an accident.</p>
+  </div>
+
+  <nav class="toc">
+    <h4>What's inside</h4>
+    <ol>
+      <li><a href="#problem">The problem</a> <span class="sub">- why anonymous plastic is hard</span></li>
+      <li><a href="#context">The 10,000-foot view</a> <span class="sub">- who talks to what</span></li>
+      <li><a href="#containers">The four moving parts</a> <span class="sub">- app, web, functions, backend</span></li>
+      <li><a href="#scanner">The scanner</a> <span class="sub">- the on-device pipeline, step by step</span></li>
+      <li><a href="#twist">The plot twist</a> <span class="sub">- the cloud brain we mostly retired</span></li>
+      <li><a href="#capture">From scan to labelled data</a> <span class="sub">- the 14-shot capture flow</span></li>
+      <li><a href="#backend">The backend</a> <span class="sub">- auth as a spine, the device lifecycle</span></li>
+      <li><a href="#offline">The brain, offline</a> <span class="sub">- how the models get made</span></li>
+      <li><a href="#ship">How it all ships</a> <span class="sub">- deployment topology</span></li>
+      <li><a href="#human">The human in the loop</a> <span class="sub">- the line we won't cross</span></li>
+    </ol>
+  </nav>
+
+  <!-- 1 -->
+  <h2 id="problem"><span class="num">01</span>The problem: anonymous plastic</h2>
+  <p>A hearing aid is one of the most information-dense objects most people will never read. Whether it takes a size-312 battery or charges on a dock, whether its receiver is a slim tube or a wire, whether it can be tuned remotely or only in a clinic - all of that changes how, and whether, it can be given to a specific person. Get it wrong for a refugee who has waited months for help, and you haven't just wasted a device; you've broken a promise.</p>
+  <p>The catch: a <em>donated</em> aid shows up with none of that written down. No box. No fitting notes. Just a curved sliver of plastic with a model name printed on it in letters smaller than this full stop. Somebody has to turn that sliver into a 26-field clinical record - and the pool of "somebodies" is a handful of volunteer audiologists giving their evenings.</p>
+  <p>So the whole system is built around a single leverage point: <strong>let a phone do the reading, and let a human do the deciding.</strong> Everything below is in service of that split.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">26</div><div class="l">clinical fields per device record</div></div>
+    <div class="stat"><div class="n">&lt;5s</div><div class="l">to identify a known device, on-device</div></div>
+    <div class="stat"><div class="n">$0</div><div class="l">/month cloud inference at rest</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">automated touches on a recipient</div></div>
+  </div>
+
+  <!-- 2 -->
+  <h2 id="context"><span class="num">02</span>The 10,000-foot view</h2>
+  <p>Before any code, here's the shape of the whole thing: four kinds of people, two apps they use, one backend that holds the truth, and a set of cloud functions off to the side. Follow the arrows - an arrow means "sends data to."</p>
+
+  <figure>
+    <pre class="mermaid">
+flowchart LR
+  subgraph P["People"]
+    direction TB
+    V["Volunteer / Donor"]
+    A["Audiologist"]
+    AD["Admin"]
+  end
+  subgraph AP["Two apps"]
+    direction TB
+    M["📱 Mobile app<br/>scan + capture"]
+    W["🖥️ Web admin<br/>triage + register"]
+  end
+  subgraph FB["Firebase backend - the source of truth"]
+    direction TB
+    AU["Auth"]
+    FS[("Firestore")]
+    ST[("Storage")]
+  end
+  CF["☁️ Cloud Functions<br/>Vision + CLIP (fallback)"]
+
+  V --> M
+  A --> W
+  AD --> W
+  M --> AU & FS & ST
+  W --> AU & FS & ST
+  M -. "gallery fallback only" .-> CF
+  CF --> FS
+
+  classDef app fill:#e7f3ec,stroke:#1c8a63,color:#0e5c40;
+  classDef store fill:#fff,stroke:#c98a1e,color:#8a5e12;
+  classDef cloud fill:#fbe9e2,stroke:#e0603c,color:#a13c1f;
+  class M,W app; class AU,FS,ST store; class CF cloud;
+    </pre>
+    <figcaption><b>The context map.</b> Volunteers scan on mobile; audiologists and admins work the web console; both apps read and write the same Firebase backend. The cloud functions (dashed) are a fallback path - hold that thought for <a href="#twist">§5</a>.</figcaption>
+  </figure>
+
+  <p>The most important thing this picture says: <strong>the two apps are genuinely different programs.</strong> They don't share a screen. The mobile app is a scanner that a volunteer points at a device; the web app is a spreadsheet-with-superpowers where an audiologist curates the register. They meet only in the backend.</p>
+
+  <!-- 3 -->
+  <h2 id="containers"><span class="num">03</span>The four moving parts</h2>
+  <p>Zoom in one level. There are exactly four things that run, each in its own place. In the codebase these are four directories; in production they are four independently deployable artifacts.</p>
+
+  <figure>
+    <pre class="mermaid">
+flowchart TB
+  subgraph Phone["On the phone"]
+    MA["<b>Mobile app</b> · Flutter<br/>lib/main.dart<br/>scanner · capture · device list"]
+  end
+  subgraph Browser["In a browser"]
+    WA["<b>Web admin</b> · Flutter<br/>lib/main_web.dart<br/>triage queue · register · review"]
+  end
+  subgraph Google["On Google's servers"]
+    FN["<b>Cloud Functions</b><br/>functions/ (TypeScript)<br/>functions-clip/ (Python)"]
+    BE["<b>Firebase backend</b><br/>Auth · Firestore · Storage<br/>+ security rules"]
+  end
+  MA <--> BE
+  WA <--> BE
+  MA -.-> FN
+  FN --> BE
+
+  classDef a fill:#e7f3ec,stroke:#1c8a63,color:#0e5c40;
+  classDef b fill:#eef1ec,stroke:#5f6f68,color:#2a3a34;
+  class MA,WA a; class FN,BE b;
+    </pre>
+    <figcaption><b>Four containers.</b> Two Flutter builds from <i>one</i> codebase (different <code>main()</code> entrypoints), plus two things living in Google's cloud. The mobile app and web app never talk to each other directly - only through the backend.</figcaption>
+  </figure>
+
+  <p>One codebase, two apps, is a deliberate trick. The mobile and web builds share every model, repository, and security assumption - but <code>main_web.dart</code> deliberately omits the scanner, because the scanner depends on <code>tflite_flutter</code>, a native library that won't compile to web. The web app couldn't run the neural net if it wanted to; it doesn't want to. It's an admin tool.</p>
+
+  <details>
+    <summary>The routes, if you like a map with street names</summary>
+    <div class="body">
+    <p>The <strong>mobile app</strong> boots at <code>/boot</code> (a diagnostic splash that waits for Firebase), lands on <code>/</code> (home), and the interesting screens are all full-screen takeovers: <code>/scan</code> (the live scanner), <code>/scan/confirm</code> (the 7-field review), <code>/capture</code> and <code>/capture/uploading</code> (the photo flow), and <code>/devices/:id</code>. There's a <code>/scan/3d</code> ARKit point-cloud experiment and a legacy <code>/scan/analysing</code> path we'll meet in §5.</p>
+    <p>The <strong>web app</strong> starts at <code>/incoming</code> (the triage queue), with <code>/incoming/:id/review</code> and <code>/devices</code> as the working surfaces. <code>/matching</code> and <code>/users</code> are honest placeholders. An auth guard bounces anyone not signed in to <code>/login</code>; the actual "can this person see this?" is enforced by the backend rules, not the router.</p>
+    </div>
+  </details>
+
+  <!-- 4 -->
+  <h2 id="scanner"><span class="num">04</span>The scanner: what happens in those five seconds</h2>
+  <p>This is the heart of it, so we'll go slow. You open <code>/scan</code>, the camera comes alive, and you hold a hearing aid in frame. Somewhere between one and five seconds later, seven fields have filled themselves in. Here is every stage of that, in order.</p>
+
+  <figure>
+    <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Cam as 📷 Camera stream
+  participant Pre as Frame filter
+  participant OCR as ML Kit OCR
+  participant BM as BrandMatcher
+  participant DI as DeviceIndex
+  participant NN as TFLite neural net
+  participant HUD as 7-field HUD
+
+  loop every frame (one in flight)
+    Cam->>Pre: raw frame
+    Pre->>OCR: RAW / ENHANCE / HI-CON (cycled)
+    OCR->>BM: text lines
+    BM->>DI: narrow(brand, model, …) - fuzzy match
+    DI->>DI: intersect candidates · auto-lock singletons
+    DI->>HUD: shrinking slot reels
+  end
+  Note over DI,NN: colour locks → grab one full-res still
+  DI->>NN: full-res image
+  NN-->>DI: brand vote (only if confident)
+  DI->>HUD: brand + model locked
+  HUD->>HUD: → route to /scan/confirm
+    </pre>
+    <figcaption><b>The live pipeline.</b> A tight per-frame loop (OCR → match → narrow) does the work; the heavier neural net fires <i>once</i>, on a single full-resolution still, only after the colour detector has settled. Nothing waits on the network.</figcaption>
+  </figure>
+
+  <h3>Stage 1 - read the label (OCR)</h3>
+  <p>Each camera frame is run through a small filter that cycles between raw, contrast-enhanced, and high-contrast versions - because a label that's illegible under one looks crisp under another - and then handed to <strong>Google's ML Kit text recogniser</strong>, which runs <em>on the phone</em>. No upload. The text it finds ("phonak", "audeo", a serial number) becomes the raw material for everything downstream.</p>
+
+  <div class="drop">
+    <p class="tag">◆ The jaw-drop</p>
+    <p>OCR accuracy is <strong>not monotonic in how much you zoom</strong>. Crop in tighter and a label the recogniser nailed at 60% can vanish at 80%, then reappear at 85%. There's a dead-band. So the certification harness reads the label at <strong>several crop scales at once</strong> - a "crop pyramid" from ~35% to 85% - and takes the best hit. A well-chosen pyramid of native center-crops beats any single crop, and beats naively upscaling the image. That one finding is what made "identify on the phone" viable at all.</p>
+  </div>
+
+  <h3>Stage 2 - turn text into candidates (BrandMatcher)</h3>
+  <p>Printed labels are tiny and cameras are shaky, so the OCR output is misspelled more often than not - "oticon" comes back as "oricon", "moxi" as "movi". The <code>BrandMatcher</code> expects this. It does fuzzy matching (Levenshtein edit-distance) against the known brand and model list, and - crucially - it can go <em>backwards</em>: spot a model name and infer the brand, even if the brand word never made it through the camera.</p>
+
+  <h3>Stage 3 - the elimination tree (DeviceIndex)</h3>
+  <p>This is the cleverest part, and the least obvious. Think of the whole catalogue of hearing aids as a room full of suspects. Every piece of evidence - a matched brand, a legible model, a detected colour - doesn't <em>pick</em> a device; it <strong>eliminates</strong> the ones that don't fit. When only one candidate remains for a field, that field <em>locks itself</em>. And locked fields cascade: pin the battery size and the power type often follows for free; pin the style and the tubing narrows.</p>
+
+  <div class="aside">
+    <strong>Why an elimination tree and not "just pick the best match"?</strong> Because evidence arrives noisily, frame by frame, and contradicts itself. The <code>DeviceIndex</code> ranks every clue by how much to trust it - a clear OCR read outranks a hesitant neural-net guess - and refuses to let weaker evidence overturn a lock. But it isn't stubborn: if the <em>same</em> contradicting value shows up two frames running, it treats that as a real correction and re-opens the field. Confidence with a backspace key.</p>
+  </div>
+
+  <h3>Stage 4 - the neural net (once, and only once)</h3>
+  <p>Reading text handles most devices, but some labels are worn, embossed, or simply blank. For those, the app ships a <strong>trained neural network</strong> - an EfficientNet-B0 brand classifier, a 4.7&nbsp;MB TensorFlow Lite model - that guesses the brand from what the device <em>looks like</em>. It's expensive relative to a frame filter, so it doesn't run on every frame. It fires exactly once, on a single full-resolution photo, after the colour detector has settled - and even then its vote only counts if it clears a confidence bar. It's a tie-breaker, not the star.</p>
+
+  <div class="drop">
+    <p class="tag">◆ The constraint that shapes everything</p>
+    <p>The camera pipeline is <strong>single-threaded</strong>. Every pretty animation, every extra filter, every eager neural-net call competes with OCR for the same frames. Early on, detection took 15+ seconds because visual polish was quietly eating the frame budget. The governing rule now: <em>detection throughput is sacred</em>. You don't add anything to the per-frame loop without measuring the milliseconds it costs. That's why the neural net runs off the hot path, and why colour detection doesn't even start until OCR has seen some text.</p>
+  </div>
+
+  <h3>Stage 5 - the HUD, and the handoff</h3>
+  <p>All of this is happening while a heads-up display shows seven fields - brand, model, style, tubing, power, battery, colour - as little slot-machine reels that shrink as candidates get eliminated. The moment brand <em>and</em> model are both locked, the scanner has done its job. It packages what it found, tears down the camera, and routes to the confirmation screen. It does <em>not</em> phone home.</p>
+
+  <!-- 5 -->
+  <h2 id="twist"><span class="num">05</span>The plot twist: the cloud brain we retired</h2>
+  <p>Here's the part that surprises engineers. Recycled Sound <em>started</em> as a cloud-inference app. Two Cloud Functions did the heavy lifting: a Python one (<code>clip_encode</code>) that turned a photo into a 512-number "visual fingerprint" using OpenCLIP, and a TypeScript one (<code>analyzeHearingAid</code>) that ran Google's Vision API for labels and text. The phone sent up a picture and got back an answer. It worked.</p>
+  <p>And then it got <strong>demoted to a fallback.</strong></p>
+
+  <figure>
+    <pre class="mermaid">
+flowchart TB
+  Start["📷 A photo"] --> Q{"Live camera,<br/>or picked from gallery?"}
+  Q -- "live scan" --> ON["<b>On-device path</b><br/>OCR → match → elimination → NN"]
+  ON --> Conf["/scan/confirm"]
+  Q -- "gallery pick<br/>(no live detection)" --> CLOUD["<b>Cloud path</b><br/>clip_encode + analyzeHearingAid<br/>fused on-device"]
+  CLOUD --> Conf
+
+  classDef on fill:#e7f3ec,stroke:#1c8a63,color:#0e5c40;
+  classDef cl fill:#fbe9e2,stroke:#e0603c,color:#a13c1f;
+  class ON,Conf on; class CLOUD cl;
+    </pre>
+    <figcaption><b>Two paths, one destination.</b> A live scan never touches the cloud. The cloud functions only run when you pick a still <i>from the gallery</i> - there's no live detection to work with, so it falls back to the old fused pipeline. Both roads end at the same confirmation screen.</figcaption>
+  </figure>
+
+  <p>Why demote a working cloud pipeline? Three reasons, and they're the moral of the whole project:</p>
+  <p><strong>Speed.</strong> A network round-trip is seconds you don't have when a volunteer is holding a fiddly device up to a phone. On-device is instant.</p>
+  <p><strong>Cost.</strong> The Python function's own source comment brags about it: on-device cosine-similarity search against bundled fingerprints is <em>"$0/month infrastructure."</em> A charity's cloud bill at rest should be zero, and it is.</p>
+  <p><strong>The domain gap.</strong> The visual-fingerprint approach was trained on clean product photos. Real photos are hand-held, badly lit, and half-occluded by fingers. It turned out the printed text - read locally - was simply the stronger signal. So the architecture followed the evidence: <strong>OCR-first, with a visual fallback for the rare label you can't read.</strong></p>
+  <p>The cloud functions aren't dead - they still deploy, and they still catch the gallery-pick case. They just aren't the main road anymore. It's a rare and honest thing to see in a codebase: a good idea, kept exactly as big as it deserves to be.</p>
+
+  <!-- 6 -->
+  <h2 id="capture"><span class="num">06</span>From a scan to labelled training data</h2>
+  <p>Identifying a device is half the point. The other half is <strong>photographing it well</strong> - both to document the physical item and to feed the next generation of models. This is the capture flow, and it hides a subtle idea.</p>
+
+  <figure>
+    <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Sc as Scanner
+  participant Cf as Confirm screen
+  participant Se as CaptureSeed
+  participant Ca as Capture flow
+  participant St as Storage
+  participant Fs as Firestore
+
+  Sc->>Cf: 7-field ScanResult
+  Cf->>Cf: audiologist corrects &amp; confirms
+  Cf->>Se: label + scanId + box number
+  Se->>Ca: seed the capture
+  loop 14 shots - 7 angles × left/right
+    Ca->>St: captures/{uid}/{deviceId}/{side}_{slot}.jpg
+  end
+  Ca->>Fs: incoming/{id} - fully labelled
+    </pre>
+    <figcaption><b>The capture flow.</b> The confirmed label rides along into the photo session via a <code>CaptureSeed</code>, so every one of the 14 photos lands tagged with the audiologist's ground truth - not just a box number.</figcaption>
+  </figure>
+
+  <p>The 14 shots aren't arbitrary. Each aid gets photographed from <strong>seven named angles</strong> - a scale reference (next to a credit card), the medial face where the brand is printed, the lateral shell, the front and back edges, the top where the tube connects, and the underside with the battery door. Two aids, seven angles: fourteen frames. The filenames encode the angle (<code>left_medial.jpg</code>), so a photo's identity survives even if the sequence is interrupted.</p>
+
+  <div class="drop">
+    <p class="tag">◆ The subtle idea</p>
+    <p>For a long time, the photos and the <em>labels</em> lived on two different paths. You could scan-and-confirm a device (getting a rich label but no photos), or you could capture-photos-for-later (getting 14 images tagged with nothing but a box number and a guessed brand). Pulling the photo bucket gave you "14 angles of box C25, maybe an Oticon" - useless as training data. The fix was to make the confirmed label <strong>travel with the pixels</strong>: the <code>CaptureSeed</code> carries the audiologist's make, model, style, battery - and a link back to the original scan - into the capture. Now every bundle is <em>labelled ground truth</em>. Recycled hardware, producing recycled data, to train better models. The loop closes.</p>
+  </div>
+
+  <!-- 7 -->
+  <h2 id="backend"><span class="num">07</span>The backend: an anonymous spine and a lifecycle</h2>
+  <p>Everything the apps produce lands in Firebase. Two ideas make the backend worth explaining: how it handles identity, and how a device moves through its life.</p>
+
+  <h3>Anonymous auth as a spine</h3>
+  <p>The very first thing either app does is sign you in <strong>anonymously</strong>. Before you've typed a thing, you have a stable user ID - and everything you scan or capture is owned by that ID. This is the load-bearing trick: it means a volunteer can start working <em>immediately</em>, with zero friction, while the backend still enforces "you can only edit what you created."</p>
+
+  <figure>
+    <pre class="mermaid">
+flowchart LR
+  Open["Open the app"] --> Anon["Sign in anonymously<br/>(instant, no form)"]
+  Anon --> Own["Owns their incoming/ + captures/<br/>gated by user ID"]
+  Own --> Q{"Sign up later?"}
+  Q -- "linkWithCredential" --> Named["Named account -<br/><b>keeps everything</b> they made"]
+  Named --> Role["Role claim<br/>donor · recipient · audiologist · admin"]
+
+  classDef g fill:#e7f3ec,stroke:#1c8a63,color:#0e5c40;
+  class Anon,Own,Named,Role g;
+    </pre>
+    <figcaption><b>The auth spine.</b> Anonymous first, named later - and upgrading with <code>linkWithCredential</code> preserves ownership of everything created while anonymous. Roles are a separate layer, projected onto the account by a backend trigger.</figcaption>
+  </figure>
+
+  <p>When you do sign up, <code>linkWithCredential</code> upgrades the anonymous account <em>in place</em> - you keep every device you logged. Roles (donor, recipient, audiologist, admin) live in Firestore as the single source of truth, and a Cloud Function called <code>syncRoleClaim</code> mirrors your role onto the auth token that the security rules actually read. A volunteer can create records; only an <em>elevated</em> role - audiologist or admin - can promote a device into the curated register.</p>
+
+  <div class="aside">
+    <strong>Where the real security lives.</strong> Not in the app, and not in the router - in the Firestore and Storage <em>rules</em>, which run on Google's servers and can't be bypassed by a hacked client. They enforce genuinely tricky invariants: a device can only be promoted to "ready" if every empty clinical field has been explicitly declared a known-gap, and any "promote despite gaps" is a signed, audited override. Those rules were hardened by adversarial review until they held.</p>
+  </div>
+
+  <h3>The device lifecycle</h3>
+  <p>A donated aid isn't just "in the database" - it's somewhere along a journey, and the record knows where. This is a plain state machine, and it's the backbone of the whole charity's operations.</p>
+
+  <figure>
+    <pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> Donated
+  Donated --> Reprogramming: audiologist claims it
+  Reprogramming --> Ready: QA passed
+  Ready --> Shipped: matched to a recipient
+  Shipped --> Delivered
+  Delivered --> Active: fitted &amp; working
+  Active --> [*]
+    </pre>
+    <figcaption><b>The device lifecycle.</b> Every record carries its status. The scanner creates it at <b>Donated</b>; an audiologist services and QA-checks it to <b>Ready</b>; admins match and track it the rest of the way to <b>Active</b> in someone's ear.</figcaption>
+  </figure>
+
+  <details>
+    <summary>A note on the data model, for the type-system curious</summary>
+    <div class="body">
+    <p>A device is a 26-field record, and the same shape lives in two collections: <code>incoming/</code> (what the scanner writes, pre-triage) and <code>devices/</code> (the audiologist-curated register, post-triage). The closed-set clinical fields - style, battery size, tubing, power source - are real enum types with tolerant parsing, so a stray string from an old record heals to a known value instead of crashing.</p>
+    <p>There's a small, satisfying piece of type discipline here: the pre-saved draft type (<code>DraftDevice</code>) has <em>no ID field at all</em>. An ID only exists once the database assigns one, so the code makes it impossible to hold a half-real device with a fake empty ID. The transition is a one-way door: <code>draft.toDevice(id)</code>. You can't accidentally lie about whether something's been saved.</p>
+    </div>
+  </details>
+
+  <!-- 8 -->
+  <h2 id="offline"><span class="num">08</span>The brain, offline</h2>
+  <p>The phone runs the models. But where do the models come from? That's a separate, offline pipeline - Python scripts that never ship to a user, whose only job is to <em>produce the assets the app bundles.</em></p>
+
+  <figure>
+    <pre class="mermaid">
+flowchart LR
+  Scrape["🌐 Scrape catalogue<br/>~2,300 product photos"] --> Clip["CLIP embed<br/>512-dim fingerprints"]
+  Scrape --> Dna["Device DNA<br/>ChromaDB vector store"]
+  Clip --> Assets["📦 device_db.bin +<br/>device_catalog.json"]
+  Train["Train EfficientNet<br/>brand classifier"] --> Tflite["brand_classifier.tflite<br/>(4.7 MB)"]
+  Certify["Certify OCR-first<br/>crop-pyramid harness"] -.validates.-> Assets
+  Assets --> App["📱 Bundled on-device"]
+  Tflite --> App
+
+  classDef d fill:#eef1ec,stroke:#5f6f68,color:#2a3a34;
+  classDef a fill:#e7f3ec,stroke:#1c8a63,color:#0e5c40;
+  class Scrape,Clip,Dna,Train,Certify d; class Assets,Tflite,App a;
+    </pre>
+    <figcaption><b>The offline ML pipeline.</b> Scrape catalogue photos, turn them into fingerprints and a structured "device DNA", train the brand classifier, certify the OCR approach - then pack it all into the assets the app carries. This runs on a laptop, not in production.</figcaption>
+  </figure>
+
+  <p>The centrepiece is the <strong>device DNA</strong>: for every catalogue device, the pipeline builds a rich profile with four facets - a visual signature, a technical "genome" (its specs), its capability bits (remote-tuning, app support, Auracast-readiness), and a suitability profile. That DNA lives in a vector database (ChromaDB) so the eventual matching step can ask "which donated devices are most like what this recipient needs?" - a nearest-neighbour search, not a rules engine.</p>
+  <p>Two other jobs matter. A <strong>linear probe</strong> is the honesty check: it trains a dead-simple classifier on the frozen visual fingerprints to ask "does CLIP even carry enough signal to tell brands apart?" - before anyone invests in the bigger model. And the <strong>certification harness</strong> is what proved the crop-pyramid OCR approach cleared a pre-committed 90% brand-accuracy bar, which is the evidence that justified going on-device-first in the first place. The team measured before it committed.</p>
+
+  <!-- 9 -->
+  <h2 id="ship"><span class="num">09</span>How it all ships</h2>
+  <p>Four artifacts, four release paths - and a deliberate split between "safe to automate" and "a human presses the button."</p>
+
+  <figure>
+    <pre class="mermaid">
+flowchart TB
+  Main["git · main branch"] --> CI["ci.yml (on every push)"]
+  CI --> Rules["✅ Firestore + Storage rules<br/><i>auto-deploy</i>"]
+  CI --> Fns["✅ Cloud Functions (vision)<br/><i>auto-deploy</i>"]
+  Main -. "manual button" .-> TF["🍎 iOS → TestFlight"]
+  Main -. "manual button" .-> Play["🤖 Android → Play (internal)"]
+  Main -. "manual build" .-> Host["🌐 Web → Firebase Hosting"]
+
+  classDef auto fill:#e7f3ec,stroke:#1c8a63,color:#0e5c40;
+  classDef man fill:#fbe9e2,stroke:#e0603c,color:#a13c1f;
+  class Rules,Fns auto; class TF,Play,Host man;
+    </pre>
+    <figcaption><b>Deployment topology.</b> Backend rules and functions deploy automatically when tests pass - they're low-blast-radius and reversible. The user-facing app builds (iOS, Android, web) require a manual trigger, because <i>every</i> TestFlight upload burns a build number and notifies real testers.</figcaption>
+  </figure>
+
+  <p>The split is the interesting bit. Security rules and cloud functions <strong>auto-deploy</strong> on a green build - they're versioned, testable, and instantly reversible. But the mobile builds are gated behind a human, on purpose: an accidental release to real testers isn't something you can quietly undo. The pipeline treats "notify humans" as the higher-stakes action, which is exactly backwards from most people's intuition and exactly right.</p>
+
+  <!-- 10 -->
+  <h2 id="human"><span class="num">10</span>The human in the loop</h2>
+  <p>We've spent nine sections on machinery that reads labels, eliminates candidates, runs neural nets, and matches devices to people by nearest-neighbour search. So it's worth ending on the one rule that overrides all of it:</p>
+  <p><strong>No automated system ever touches a recipient.</strong></p>
+  <p>The recipients here are refugees and asylum seekers - people for whom a wrong device or a mishandled message isn't a bad user-experience, it's a real harm to someone with very little margin. So the scanner, for all its cleverness, is explicitly a <em>co-pilot</em>. It pre-fills; the audiologist confirms. It suggests a match; a human approves it. Matching starts fully manual - an admin selects, the system merely notifies. Every recipient-facing workflow is human-mediated by design, and stays that way until the manual version has been proven safe.</p>
+  <p>That's the quiet engineering decision underneath the flashy one. The hard part wasn't teaching a phone to recognise a hearing aid - impressive as that is. The hard part was building all of that power and then <strong>drawing a firm line around where it's allowed to act alone.</strong> The AI removes the tedious reading. The human keeps the deciding. That's the whole design, in one sentence.</p>
+
+  <hr>
+
+  <p style="color:var(--muted);font-size:16px">Recycled Sound is a community initiative of the <strong>Rotary Club of Springvale City</strong> and <strong>Arches Audiology</strong>, collecting, servicing, and redistributing donated hearing aids in Greater Dandenong, Victoria. If a diagram above made you want to poke at the code, that was the idea.</p>
+
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="sig">Recycled Sound</div>
+    <p>Giving donated hearing aids a second life - and the people who need them a first chance to hear.</p>
+    <p style="margin-top:18px;font-size:14px;color:#8fbfa9">
+      Built with Flutter, Firebase, and on-device machine learning ·
+      <a href="https://github.com/enspyrco/recycled-sound">source on GitHub</a>
+    </p>
+  </div>
+</footer>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad:true,
+    theme:'base',
+    themeVariables:{
+      fontFamily:"'Inter',system-ui,sans-serif",
+      fontSize:'15px',
+      primaryColor:'#e7f3ec',
+      primaryTextColor:'#0e5c40',
+      primaryBorderColor:'#1c8a63',
+      lineColor:'#7a9488',
+      secondaryColor:'#f3f5f1',
+      tertiaryColor:'#fbe9e2',
+      noteBkgColor:'#fdf6e8',
+      noteTextColor:'#8a5e12',
+      noteBorderColor:'#c98a1e',
+      actorBkg:'#e7f3ec',
+      actorBorder:'#1c8a63',
+      actorTextColor:'#0e5c40',
+      signalColor:'#3a4a44',
+      signalTextColor:'#3a4a44',
+      labelBoxBkgColor:'#e7f3ec',
+      labelBoxBorderColor:'#1c8a63'
+    },
+    flowchart:{curve:'basis',useMaxWidth:true},
+    sequence:{useMaxWidth:true,mirrorActors:false}
+  });
+</script>
+
+</body>
+</html>

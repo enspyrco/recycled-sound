@@ -80,7 +80,7 @@ class HomeScreen extends ConsumerWidget {
                     Text('Add a Hearing Aid', style: AppTypography.h2),
                     const SizedBox(height: 8),
                     Text(
-                      'Two ways to add a donated hearing aid — pick the one that fits.',
+                      'Three ways to add a donated hearing aid — pick the one that fits.',
                       style: AppTypography.body.copyWith(
                         color: AppColors.textMuted,
                       ),
@@ -127,6 +127,31 @@ class HomeScreen extends ConsumerWidget {
                       'device — it just saves a clear set of photos for an '
                       'audiologist to review later. Use this when scanning is '
                       'hard or you just want a good photo record.',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    // ── Training-set capture ─────────────────────────────
+                    // A dedicated entry for the audiologist's bulk photo
+                    // session: an instructions screen explains the 14-shot
+                    // protocol up front, then the box modal and the camera. The
+                    // box is entered first (box-first law) via _startWithBox,
+                    // which routes to the instructions screen rather than
+                    // straight to the camera.
+                    RsButton(
+                      label: 'Capture a training set',
+                      icon: Icons.collections_bookmark_outlined,
+                      variant: RsButtonVariant.outline,
+                      onPressed: () =>
+                          _startWithBox(context, ref, '/capture/instructions'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Take a full, guided set of 14 photos of one device to '
+                      'help the app learn to recognise it. Starts with clear '
+                      'instructions for each angle.',
                       style: AppTypography.caption.copyWith(
                         color: AppColors.textMuted,
                       ),

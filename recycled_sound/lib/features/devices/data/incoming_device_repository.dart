@@ -451,6 +451,32 @@ class IncomingDeviceRepository {
     await _col.doc(id).update(data);
   }
 
+  /// Owner-scoped identity edit for a pending `incoming/{id}` capture — the
+  /// volunteer fixing what the scanner got wrong on their OWN device.
+  ///
+  /// Writes ONLY the four owner-editable identity fields (+ `updatedAt`). It
+  /// deliberately never mentions the clinical/triage fields (tubing, power,
+  /// colour, servicing) — so, unlike [updateIncoming], there is no re-serialised
+  /// pass-through that could canonicalise a legacy/non-canonical stored value
+  /// and trip the creator rule's delta check (`onlyAllowedFieldsChanged`, which
+  /// keys off `diff().affectedKeys()`). Every affected key is inside
+  /// `creatorEditableFields()`, so the write is owner-safe by construction.
+  Future<void> updateIncomingIdentity(
+    String id, {
+    required String brand,
+    required String model,
+    required Style type,
+    required BatterySize batterySize,
+  }) async {
+    await _col.doc(id).update({
+      'brand': brand,
+      'model': model,
+      'type': type.wire,
+      'batterySize': batterySize.wire,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Triage promotion: copy an incoming doc into `devices/{id}` (with
   /// `qaStatus` flipped to passed) and delete the original. Runs as a
   /// batched write so the two sides land atomically.

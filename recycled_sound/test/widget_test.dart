@@ -54,8 +54,33 @@ void main() {
     expect(find.text('Add a Hearing Aid'), findsOneWidget);
     expect(find.text('Scan to identify'), findsOneWidget);
     expect(find.text('Capture photos for later'), findsOneWidget);
+    expect(find.text('Capture a training set'), findsOneWidget);
     expect(find.text('Impact'), findsOneWidget);
     expect(find.text('Quick Actions'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Capture-a-training-set instructions screen lists the angles and a start '
+      'button (#7)', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          deviceTelemetryServiceProvider
+              .overrideWithValue(_FakeTelemetryService()),
+        ],
+        child: RecycledSoundApp(
+          router: createAppRouter(initialLocation: '/capture/instructions'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Capture a training set'), findsOneWidget);
+    // Angle rows are driven off CaptureSlot.values — spot-check first/last.
+    expect(find.text('Size'), findsOneWidget);
+    expect(find.text('Brand & model'), findsOneWidget);
+    expect(find.text('Underside'), findsOneWidget);
+    expect(find.text('Start capturing'), findsOneWidget);
   });
 
   testWidgets('Home screen shows stats cards', (tester) async {

@@ -33,9 +33,27 @@ class EditIncomingDeviceScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Failed to load: $e')),
-        data: (device) => device == null
-            ? const Center(child: Text('Device not found.'))
-            : _EditForm(device: device),
+        data: (device) {
+          if (device == null) {
+            return const Center(child: Text('Device not found.'));
+          }
+          // Defence in depth: the app bar only offers Edit for pending devices,
+          // but this route is directly reachable — refuse to edit a reviewed
+          // record here too, so a deep link can't bypass the pending-only rule.
+          if (device.qaStatus != QaStatus.pendingQa) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text(
+                  'This device has already been reviewed by an audiologist and '
+                  'can no longer be edited.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+          return _EditForm(device: device);
+        },
       ),
     );
   }
@@ -81,21 +99,15 @@ class _EditFormState extends ConsumerState<_EditForm> {
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     try {
-      await ref.read(incomingDeviceRepositoryProvider).updateIncoming(
+      // Owner-scoped write: only the four owner-editable identity fields. The
+      // clinical/triage fields are never touched, so there is no pass-through
+      // that could canonicalise a stored value and trip the creator rule.
+      await ref.read(incomingDeviceRepositoryProvider).updateIncomingIdentity(
             device.id,
-            // Owner-editable fields — the only ones this form changes.
             brand: _brand.text.trim(),
             model: _model.text.trim(),
             type: _type,
             batterySize: _batterySize,
-            // Passed through UNCHANGED so the owner rule's delta-check never
-            // sees a non-allow-listed field as "affected".
-            tubing: device.tubing,
-            powerSource: device.powerSource,
-            colour: device.colour,
-            location: device.location,
-            servicingNotes: device.servicingNotes,
-            servicingCost: device.servicingCost,
           );
       if (router.canPop()) {
         router.pop();

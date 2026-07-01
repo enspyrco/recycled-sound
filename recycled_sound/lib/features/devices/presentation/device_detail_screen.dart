@@ -194,13 +194,17 @@ class _DetailViewState extends ConsumerState<_DetailView> {
             label: device.qaStatus.wire.replaceAll('_', ' ').toUpperCase(),
             variant: _qaVariant(device.qaStatus),
           ),
-          IconButton(
-            tooltip: 'Edit device',
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: _deleting
-                ? null
-                : () => context.push('/devices/${device.id}/edit'),
-          ),
+          // Editing identity is offered only BEFORE an audiologist has ruled on
+          // the device — once QA has passed/failed, changing the make/model
+          // would silently invalidate that judgement, so the edit is withheld.
+          if (device.qaStatus == QaStatus.pendingQa)
+            IconButton(
+              tooltip: 'Edit device',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: _deleting
+                  ? null
+                  : () => context.push('/devices/${device.id}/edit'),
+            ),
           IconButton(
             tooltip: 'Delete device',
             icon: const Icon(Icons.delete_outline),

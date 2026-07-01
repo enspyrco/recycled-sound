@@ -1,8 +1,9 @@
 // Guards the trust-boundary contract of the mobile owner-edit screen (#6, A):
-// editing a pending incoming/ device may CHANGE only the owner-editable identity
-// fields (brand/model/style/battery); the clinical/triage fields (tubing, power,
-// colour) must ride through updateIncoming UNCHANGED, so the Firestore owner rule
-// (onlyAllowedFieldsChanged, which is delta-sensitive) accepts the write.
+// editing a pending incoming/ device writes ONLY the four owner-editable identity
+// fields (brand/model/style/battery) via updateIncomingIdentity — the clinical/
+// triage fields are not parameters, so they can't be touched (or drift) and the
+// Firestore creator rule accepts the write by construction. Also: a reviewed
+// (non-pending) device can't be edited at all.
 
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
@@ -35,39 +36,31 @@ class _RecordingRepo extends IncomingDeviceRepository {
   @override
   Stream<Device?> watchIncomingById(String id) => Stream.value(device);
 
+  // The owner-edit screen writes through the identity-only method. Recording it
+  // is the whole point: it can only carry the four owner-editable fields, so the
+  // clinical fields are unwritable by construction (no pass-through to drift).
   @override
-  Future<void> updateIncoming(
+  Future<void> updateIncomingIdentity(
     String id, {
     required String brand,
     required String model,
     required Style type,
     required BatterySize batterySize,
-    required Tubing tubing,
-    required PowerSource powerSource,
-    required String colour,
-    required String location,
-    required String servicingNotes,
-    required double servicingCost,
-    QaStatus? qaStatus,
-    List<ClinicalField>? needsInputFields,
-    List<String> unrecognisedNeedsInput = const [],
   }) async {
     recorded = {
       'brand': brand,
       'model': model,
       'type': type,
       'batterySize': batterySize,
-      'tubing': tubing,
-      'powerSource': powerSource,
-      'colour': colour,
     };
   }
 }
 
 void main() {
   testWidgets(
-      'saving an edit changes brand/model but passes clinical fields through '
-      'unchanged (owner-safe write, #6)', (tester) async {
+      'saving an edit writes only the four owner-editable identity fields — '
+      'clinical fields are unwritable by construction (owner-safe, #6)',
+      (tester) async {
     const device = Device(
       id: 'dev-1',
       brand: 'Phonak',
@@ -77,6 +70,7 @@ void main() {
       tubing: Tubing.slim,
       powerSource: PowerSource.battery,
       colour: 'Beige',
+      qaStatus: QaStatus.pendingQa,
     );
     final repo = _RecordingRepo(device);
 
@@ -113,10 +107,43 @@ void main() {
     expect(repo.recorded, isNotNull);
     expect(repo.recorded!['brand'], 'Oticon', reason: 'edited field changes');
     expect(repo.recorded!['model'], 'Audeo', reason: 'untouched identity kept');
-    // The clinical/triage fields must be the device's ORIGINAL values —
-    // unchanged, so the owner rule accepts the write.
-    expect(repo.recorded!['tubing'], Tubing.slim);
-    expect(repo.recorded!['powerSource'], PowerSource.battery);
-    expect(repo.recorded!['colour'], 'Beige');
+    expect(repo.recorded!['type'], Style.bte);
+    expect(repo.recorded!['batterySize'], BatterySize.size312);
+    // The write is identity-only: the clinical fields are not even parameters,
+    // so they cannot be touched. That is the owner-safe guarantee by construction.
+    expect(repo.recorded!.keys,
+        unorderedEquals(['brand', 'model', 'type', 'batterySize']));
+  });
+
+  testWidgets('a reviewed (non-pending) device cannot be edited (#6)',
+      (tester) async {
+    const device = Device(
+      id: 'dev-2',
+      brand: 'Phonak',
+      model: 'Audeo',
+      qaStatus: QaStatus.passed,
+    );
+    final repo = _RecordingRepo(device);
+
+    final router = GoRouter(
+      initialLocation: '/devices/dev-2/edit',
+      routes: [
+        GoRoute(
+          path: '/devices/:id/edit',
+          builder: (c, s) =>
+              EditIncomingDeviceScreen(deviceId: s.pathParameters['id']!),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [incomingDeviceRepositoryProvider.overrideWithValue(repo)],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('already been reviewed'), findsOneWidget);
+    expect(find.text('Save changes'), findsNothing);
   });
 }
